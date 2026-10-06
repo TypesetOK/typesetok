@@ -21,7 +21,7 @@ export interface SettingsModalCallbacks {
   setZoom?: (zoom: number) => void;
 }
 
-type SettingsTab = 'appearance' | 'accessibility' | 'language' | 'logs' | 'updates' | 'plugins';
+type SettingsTab = 'appearance' | 'accessibility' | 'logs' | 'updates' | 'plugins';
 
 /**
  * Preset names are stored bilingually as "עברית (English)". Show the half that matches
@@ -70,6 +70,7 @@ export class SettingsModal {
   private isVisible = false;
   private logRetentionDays = 14;
   private modal: ModalController;
+  private scrollPanel?: HTMLElement;
 
   constructor(callbacks: SettingsModalCallbacks) {
     this.callbacks = callbacks;
@@ -88,12 +89,14 @@ export class SettingsModal {
     });
     // Theme changes (also from the palette or the OS) are reflected while open.
     themeManager.onChange(() => {
-      if (this.isVisible && (this.activeTab === 'appearance' || this.activeTab === 'accessibility')) this.render();
+      if (this.isVisible && (this.activeTab === 'appearance' || this.activeTab === 'accessibility') && this.scrollPanel) {
+        this.renderTabContent(this.scrollPanel);
+      }
     });
   }
 
   public show(initialTab?: SettingsTab): void {
-    if (initialTab) this.activeTab = initialTab;
+    if (initialTab && initialTab !== ('language' as any)) this.activeTab = initialTab;
     this.isVisible = true;
     this.element.classList.add('tok-open');
     this.render();
@@ -133,17 +136,23 @@ export class SettingsModal {
 
     const body = el('div', 'tok-dialog-body');
 
-    // Category navigation
+    // Content container created first so tab buttons can update it directly
+    const content = el('div', 'tok-settings-content');
+    const scroll = el('div', 'tok-settings-scroll', { id: 'tok-settings-panel', role: 'tabpanel' });
+    this.scrollPanel = scroll;
+
+    // Category navigation (without language tab)
     const nav = el('nav', 'tok-settings-nav', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': t('settingsCategories') });
     const tabs: { id: SettingsTab; label: string; icon: IconName }[] = [
       { id: 'appearance', label: t('settingsTabAppearance'), icon: 'appearance' },
       { id: 'accessibility', label: t('settingsTabAccessibility'), icon: 'accessibility' },
-      { id: 'language', label: t('settingsTabLanguage'), icon: 'globe' },
       { id: 'plugins', label: t('settingsTabPlugins'), icon: 'plugin' },
       { id: 'updates', label: t('settingsTabUpdates'), icon: 'refresh' },
       { id: 'logs', label: t('settingsTabLogs'), icon: 'file' }
     ];
     const tabButtons: HTMLButtonElement[] = [];
+    const tabButtonMap = new Map<HTMLButtonElement, SettingsTab>();
+
     for (const tab of tabs) {
       const on = this.activeTab === tab.id;
       const b = el('button', 'tok-settings-nav-btn', {
@@ -155,9 +164,15 @@ export class SettingsModal {
       b.addEventListener('click', () => {
         if (this.activeTab === tab.id) return;
         this.activeTab = tab.id;
-        this.render();
+        for (const [btn, tId] of tabButtonMap) {
+          const isSelected = tId === tab.id;
+          btn.setAttribute('aria-selected', String(isSelected));
+          btn.setAttribute('tabindex', isSelected ? '0' : '-1');
+        }
+        this.renderTabContent(scroll);
       });
       tabButtons.push(b);
+      tabButtonMap.set(b, tab.id);
       nav.appendChild(b);
     }
     // Arrow keys move between categories.
@@ -173,17 +188,8 @@ export class SettingsModal {
     nav.appendChild(versionSpan);
     body.appendChild(nav);
 
-    // Content
-    const content = el('div', 'tok-settings-content');
-    const scroll = el('div', 'tok-settings-scroll', { id: 'tok-settings-panel', role: 'tabpanel' });
-    switch (this.activeTab) {
-      case 'appearance': this.renderAppearanceTab(scroll); break;
-      case 'accessibility': this.renderAccessibilityTab(scroll); break;
-      case 'language': this.renderLanguageTab(scroll); break;
-      case 'logs': this.renderLogsTab(scroll); break;
-      case 'updates': this.renderUpdatesTab(scroll); break;
-      case 'plugins': this.renderPluginsTab(scroll); break;
-    }
+    // Initial tab content render
+    this.renderTabContent(scroll);
     content.appendChild(scroll);
 
     const foot = el('div', 'tok-dialog-foot');
@@ -198,6 +204,17 @@ export class SettingsModal {
     body.appendChild(content);
     card.appendChild(body);
     this.element.appendChild(card);
+  }
+
+  private renderTabContent(scroll: HTMLElement): void {
+    scroll.replaceChildren();
+    switch (this.activeTab) {
+      case 'appearance': this.renderAppearanceTab(scroll); break;
+      case 'accessibility': this.renderAccessibilityTab(scroll); break;
+      case 'logs': this.renderLogsTab(scroll); break;
+      case 'updates': this.renderUpdatesTab(scroll); break;
+      case 'plugins': this.renderPluginsTab(scroll); break;
+    }
   }
 
   private themeCard(id: string, name: string, preview: HTMLElement, selected: boolean): HTMLElement {
@@ -350,32 +367,6 @@ export class SettingsModal {
       },
       { focusPrefix: 'scale' }
     ), t('accessFontScaleDesc')));
-  }
-
-  // --- Language ---
-  private renderLanguageTab(container: HTMLElement): void {
-    container.appendChild(el('h2', undefined, undefined, t('settingsTabLanguage')));
-    const current = i18n.getLanguage();
-    const list = el('div', undefined, { role: 'radiogroup', 'aria-label': t('languageSelect'), style: 'display:flex;flex-direction:column;gap:8px;max-width:460px' });
-    const langs: { id: Language; label: string }[] = [
-      { id: 'he', label: t('languageHebrew') },
-      { id: 'en', label: t('languageEnglish') }
-    ];
-    for (const l of langs) {
-      const on = l.id === current;
-      const b = el('button', 'tok-radio-card', { type: 'button', role: 'radio', 'aria-checked': String(on), 'data-focus-key': `lang-${l.id}`, lang: l.id });
-      b.style.alignItems = 'center';
-      b.appendChild(el('span', 'tok-radio-dot', { 'aria-hidden': 'true', style: 'margin-top:0' }));
-      b.appendChild(el('span', undefined, { style: 'flex:1;font-size:13px;font-weight:500' }, l.label));
-      if (on) b.appendChild(el('span', 'tok-badge tok-badge-success', undefined, t('languageActiveBadge')));
-      b.addEventListener('click', () => {
-        if (i18n.getLanguage() === l.id) return;
-        i18n.setLanguage(l.id);
-        this.callbacks.onLanguageChange(l.id);
-      });
-      list.appendChild(b);
-    }
-    container.appendChild(group(t('languageSelect'), list));
   }
 
   // --- Logs & maintenance ---

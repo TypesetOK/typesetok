@@ -7,7 +7,7 @@ import {
 import { IconName } from '../icons';
 import { t, i18n } from '../i18n';
 import { el, icon, button, switchRow, segmented, selectField } from '../ui';
-import { DOCUMENT_FONTS, DEFAULT_DOCUMENT_FONT, FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR } from '../fonts';
+import { DOCUMENT_FONTS, DEFAULT_DOCUMENT_FONT, FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR, getAvailableFonts } from '../fonts';
 
 /**
  * Parses a scrubber field such as "11.5 pt", "-3 מ"מ" or "12,5". Returns null when no
@@ -358,10 +358,11 @@ export class ContextualInspector {
 
     // 2. Font
     const fontCard = this.createCard(t('inspFontSpacing'));
-    const current = DOCUMENT_FONTS.some((f) => f.family === this.typographySettings.fontFamily)
+    const availFonts = getAvailableFonts();
+    const current = availFonts.some((f) => f.family === this.typographySettings.fontFamily)
       ? this.typographySettings.fontFamily
       : DEFAULT_DOCUMENT_FONT;
-    fontCard.appendChild(selectField(t('hudFont'), DOCUMENT_FONTS.map((f) => ({ value: f.family, label: f.label })), current, (value) => {
+    fontCard.appendChild(selectField(t('hudFont'), availFonts.map((f) => ({ value: f.family, label: f.label })), current, (value) => {
       this.typographySettings.fontFamily = value;
       this.typographySettings.isOverride = true;
       this.callbacks.onTypographyChange({ fontFamily: value, isOverride: true });

@@ -182,6 +182,9 @@ export class SpreadCanvas {
     if (dx || dy) this.scroller.scrollBy({ left: dx, top: dy, behavior: smooth ? 'smooth' : 'auto' });
   }
 
+  private zoomHud!: HTMLElement;
+  private zoomDisplayBtn!: HTMLButtonElement;
+
   public setZoom(zoom: number): void {
     this.zoomPercent = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoom)));
     try {
@@ -191,6 +194,7 @@ export class SpreadCanvas {
       this.innerContainer.style.transform = `scale(${this.zoomPercent / 100})`;
       this.updateZoomBox();
     }
+    this.updateZoomHud();
   }
 
   public getZoom(): number {
@@ -236,6 +240,36 @@ export class SpreadCanvas {
     return { margins: this.showMargins, baseline: this.showBaseline };
   }
 
+  /** Updates the active page text frames in real time as the user types in the editor. */
+  public updateActivePageText(paragraphs: { id: string; styleId: string; text: string }[], flowId = 'gemara'): void {
+    const pageIndex = this.activePageIndex;
+    const page = this.pages[pageIndex];
+    if (!page) return;
+
+    const sheet = this.innerContainer.querySelector<HTMLElement>(`.tok-page-sheet[data-page-index="${pageIndex}"]`);
+    if (!sheet) return;
+
+    const html = paragraphs
+      .map((p) => `<p data-para-id="${p.id}" class="${p.styleId ? `tok-style-${p.styleId}` : ''}" style="margin:0 0 0.6em;line-height:1.55;">${p.text || '&nbsp;'}</p>`)
+      .join('');
+
+    page.htmlContent = html;
+
+    const frameInner = sheet.querySelector<HTMLElement>(`.tok-interactive-frame[data-flow-id="${flowId}"] .tok-frame-text`);
+    if (frameInner) {
+      frameInner.innerHTML = html;
+      return;
+    }
+
+    let contentEl = sheet.querySelector<HTMLElement>('.tok-page-content');
+    if (!contentEl) {
+      contentEl = el('div', 'tok-page-content', { style: 'flex: 1; min-height: 0; overflow: hidden; padding: 24px 28px;' });
+      const foot = sheet.querySelector('.tok-page-foot');
+      sheet.insertBefore(contentEl, foot);
+    }
+    contentEl.innerHTML = html;
+  }
+
   private renderContainer(): void {
     this.scroller.innerHTML = '';
     this.scroller.setAttribute('aria-label', t('canvasAria'));
@@ -243,6 +277,51 @@ export class SpreadCanvas {
     this.innerContainer = el('div', 'tok-spreads-wrapper');
     this.zoomBox.appendChild(this.innerContainer);
     this.scroller.appendChild(this.zoomBox);
+
+    // Floating Zoom Controls HUD directly on the pages canvas
+    this.zoomHud = el('div', 'tok-canvas-zoom-hud', {
+      role: 'toolbar',
+      'aria-label': 'בקרת תקריב וזום',
+      style: 'position:absolute;bottom:20px;inset-inline-end:24px;z-index:25;display:flex;align-items:center;gap:4px;padding:4px 6px;background:var(--tok-bg-surface-1);border:1px solid var(--tok-border-strong);border-radius:24px;box-shadow:0 4px 18px rgba(0,0,0,0.18);backdrop-filter:blur(8px);'
+    });
+
+    const zoomOut = iconButton('minus', 'הקטנת תצוגה (Ctrl+-)', () => this.applyUserZoom(this.zoomPercent - 10), {
+      size: 13,
+      attrs: { style: 'width:26px;height:26px;border-radius:50%;' }
+    });
+    this.zoomHud.appendChild(zoomOut);
+
+    this.zoomDisplayBtn = el('button', 'tok-btn tok-btn-ghost tok-btn-xs', {
+      type: 'button',
+      title: 'איפוס ל-100% (Ctrl+0)',
+      style: 'font-size:11px;font-weight:600;min-width:44px;padding:0 4px;height:26px;'
+    }, `${this.zoomPercent}%`) as HTMLButtonElement;
+    this.zoomDisplayBtn.addEventListener('click', () => {
+      if (this.zoomPercent === 100) this.fitToWindow();
+      else this.applyUserZoom(100);
+    });
+    this.zoomHud.appendChild(this.zoomDisplayBtn);
+
+    const zoomIn = iconButton('plus', 'הגדלת תצוגה (Ctrl++)', () => this.applyUserZoom(this.zoomPercent + 10), {
+      size: 13,
+      attrs: { style: 'width:26px;height:26px;border-radius:50%;' }
+    });
+    this.zoomHud.appendChild(zoomIn);
+
+    const fitBtn = button('התאם', {
+      className: 'tok-btn tok-btn-ghost tok-btn-xs',
+      attrs: { title: 'התאמה מלאה לחלון', style: 'font-size:11px;padding:0 6px;height:26px;' },
+      onClick: () => this.fitToWindow()
+    });
+    this.zoomHud.appendChild(fitBtn);
+
+    this.element.appendChild(this.zoomHud);
+  }
+
+  private updateZoomHud(): void {
+    if (this.zoomDisplayBtn) {
+      this.zoomDisplayBtn.textContent = `${this.zoomPercent}%`;
+    }
   }
 
   /** offsetWidth/Height are the unscaled layout size (transforms don't change them). */
@@ -456,17 +535,42 @@ export class SpreadCanvas {
       }
     });
 
-    // Ctrl + wheel zooms the pages (supports mouse wheel discrete steps and trackpad continuous pinch).
-    this.scroller.addEventListener('wheel', (e) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      let delta = 0;
-      if (Math.abs(e.deltaY) < 25) {
-        delta = e.deltaY < 0 ? 2 : -2;
-      } else {
-        delta = e.deltaY < 0 ? 10 : -10;
+    let lastSwipeTime = 0;
+
+    // Trackpad gestures & mouse wheel:
+    // 1. Two-finger pinch-to-zoom (wheel with e.ctrlKey)
+    // 2. Two-finger horizontal swipe for page turning (when cursor is on pages, not on toolbars)
+    this.scroller.addEventListener('wheel', (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        let delta = 0;
+        if (Math.abs(e.deltaY) < 25) {
+          delta = e.deltaY < 0 ? 3 : -3;
+        } else {
+          delta = e.deltaY < 0 ? 10 : -10;
+        }
+        this.applyUserZoom(this.zoomPercent + delta);
+        return;
       }
-      this.applyUserZoom(this.zoomPercent + delta);
+
+      // Trackpad two-finger swipe: only if cursor is over pages/canvas area and not on interactive bars
+      const target = e.target as HTMLElement | null;
+      const isOverPages = target && (target.closest('.tok-page-sheet') || target.closest('.tok-canvas-container'));
+      if (isOverPages && Math.abs(e.deltaX) > 35 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.4) {
+        const now = Date.now();
+        if (now - lastSwipeTime > 350) {
+          lastSwipeTime = now;
+          const isRtl = i18n.getDirection() === 'rtl';
+          const goNext = isRtl ? e.deltaX > 0 : e.deltaX < 0;
+          if (goNext && this.activePageIndex + 1 < this.pages.length) {
+            e.preventDefault();
+            this.scrollToPage(this.activePageIndex + 1);
+          } else if (!goNext && this.activePageIndex > 0) {
+            e.preventDefault();
+            this.scrollToPage(this.activePageIndex - 1);
+          }
+        }
+      }
     }, { passive: false });
 
     // Report the page under the viewport center so the status bar and page list follow scrolling.

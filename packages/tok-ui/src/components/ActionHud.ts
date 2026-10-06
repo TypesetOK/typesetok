@@ -1,6 +1,6 @@
 import { t, i18n } from '../i18n';
 import { el, icon, iconButton, selectField } from '../ui';
-import { DOCUMENT_FONTS, DEFAULT_DOCUMENT_FONT } from '../fonts';
+import { DOCUMENT_FONTS, DEFAULT_DOCUMENT_FONT, getAvailableFonts } from '../fonts';
 
 export interface ActionHudCallbacks {
   onFontChange: (fontFamily: string) => void;
@@ -92,7 +92,7 @@ export class ActionHud {
     this.element.innerHTML = '';
 
     // 1. Font family
-    const fontSelect = selectField(t('hudFont'), DOCUMENT_FONTS.map((f) => ({ value: f.family, label: f.label })), this.currentFont || DEFAULT_DOCUMENT_FONT, (value) => {
+    const fontSelect = selectField(t('hudFont'), getAvailableFonts().map((f) => ({ value: f.family, label: f.label })), this.currentFont || DEFAULT_DOCUMENT_FONT, (value) => {
       this.currentFont = value;
       this.callbacks.onFontChange(value);
     }, { title: t('hudFont') });

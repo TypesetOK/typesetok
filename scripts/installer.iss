@@ -7,7 +7,7 @@
 #define MyAppName "TypesetOK"
 ; build-installer.mjs passes /DMyAppVersion=<package.json version>
 #ifndef MyAppVersion
-  #define MyAppVersion "0.9.1"
+  #define MyAppVersion "0.9.8"
 #endif
 #define MyAppPublisher "TypesetOK Team"
 #define MyAppURL "https://github.com/TypesetOK/typesetok"
@@ -66,6 +66,9 @@ hebrew.CreateTaskbarIcon=צור קיצור דרך בתפריט התחל והצמ
 hebrew.AssociateTok=שייך קובצי מסמך (.tok) ל-TypesetOK
 hebrew.AssociateTokBook=שייך קובצי ספר (.tokbook) ל-TypesetOK
 hebrew.FileAssociations=שיוך סוגי קבצים
+hebrew.ProjectsDirTitle=בחירת תיקיית פרויקטים
+hebrew.ProjectsDirSubtitle=בחר את התיקייה שבה ייפתחו ויישמרו כל פרויקטי העימוד שלך כברירת מחדל.
+hebrew.ProjectsDirPrompt=תיקיית פרויקטים של TypesetOK:
 
 ; English translations
 english.LaunchProgram=Launch TypesetOK now
@@ -75,6 +78,9 @@ english.CreateTaskbarIcon=Create Start Menu and Taskbar shortcut
 english.AssociateTok=Associate TypesetOK document files (.tok)
 english.AssociateTokBook=Associate TypesetOK book files (.tokbook)
 english.FileAssociations=File Associations
+english.ProjectsDirTitle=Select Projects Directory
+english.ProjectsDirSubtitle=Choose the directory where all your typesetting projects will be saved and opened by default.
+english.ProjectsDirPrompt=TypesetOK Projects Directory:
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:ShortcutsGroup}"; Flags: unchecked
@@ -117,6 +123,9 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+var
+  ProjectsDirPage: TInputDirWizardPage;
+
 procedure InitializeWizard;
 begin
   // Set bold modern typography for welcome and finish screens
@@ -124,4 +133,35 @@ begin
   WizardForm.WelcomeLabel1.Font.Style := [fsBold];
   WizardForm.FinishedHeadingLabel.Font.Size := 13;
   WizardForm.FinishedHeadingLabel.Font.Style := [fsBold];
+
+  // Projects Directory Selection Page
+  ProjectsDirPage := CreateInputDirPage(
+    wpSelectDir,
+    ExpandConstant('{cm:ProjectsDirTitle}'),
+    ExpandConstant('{cm:ProjectsDirSubtitle}'),
+    ExpandConstant('{cm:ProjectsDirPrompt}'),
+    False,
+    ''
+  );
+  ProjectsDirPage.Add('');
+  ProjectsDirPage.Values[0] := ExpandConstant('{userdocs}\TypesetOK Projects');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  SelectedProjectsDir: string;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    SelectedProjectsDir := ProjectsDirPage.Values[0];
+    if SelectedProjectsDir <> '' then
+    begin
+      ForceDirectories(SelectedProjectsDir);
+      RegWriteStringValue(HKEY_CURRENT_USER, 'Software\TypesetOK', 'ProjectsDir', SelectedProjectsDir);
+    end;
+    if ActiveLanguage = 'hebrew' then
+      RegWriteStringValue(HKEY_CURRENT_USER, 'Software\TypesetOK', 'Language', 'he')
+    else
+      RegWriteStringValue(HKEY_CURRENT_USER, 'Software\TypesetOK', 'Language', 'en');
+  end;
 end;

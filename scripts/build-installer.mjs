@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8'));
-const version = rootPkg.version || '0.9.1';
+const version = rootPkg.version || '0.9.8';
 const distDir = path.join(rootDir, 'dist');
 const bundleDir = path.join(distDir, `TypesetOK-v${version}-windows-x64`);
 

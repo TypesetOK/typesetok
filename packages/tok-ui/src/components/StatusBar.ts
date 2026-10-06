@@ -1,10 +1,11 @@
-import { t, i18n } from '../i18n';
+import { t, tf, i18n } from '../i18n';
 import { el, icon } from '../ui';
 
 export interface StatusBarCallbacks {
   onZoomChange: (zoomPercent: number) => void;
-  onPageClick: () => void;
+  onPageClick?: () => void;
   onPreflightClick: () => void;
+  onWordCountClick?: () => void;
 }
 
 export const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200];
@@ -94,16 +95,25 @@ export class StatusBar {
   private build(): void {
     this.element.innerHTML = '';
 
-    // Page indicator (opens the command palette)
-    const pageItem = el('button', 'tok-status-btn', { type: 'button', title: t('statusGoToPage') });
+    // Page indicator (display only, does NOT open command search)
+    const pageItem = el('div', 'tok-status-btn tok-status-static', { title: tf('structurePageLabel', { g: this.pageLabel }) });
     pageItem.appendChild(icon('pages', 14));
     this.pageText = el('span');
     pageItem.appendChild(this.pageText);
-    pageItem.addEventListener('click', () => this.callbacks.onPageClick());
     this.element.appendChild(pageItem);
 
+    // Word count button (opens detailed text statistics modal)
+    const countBtn = el('button', 'tok-status-btn', {
+      type: 'button',
+      title: 'סטטיסטיקת מילים ותווים במסמך',
+      style: 'cursor:pointer'
+    });
     this.countText = el('span');
-    this.element.appendChild(this.countText);
+    countBtn.appendChild(this.countText);
+    countBtn.addEventListener('click', () => {
+      this.callbacks.onWordCountClick?.();
+    });
+    this.element.appendChild(countBtn);
 
     const flowItem = el('span');
     flowItem.appendChild(el('span', undefined, undefined, `${t('statusActiveFlow')}: `));

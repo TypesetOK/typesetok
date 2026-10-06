@@ -6,9 +6,11 @@ import { CommandPalette, PaletteItem } from './components/CommandPalette';
 import { StatusBar } from './components/StatusBar';
 import { SpreadCanvas, isRightHandPage, isRectoPage, groupIntoSpreads } from './components/SpreadCanvas';
 import { ExportDialog, ExportOptions } from './components/ExportDialog';
-import { WelcomeModal, addRecentProject } from './components/WelcomeModal';
+import { WelcomeModal, addRecentProject, updateProjectClosedTime } from './components/WelcomeModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AboutModal } from './components/AboutModal';
+import { UserGuideModal } from './components/UserGuideModal';
+import { TextStatsModal } from './components/TextStatsModal';
 import { PluginEngine } from './plugins/PluginEngine';
 import { StoryEditor, StoryParagraph } from 'tok-story-editor';
 import { PageDescriptor } from 'tok-viewer';
@@ -75,8 +77,11 @@ export class TypesetOkApp {
   private settingsModalInstance?: SettingsModal;
   private aboutModalInstance?: AboutModal;
   private exportDialogInstance?: ExportDialog;
+  private userGuideModalInstance?: UserGuideModal;
+  private textStatsModalInstance?: TextStatsModal;
   private pluginEngine!: PluginEngine;
 
+  private hasOpenDocument = false;
   private currentViewMode: ViewMode = 'canvas';
   private pages: PageDescriptor[] = [];
   private activePageIndex = 0;
@@ -102,6 +107,13 @@ export class TypesetOkApp {
     this.initUI();
 
     i18n.onChange(() => this.applyLanguage());
+
+    // Record exit/closing timestamp on window close
+    window.addEventListener('beforeunload', () => {
+      if (this.documentTitle) {
+        updateProjectClosedTime(this.documentTitle);
+      }
+    });
   }
 
   private initUI(): void {
@@ -164,9 +176,6 @@ export class TypesetOkApp {
       onOpenProjects: () => this.welcomeModal.show(),
       onOpenSettings: () => this.settingsModal.show(),
       onOpenAbout: () => this.aboutModal.show(),
-      onToggleLanguage: () => {
-        this.showToast(tf('toastLangSwitched', { lang: t(i18n.getLanguage() === 'he' ? 'appLangHebrewRtl' : 'appLangEnglishLtr') }));
-      },
       onUndo: () => this.runEditCommand('undo'),
       onRedo: () => this.runEditCommand('redo')
     });
@@ -204,7 +213,9 @@ export class TypesetOkApp {
         this.showToast(tf('toastLayerToggled', { name: layerId, state: t(visible ? 'appLayerShown' : 'appLayerHidden') }));
       },
       onOpenSettings: () => this.settingsModal.show(),
-      onOpenAbout: () => this.aboutModal.show()
+      onOpenAbout: () => this.aboutModal.show(),
+      onActiveTabChange: () => this.updateStoryToolbar(),
+      onPanelToggle: () => this.updateStoryToolbar()
     });
     this.workbench.appendChild(this.structureBar.element);
 
@@ -237,7 +248,11 @@ export class TypesetOkApp {
     const storyScroll = el('div', 'tok-story-scroll');
     this.storyContainer.appendChild(storyScroll);
     this.storyEditor = new StoryEditor(storyScroll);
-    this.storyEditor.onTextChange(() => this.scheduleWordCountUpdate());
+    this.storyEditor.onTextChange(() => {
+      this.scheduleWordCountUpdate();
+      // Real-time live update of page rendering in split view
+      this.canvas.updateActivePageText(this.storyEditor.getStory(), this.activeFlowId || 'gemara');
+    });
 
     this.splitDivider = this.buildSplitDivider();
     this.splitDivider.style.display = 'none';
@@ -272,11 +287,11 @@ export class TypesetOkApp {
     // 4. Status Bar (26px)
     this.statusBar = new StatusBar({
       onZoomChange: (z) => this.canvas.setZoom(z),
-      onPageClick: () => this.commandPalette.show(),
       onPreflightClick: () => {
         this.inspector.setMode('zero');
         this.showToast(t('toastPreflightOk'));
-      }
+      },
+      onWordCountClick: () => this.openTextStatsDialog()
     });
     this.root.appendChild(this.statusBar.element);
     // The structure bar starts on the Gemara flow; show its localized name.
@@ -479,7 +494,8 @@ export class TypesetOkApp {
         onOpenProject: (path) => this.handleSystemAction('open-document', path),
         onClose: () => {},
         onOpenSettings: () => this.settingsModal.show(),
-        onOpenAbout: () => this.aboutModal.show()
+        onOpenAbout: () => this.aboutModal.show(),
+        onOpenGuide: () => this.userGuideModal.show()
       });
       this.root.appendChild(this.welcomeModalInstance.element);
     }
@@ -492,7 +508,9 @@ export class TypesetOkApp {
         onLanguageChange: (lang) => {
           this.showToast(tf('toastLangUpdated', { lang: t(lang === 'he' ? 'appLangHebrew' : 'appLangEnglish') }));
         },
-        onClose: () => {},
+        onClose: () => {
+          if (!this.hasOpenDocument) this.welcomeModal.show();
+        },
         pluginEngine: this.pluginEngine,
         showToast: (msg) => this.showToast(msg),
         getGuides: () => this.canvas.getGuides(),
@@ -515,12 +533,65 @@ export class TypesetOkApp {
   private get aboutModal(): AboutModal {
     if (!this.aboutModalInstance) {
       this.aboutModalInstance = new AboutModal({
-        onClose: () => {},
+        onClose: () => {
+          if (!this.hasOpenDocument) this.welcomeModal.show();
+        },
         onCheckUpdates: () => this.settingsModal.show('updates')
       });
       this.root.appendChild(this.aboutModalInstance.element);
     }
     return this.aboutModalInstance;
+  }
+
+  private get userGuideModal(): UserGuideModal {
+    if (!this.userGuideModalInstance) {
+      this.userGuideModalInstance = new UserGuideModal({
+        onClose: () => {
+          if (!this.hasOpenDocument) this.welcomeModal.show();
+        }
+      });
+      this.root.appendChild(this.userGuideModalInstance.element);
+    }
+    return this.userGuideModalInstance;
+  }
+
+  private get textStatsModal(): TextStatsModal {
+    if (!this.textStatsModalInstance) {
+      this.textStatsModalInstance = new TextStatsModal({
+        onClose: () => {}
+      });
+      this.root.appendChild(this.textStatsModalInstance.element);
+    }
+    return this.textStatsModalInstance;
+  }
+
+  private openTextStatsDialog(): void {
+    const story = this.storyEditor ? this.storyEditor.getStory() : [];
+    const fullText = story.map((s) => s.text).join('\n');
+    const totalWords = (fullText.match(/\S+/g) || []).length;
+    const charsWithSpaces = fullText.length;
+    const charsWithoutSpaces = fullText.replace(/\s/g, '').length;
+    const paragraphs = story.length || 1;
+    const linesEstimate = Math.max(1, Math.ceil(totalWords / 9));
+    const hebrewChars = (fullText.match(/[\u0590-\u05FF]/g) || []).length;
+    const niqqudCount = (fullText.match(/[\u0591-\u05BD\u05BF\u05C1-\u05C2\u05C4-\u05C5\u05C7]/g) || []).length;
+
+    const curPage = this.pages[this.activePageIndex];
+    const pageText = curPage?.htmlContent ? curPage.htmlContent.replace(/<[^>]+>/g, ' ') : '';
+    const pageWords = (pageText.match(/\S+/g) || []).length || Math.min(totalWords, Math.ceil(totalWords / Math.max(1, this.pages.length)));
+    const gematria = curPage?.gematriaNumber || toHebrewGematria(this.activePageIndex + 1);
+
+    this.textStatsModal.show({
+      pageWords,
+      totalWords,
+      charsWithSpaces,
+      charsWithoutSpaces,
+      paragraphs,
+      linesEstimate,
+      hebrewChars,
+      niqqudCount,
+      pageNumber: gematria
+    });
   }
 
   private get exportDialog(): ExportDialog {
@@ -576,11 +647,34 @@ export class TypesetOkApp {
   private buildStoryToolbar(): HTMLElement {
     const bar = el('div', 'tok-story-toolbar', { role: 'toolbar', 'aria-label': t('storyToolbar') });
     this.storyFlowChip = el('button', 'tok-chip-select', { type: 'button' });
-    this.storyFlowChip.addEventListener('click', () => this.structureBar.showTab('flows'));
+    this.storyFlowChip.addEventListener('click', () => {
+      if (this.structureBar?.isPanelOpen() && this.structureBar?.getActiveTab() === 'flows') {
+        this.structureBar.setPanelOpen(false);
+      } else {
+        this.structureBar?.showTab('flows');
+      }
+      this.updateStoryToolbar();
+    });
     bar.appendChild(this.storyFlowChip);
     bar.appendChild(el('span', 'tok-divider-v', { 'aria-hidden': 'true', style: 'height:18px' }));
-    bar.appendChild(iconButton('minus', t('storyFontSmaller'), () => this.setStoryFont(this.storyFontPx - 1), { size: 15, attrs: { style: 'width:30px;height:30px' } }));
-    bar.appendChild(iconButton('plus', t('storyFontLarger'), () => this.setStoryFont(this.storyFontPx + 1), { size: 15, attrs: { style: 'width:30px;height:30px' } }));
+
+    // Item 17: Compact typography size buttons with Hebrew letters
+    const fontSmallerBtn = el('button', 'tok-btn tok-btn-ghost tok-btn-xs', {
+      type: 'button',
+      title: 'הקטנת גודל טקסט בעורך (Ctrl+-)',
+      style: 'min-width:26px;height:26px;padding:0 5px;font-size:12px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;'
+    }, 'א⁻');
+    fontSmallerBtn.addEventListener('click', () => this.setStoryFont(this.storyFontPx - 1));
+    bar.appendChild(fontSmallerBtn);
+
+    const fontLargerBtn = el('button', 'tok-btn tok-btn-ghost tok-btn-xs', {
+      type: 'button',
+      title: 'הגדלת גודל טקסט בעורך (Ctrl++)',
+      style: 'min-width:26px;height:26px;padding:0 5px;font-size:12px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;'
+    }, 'א⁺');
+    fontLargerBtn.addEventListener('click', () => this.setStoryFont(this.storyFontPx + 1));
+    bar.appendChild(fontLargerBtn);
+
     bar.appendChild(el('span', 'tok-grow'));
     this.storyWordCount = el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted)' });
     bar.appendChild(this.storyWordCount);
@@ -605,7 +699,12 @@ export class TypesetOkApp {
     sw.style.background = flow?.color ?? 'var(--tok-accent-text)';
     this.storyFlowChip.appendChild(sw);
     this.storyFlowChip.appendChild(el('span', undefined, undefined, name));
-    this.storyFlowChip.appendChild(icon('chevronDown', 12));
+
+    // Item 10: When flows panel is open, do not show opening arrow
+    const isFlowsOpen = Boolean(this.structureBar?.isPanelOpen() && this.structureBar?.getActiveTab() === 'flows');
+    if (!isFlowsOpen) {
+      this.storyFlowChip.appendChild(icon('chevronDown', 12));
+    }
     this.storyFlowChip.setAttribute('aria-label', tf('storyFlowChip', { name }));
     this.storyFlowChip.title = t('structureFlowsTitle');
     const words = this.storyEditor ? this.storyEditor.getStory().reduce((sum: number, p: StoryParagraph) => sum + countWords(p.text), 0) : 0;
@@ -664,43 +763,9 @@ export class TypesetOkApp {
     this.aboutModal.show();
   }
 
-  /** Built-in palette commands in the current UI language. */
+  /** Built-in palette commands in the current UI language (page & layout modifying only). */
   private buildCommands(): PaletteItem[] {
     return [
-      {
-        id: 'cmd-open-welcome',
-        icon: 'folder',
-        category: t('cmdCatProjects'),
-        title: t('cmdWelcomeTitle'),
-        subtitle: t('cmdWelcomeSub'),
-        shortcut: 'Ctrl+Shift+P',
-        action: () => this.welcomeModal.show()
-      },
-      {
-        id: 'cmd-open-settings',
-        icon: 'settings',
-        category: t('cmdCatSystem'),
-        title: t('cmdSettingsTitle'),
-        subtitle: t('cmdSettingsSub'),
-        shortcut: 'Ctrl+,',
-        action: () => this.settingsModal.show()
-      },
-      {
-        id: 'cmd-open-about',
-        icon: 'info',
-        category: t('cmdCatSystem'),
-        title: t('cmdAboutTitle'),
-        subtitle: t('cmdAboutSub'),
-        action: () => this.aboutModal.show()
-      },
-      {
-        id: 'cmd-toggle-lang',
-        icon: 'globe',
-        category: t('cmdCatSystem'),
-        title: t('cmdToggleLangTitle'),
-        shortcut: 'Alt+Shift+L',
-        action: () => i18n.toggleLanguage()
-      },
       {
         id: 'cmd-full-justify',
         icon: 'alignJustify',
@@ -873,7 +938,8 @@ export class TypesetOkApp {
     this.loadDocumentPages(this.pages);
     this.storyEditor.loadStory([]);
     this.statusBar.updateStats({ wordCount: 0, activeFlow: this.flowDisplayName('gemara') });
-    addRecentProject({ name, pages: 1 });
+    this.hasOpenDocument = true;
+    addRecentProject({ name, pages: 1, lastSavedAt: new Date().toISOString() });
     this.welcomeModal.setHasOpenDocument(true);
     this.showToast(tf('toastProjectCreated', { name }));
   }
@@ -893,7 +959,8 @@ export class TypesetOkApp {
       this.loadDocumentPages(this.pages);
       this.storyEditor.loadStory([]);
     }
-    addRecentProject({ name: baseName, path: filePath, pages: this.pages.length || 1 });
+    this.hasOpenDocument = true;
+    addRecentProject({ name: baseName, path: filePath, pages: this.pages.length || 1, lastSavedAt: new Date().toISOString() });
     this.welcomeModal.setHasOpenDocument(true);
     this.showToast(tf('toastOpenFile', { path: baseName }));
   }
@@ -959,6 +1026,9 @@ export class TypesetOkApp {
       case 'new-document':
       case 'open-projects':
       case 'open-welcome':
+        if (this.documentTitle) {
+          updateProjectClosedTime(this.documentTitle);
+        }
         this.welcomeModal.show();
         break;
       case 'open-settings':
@@ -966,9 +1036,6 @@ export class TypesetOkApp {
         break;
       case 'open-about':
         this.aboutModal.show();
-        break;
-      case 'toggle-lang':
-        i18n.toggleLanguage();
         break;
       case 'open-document': {
         const win = window as any;
@@ -985,12 +1052,18 @@ export class TypesetOkApp {
         break;
       }
       case 'save-document': {
-        addRecentProject({ name: this.documentTitle, pages: this.pages.length || 1 });
+        const nowIso = new Date().toISOString();
+        addRecentProject({
+          name: this.documentTitle,
+          pages: this.pages.length || 1,
+          lastSavedAt: nowIso
+        });
         this.showToast(t('toastSaved'));
         break;
       }
       case 'save-as': {
         const win = window as any;
+        const nowIso = new Date().toISOString();
         if (win.tokIpc?.showSaveDialog) {
           win.tokIpc.showSaveDialog({
             defaultPath: this.documentTitle,
@@ -1000,12 +1073,21 @@ export class TypesetOkApp {
               const baseName = filePath.split(/[\\/]/).pop() || filePath;
               this.documentTitle = baseName;
               this.topBar.setDocumentTitle(baseName);
-              addRecentProject({ name: baseName, path: filePath, pages: this.pages.length || 1 });
+              addRecentProject({
+                name: baseName,
+                path: filePath,
+                pages: this.pages.length || 1,
+                lastSavedAt: nowIso
+              });
               this.showToast(t('toastSaved'));
             }
           });
         } else {
-          addRecentProject({ name: this.documentTitle, pages: this.pages.length || 1 });
+          addRecentProject({
+            name: this.documentTitle,
+            pages: this.pages.length || 1,
+            lastSavedAt: nowIso
+          });
           this.showToast(t('toastSaved'));
         }
         break;

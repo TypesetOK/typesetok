@@ -181,18 +181,6 @@ export class TopSystemBar {
     end.appendChild(undo);
     end.appendChild(redo);
 
-    const lang = button(i18n.getLanguage() === 'he' ? 'עברית' : 'English', {
-      className: 'tok-btn tok-btn-ghost tok-btn-sm',
-      icon: 'globe',
-      iconSize: 15,
-      attrs: { title: t('topBarSwitchLanguage'), 'aria-label': `${t('topBarSwitchLanguage')}: ${i18n.getLanguage() === 'he' ? 'עברית' : 'English'}` },
-      onClick: () => {
-        i18n.toggleLanguage();
-        this.callbacks.onToggleLanguage?.();
-      }
-    });
-    end.appendChild(lang);
-
     end.appendChild(button(t('topBarExportPdf'), {
       className: 'tok-btn tok-btn-primary',
       icon: 'export',

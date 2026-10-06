@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name for release (e.g. v0.9.1)'
+        description: 'Tag name for release (e.g. v0.9.8)'
         required: false
-        default: 'v0.9.1'
+        default: 'v0.9.8'
 
 permissions:
   contents: write
@@ -90,7 +90,8 @@ jobs:
       - name: Package binary (Windows)
         shell: pwsh
         run: |
-          Compress-Archive -Path target/release/tok-cli.exe -DestinationPath tok-cli-v0.9.1-windows-x64.zip
+          $tag = "${{ needs.check-release.outputs.tag_name }}"
+          Compress-Archive -Path target/release/tok-cli.exe -DestinationPath "tok-cli-${tag}-windows-x64.zip"
 
       - name: Setup Node.js (Windows Desktop App)
         uses: actions/setup-node@v4
@@ -100,34 +101,46 @@ jobs:
       - name: Package Standalone Desktop App (Windows)
         shell: pwsh
         run: |
+          $tag = "${{ needs.check-release.outputs.tag_name }}"
+          $ver = $tag.TrimStart('v')
           npm install
           npm run build
           node scripts/build-desktop-bundle.mjs
-          Compress-Archive -Path dist/TypesetOK-v0.9.1-windows-x64 -DestinationPath TypesetOK-v0.9.1-windows-desktop-app.zip
+          $bundlePath = "dist/TypesetOK-${tag}-windows-x64"
+          if (-not (Test-Path $bundlePath)) {
+            $bundlePath = "dist/TypesetOK-v${ver}-windows-x64"
+          }
+          Compress-Archive -Path $bundlePath -DestinationPath "TypesetOK-${tag}-windows-desktop-app.zip"
 
       - name: Compile Official Windows Installer (Inno Setup)
         shell: pwsh
         run: |
+          $tag = "${{ needs.check-release.outputs.tag_name }}"
+          $ver = $tag.TrimStart('v')
           node scripts/build-installer.mjs
-          Copy-Item dist/TypesetOK-v0.9.1-Setup-x64.exe TypesetOK-v0.9.1-Setup.exe
+          $setupSrc = "dist/TypesetOK-${tag}-Setup-x64.exe"
+          if (-not (Test-Path $setupSrc)) {
+            $setupSrc = "dist/TypesetOK-v${ver}-Setup-x64.exe"
+          }
+          Copy-Item $setupSrc "TypesetOK-${tag}-Setup.exe"
 
       - name: Upload Windows Installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TypesetOK-v0.9.1-Setup.exe
-          path: TypesetOK-v0.9.1-Setup.exe
+          name: windows-installer
+          path: TypesetOK-*-Setup.exe
 
       - name: Upload Desktop App artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TypesetOK-v0.9.1-windows-desktop-app.zip
-          path: TypesetOK-v0.9.1-windows-desktop-app.zip
+          name: desktop-app
+          path: TypesetOK-*-windows-desktop-app.zip
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tok-cli-v0.9.1-windows-x64.zip
-          path: tok-cli-v0.9.1-windows-x64.zip
+          name: tok-cli-binary
+          path: tok-cli-*-windows-x64.zip
 
   # ──────────────────────────────────────────────
   # 2. Build Frontend & UI Workbench Distribution
@@ -157,13 +170,13 @@ jobs:
           cp -r packages/tok-electron/dist dist-package/electron
           cp -r assets dist-package/assets
           cp README.md LICENSE.md dist-package/
-          tar -czvf typesetok-desktop-workbench-v0.9.1.tar.gz dist-package
+          tar -czvf "typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz" dist-package
 
       - name: Upload UI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: typesetok-desktop-workbench-v0.9.1.tar.gz
-          path: typesetok-desktop-workbench-v0.9.1.tar.gz
+          name: workbench-bundle
+          path: typesetok-desktop-workbench-*.tar.gz
 
   # ──────────────────────────────────────────────
   # 3. Create GitHub Release & Attach Assets
@@ -192,20 +205,29 @@ jobs:
           prerelease: false
           files: release-assets/*
           body: |
-            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }} — שדרוג חוויית משתמש, קיצורי מקשים ועימוד מקצועי
+            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }} — שדרוג חוויית משתמש, דיוק טיפוגרפי וניהול פרויקטים
 
-            ### 🚀 מה חדש בגרסה 0.9.1 (Highlights):
-            - **תמיכה מלאה בקיצורי מקשים סטנדרטיים דו-לשוניים:** Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S, Ctrl+E, Ctrl+P, Ctrl+Z, Ctrl+Y, Ctrl+1/2/3, Ctrl++, Ctrl+-, Ctrl+0, Ctrl+Enter, Ctrl+, — עם זיהוי מלא ומדויק של פריסת מקלדת עברית ואנגלית ללא חטיפת הקשות בשדות טקסט.
-            - **מינוח תצוגה מקצועי מעולם הדפוס:** שינוי כפתור 'עורך סיפור' ל**'עורך טקסט'** (Text Editor), שינוי 'מצב קנבס' ל**'תצוגת עמודים'** (Pages View), ושינוי 'מפוצל' ל**'תצוגה משולבת'** (Split View).
-            - **סרגל עליון רחב ומודגש:** שורה עליונה מרווחת ומאוזנת (56px), הדגשת שם התוכנה בצד ימין (17px במשקל 800) לצד סמל הספר הווקטורי, עם חזרה בלחיצה ישירה למסך בחירת פרויקט.
-            - **שמירת הגדרות וערכות נושא קבועה:** שמירה מלאה של כל ערכות הנושא (בהיר, כהה, כחול לילה, קלף, גרפיט, אינדיגו, מערכת), גוון שולחן עבודה, קווי עזר ושמירת לוגים מפתחה לפתחה ב-localStorage.
-            - **סרגל הגדרות ואודות מודולרי:** סרגל תחתון ייעודי בצד ימין למטה עם אפשרות הרחבה וצמצום ומצב שמור.
-            - **לוח עבודה נקי ומקצועי:** הסרה מוחלטת של בועת הזום המרחפת מעל העמודים, והעברת בקרת התקריב להגדרות התוכנה ולקיצורי מקשים.
-            - **סמל הספר הרשמי (Book Emblem):** החלפת כל הסמלים הישנים בסמל הווקטורי של ספר פתוח / קודקס בכל הממשק, כולל Favicon ייעודי.
-            - **מתקין Windows רשמי (Setup Wizard) וגרסה ניידת (Portable):** התקנה קלה ומהירה בעברית ובאנגלית עם שיוך קובצי .tok.
+            ### 🚀 מה חדש בגרסה ${{ needs.check-release.outputs.tag_name }}:
+            - **היסטוריית פרויקטים מדויקת:** תיקון חותמות הזמן לשמירה ויציאה מדויקות (`lastSavedAt` ו-`lastClosedAt`) וביטול זמן פיקטיבי.
+            - **ניהול פרויקטים במסך הפתיחה:** אפשרות לצפייה בכלל הפרויקטים, שינוי שם פרויקט ומחיקת פרויקטים ישירות ממסך הבית.
+            - **בחירת תיקיית פרויקטים באשף ההתקנה:** אשף ההתקנה (Inno Setup) מאפשר בחירת תיקיית פרויקטים ראשית עם שמירת הנתיב בהגדרות המערכת.
+            - **הסרת כפתורי חזרה עודפים:** ניקוי כפתורי החזרה הכפולים למסמך פעיל מדף הבית.
+            - **הגדרות ואודות ישירות מדף הבית:** פתיחה של אודות והגדרות מבלי לטעון פרויקט שרירותי ברקע, וחזרה נקייה לדף הבית בסגירתם.
+            - **מיקום כפתורי אודות והגדרות:** העברת הכפתורים בלוח הפתיחה לפינה השמאלית התחתונה בהתאמה מלאה לממשק הפנימי.
+            - **בקרת זום ישירה בתצוגת עמודים:** כפתורי תקריב מרחפים ואינטואיטיביים מעל משטח העמודים כולל כפתור 'התאם'.
+            - **נעילת שפה:** הסרת בורר השפה בממשק והצמדת שפת המערכת לשפה שנבחרה בעת ההתקנה.
+            - **ניקוי חיצי ממשק:** הסרת חץ הקיפול מעל ההגדרות, והסרת חץ פתיחת חלונית התזרימים כאשר החלונית פתוחה.
+            - **סנכרון רינדור בזמן אמת (Live Rendering):** כתיבה ועריכה בעורך הטקסט בתצוגה משולבת מתעדכנת ומרונדרת מידית בזמן אמת בתצוגת העמודים.
+            - **סטטיסטיקת טקסט מורחבת:** לחיצה על מונה המילים פותחת דו"ח סטטיסטיקה מקיף (מילים, תווים עם ובלי רווחים, פסקאות, שורות, אותיות עבריות וניקוד).
+            - **בידוד פלטת הפקודות:** לחיצה על מספר העמוד אינה פותחת חיפוש, ופלטת הפקודות מוגבלת לפעולות עריכה ועימוד דף בלבד.
+            - **תמיכה מקיפה בכל סוגי הגופנים:** זיהוי גופני מערכת דרך Local Font Access API, תמיכה בהעלאת קובצי TTF/OTF/WOFF מותאמים אישית והזנת גופן חופשית.
+            - **מחוות משטח מגע (Trackpad Gestures):** זום בשתי אצבעות (Pinch-to-zoom) ודפדוף מהיר בשתי אצבעות על גבי העמודים.
+            - **כפתורי גודל טקסט ייעודיים:** החלפת פלוס ומינוס בעורך הטקסט בכפתורים מובחנים עם אות עברית (`א⁻` ו-`א⁺`).
+            - **מניעת היבהוב בהגדרות:** מעבר חלק ונקי לחלוטין בין לשוניות ההגדרות ללא רעידות והיבהובים.
+            - **מדריך למשתמש מלא ומקצועי:** מדריך שימוש מקיף מובנה ישירות בתוכנה (בעברית ובאנגלית) ללא אימוג'ים וברמת גימור גבוהה.
 
-            ### 📦 קבצים להורדה (Downloads & Installation):
-            - **מתקין רשמי למחשב (מומלץ):** `TypesetOK-v0.9.1-Setup.exe` (מתקין אשף מלא בעברית ובאנגלית).
-            - **גרסה ניידת ללא התקנה (Portable):** `TypesetOK-v0.9.1-windows-desktop-app.zip` (פריקה והרצה ישירה של `TypesetOK.exe`).
-            - **CLI בלבד (Windows x64):** `tok-cli-v0.9.1-windows-x64.zip`
-            - **Workbench Source Bundle:** `typesetok-desktop-workbench-v0.9.1.tar.gz`
+            ### 📦 קבצים להורדה (Downloads):
+            - **מתקין רשמי למחשב (מומלץ):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-Setup.exe`
+            - **גרסה ניידת ללא התקנה (Portable):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-windows-desktop-app.zip`
+            - **CLI בלבד (Windows x64):** `tok-cli-${{ needs.check-release.outputs.tag_name }}-windows-x64.zip`
+            - **Workbench Source Bundle:** `typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz`

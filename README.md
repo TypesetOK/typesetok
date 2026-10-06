@@ -6,7 +6,7 @@
 ### תוכנת עימוד שולחנית מקצועית בקוד פתוח | Open-Source Professional Desktop Publishing (DTP) System
 
 [![CI Build](https://github.com/TypesetOK/typesetok/actions/workflows/ci.yml/badge.svg)](https://github.com/TypesetOK/typesetok/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/Version-0.9.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/Version-0.9.8-blue.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-239%2F239%20Passing-brightgreen.svg)]()
 [![Electron](https://img.shields.io/badge/Electron-29.4%2B-blue.svg?logo=electron)](https://www.electronjs.org)
 [![Rust](https://img.shields.io/badge/Rust-1.85%2B-orange.svg?logo=rust)](https://www.rust-lang.org)
@@ -155,7 +155,7 @@ cargo test --workspace
 
 ### 📥 הרצה ישירה ללא התקנה מוקדמת (Portable Desktop Binary)
 למשתמשי Windows המעוניינים להריץ את התוכנה ישירות ללא צורך בהתקנת Node.js או Rust:
-1. הורידו את `TypesetOK-v0.9.1-windows-desktop-app.zip` (או את אשף ההתקנה הרשמי `TypesetOK-v0.9.1-Setup.exe`) מתוך דף ה-[GitHub Releases](https://github.com/TypesetOK/typesetok/releases/tag/v0.9.1).
+1. הורידו את `TypesetOK-v0.9.8-windows-desktop-app.zip` (או את אשף ההתקנה הרשמי `TypesetOK-v0.9.8-Setup.exe`) מתוך דף ה-[GitHub Releases](https://github.com/TypesetOK/typesetok/releases/tag/v0.9.8).
 2. חלצו את קובץ ה-ZIP.
 3. הפעילו ישירות בלחיצה כפולה את `TypesetOK.exe`.
 (התוכנה מגיעה כחבילת Standalone עצמאית הכוללת את מעטפת ה-UI, מנוע ה-Electron, ובינארי ה-CLI המובנה).
@@ -199,7 +199,7 @@ cargo run -p tok-cli -- inspect-package document.tok
 
 ---
 
-## 📊 Verification & Benchmark Status (v0.9.1)
+## 📊 Verification & Benchmark Status (v0.9.8)
 
 | Metric | Architectural Target | Actual Result | Status |
 | :--- | :--- | :--- | :--- |

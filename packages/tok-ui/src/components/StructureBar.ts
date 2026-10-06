@@ -15,6 +15,7 @@ export interface StructureBarCallbacks {
   onOpenAbout?: () => void;
   /** The side panel was opened or closed from the rail. */
   onPanelToggle?: (open: boolean) => void;
+  onActiveTabChange?: (tab: TabId, open: boolean) => void;
 }
 
 type TabId = 'pages' | 'flows' | 'styles' | 'layers';
@@ -38,7 +39,6 @@ export class StructureBar {
   private activePageIndex = 0;
   private activeFlowId = 'gemara';
   private pages: PageThumbnailItem[] = [];
-  private isBottomExpanded = false;
   private rail!: HTMLElement;
   private panel!: HTMLElement;
 
@@ -67,9 +67,6 @@ export class StructureBar {
 
   constructor(callbacks: StructureBarCallbacks) {
     this.callbacks = callbacks;
-    try {
-      this.isBottomExpanded = localStorage.getItem('tok_structure_bottom_expanded') === 'true';
-    } catch {}
     this.element = el('div', 'tok-structure');
     this.element.style.display = 'flex';
     this.element.style.flex = 'none';
@@ -82,6 +79,10 @@ export class StructureBar {
     });
 
     this.render();
+  }
+
+  public getActiveTab(): TabId {
+    return this.activeTab;
   }
 
   public setPages(pages: PageThumbnailItem[], activeIndex = 0): void {
@@ -143,6 +144,7 @@ export class StructureBar {
         if (this.activeTab === tab.id && this.panelOpen) {
           this.setPanelOpen(false);
           this.callbacks.onPanelToggle?.(false);
+          this.callbacks.onActiveTabChange?.(this.activeTab, false);
           return;
         }
         const wasOpen = this.panelOpen;
@@ -150,26 +152,13 @@ export class StructureBar {
         this.setPanelOpen(true);
         this.renderPanel();
         if (!wasOpen) this.callbacks.onPanelToggle?.(true);
+        this.callbacks.onActiveTabChange?.(this.activeTab, true);
       });
       this.rail.appendChild(b);
     }
     this.rail.appendChild(el('div', 'tok-rail-spacer'));
 
-    const bottom = el('div', `tok-structure-bottom ${this.isBottomExpanded ? 'tok-expanded' : 'tok-collapsed'}`);
-    const toggleBtn = el('button', 'tok-structure-bottom-toggle', {
-      type: 'button',
-      title: t(this.isBottomExpanded ? 'sidebarCollapse' : 'sidebarExpand'),
-      'aria-label': t(this.isBottomExpanded ? 'sidebarCollapse' : 'sidebarExpand')
-    });
-    toggleBtn.appendChild(icon(this.isBottomExpanded ? 'chevronDown' : 'chevronUp', 12));
-    toggleBtn.addEventListener('click', () => {
-      this.isBottomExpanded = !this.isBottomExpanded;
-      try {
-        localStorage.setItem('tok_structure_bottom_expanded', String(this.isBottomExpanded));
-      } catch {}
-      this.render();
-    });
-    bottom.appendChild(toggleBtn);
+    const bottom = el('div', 'tok-structure-bottom');
 
     const settings = el('button', 'tok-rail-btn', {
       type: 'button',
@@ -220,6 +209,7 @@ export class StructureBar {
     head.appendChild(iconButton('close', t('railHidePanel'), () => {
       this.setPanelOpen(false);
       this.callbacks.onPanelToggle?.(false);
+      this.callbacks.onActiveTabChange?.(this.activeTab, false);
     }, { size: 15, attrs: { style: 'width:28px;height:28px' } }));
     return head;
   }

@@ -121,7 +121,7 @@ export class PluginEngine {
   // System & Environment Status
   private isSafeMode = false;
   private isSaferActive = false;
-  private appVersion = '0.9.1';
+  private appVersion = '0.9.8';
 
   constructor(
     onCommandRegisteredOrOptions?: ((cmd: PluginCommand) => void) | PluginEngineOptions,
