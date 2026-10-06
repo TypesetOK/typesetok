@@ -535,7 +535,57 @@ export class SettingsModal {
   private renderPluginsTab(container: HTMLElement): void {
     container.appendChild(el('h2', undefined, undefined, t('pluginsInstalled')));
 
-    const actions = el('div', undefined, { style: 'display:flex;gap:10px' });
+    // 1. Safer Environment Banner (if running on a Safer-managed workstation)
+    if (this.callbacks.pluginEngine.getIsSaferActive()) {
+      const saferBanner = el('div', 'tok-card', {
+        style: 'background:rgba(37,99,235,0.12);border-color:rgba(59,130,246,0.35);padding:14px 18px;margin-bottom:14px;display:flex;gap:12px;align-items:flex-start;'
+      });
+      const iconWrap = el('div', undefined, { style: 'color:var(--tok-accent-primary);margin-top:2px;' });
+      iconWrap.appendChild(icon('lock', 20));
+      saferBanner.appendChild(iconWrap);
+      const textWrap = el('div');
+      textWrap.appendChild(el('strong', undefined, { style: 'font-size:13px;color:var(--tok-text-primary);display:block;margin-bottom:4px;' }, t('pluginsSaferActive')));
+      textWrap.appendChild(el('p', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary);line-height:1.45;' }, t('pluginsSaferActiveDesc')));
+      saferBanner.appendChild(textWrap);
+      container.appendChild(saferBanner);
+    }
+
+    // 2. Safe Mode (מצב סייפר / בטוח) Toggle Card
+    const isSafe = this.callbacks.pluginEngine.getIsSafeMode();
+    const safeModeCard = el('div', 'tok-card', {
+      style: 'padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;background:var(--tok-bg-surface-1);'
+    });
+    const safeInfo = el('div');
+    safeInfo.appendChild(el('strong', undefined, { style: 'font-size:13px;display:block;margin-bottom:4px;' }, t('pluginsSafeMode')));
+    safeInfo.appendChild(el('p', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary);' }, t('pluginsSafeModeDesc')));
+    safeModeCard.appendChild(safeInfo);
+
+    const safeSwitch = el('button', 'tok-switch', {
+      type: 'button',
+      role: 'switch',
+      'aria-checked': String(isSafe),
+      'aria-label': t('pluginsSafeMode'),
+      'data-focus-key': 'plugins-safe-mode'
+    });
+    safeSwitch.addEventListener('click', async () => {
+      const nextState = safeSwitch.getAttribute('aria-checked') !== 'true';
+      safeSwitch.disabled = true;
+      try {
+        await this.callbacks.pluginEngine.setSafeMode(nextState);
+        safeSwitch.setAttribute('aria-checked', String(nextState));
+        this.callbacks.showToast(`${t('pluginsSafeMode')}: ${onOff(nextState)}`);
+        if (this.isVisible && this.activeTab === 'plugins') this.render();
+      } catch (err: any) {
+        this.callbacks.showToast(`${t('actionFailed')}: ${err?.message ?? err}`);
+      } finally {
+        safeSwitch.disabled = false;
+      }
+    });
+    safeModeCard.appendChild(safeSwitch);
+    container.appendChild(safeModeCard);
+
+    // 3. Action Toolbar (Open Folder, Reload, Emergency Disable)
+    const actions = el('div', undefined, { style: 'display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;' });
     actions.appendChild(button(t('pluginsOpenFolder'), {
       icon: 'folder',
       attrs: { 'data-focus-key': 'plugins-folder' },
@@ -558,6 +608,22 @@ export class SettingsModal {
       else reload.disabled = false;
     });
     actions.appendChild(reload);
+
+    // Emergency Disable All button
+    const disableAll = button(t('pluginsDisableAll'), {
+      className: 'tok-btn tok-btn-ghost tok-btn-sm',
+      onClick: async () => {
+        const plugins = this.callbacks.pluginEngine.getPlugins();
+        for (const p of plugins) {
+          if (p.enabled) {
+            await this.callbacks.pluginEngine.togglePlugin(p.id, false);
+          }
+        }
+        this.callbacks.showToast(t('pluginsAllDisabled'));
+        if (this.isVisible && this.activeTab === 'plugins') this.render();
+      }
+    });
+    actions.appendChild(disableAll);
     container.appendChild(actions);
 
     const plugins = this.callbacks.pluginEngine.getPlugins();
@@ -570,7 +636,7 @@ export class SettingsModal {
       emptyCard.appendChild(iconWrap);
       emptyCard.appendChild(el('strong', undefined, { style: 'font-size:14px;color:var(--tok-text-primary)' }, t('pluginsNoPlugins')));
       emptyCard.appendChild(el('p', undefined, { style: 'font-size:12px;max-width:420px;line-height:1.5;color:var(--tok-text-muted)' },
-        'מערכת התוספים של TypesetOK תומכת בטעינת הרחבות מותאמות אישית ב-TypeScript (.ts) ו-JavaScript (.js). הוסיפו קובצי תוסף לתיקיית התוספים ולחצו על "רענן".'
+        'מערכת התוספים של TypesetOK תומכת בהרחבות מותאמות אישית ב-TypeScript (.ts) ו-JavaScript (.js) עם API רשמי עשיר, ארגז חול מאובטח ותמיכה מלאה בסביבות סייפר (Offline).'
       ));
       emptyCard.appendChild(button(t('pluginsOpenFolder'), {
         className: 'tok-btn tok-btn-primary tok-btn-sm',
@@ -593,19 +659,48 @@ export class SettingsModal {
       name.appendChild(el('span', undefined, undefined, plugin.name));
       name.appendChild(el('span', 'tok-tag', undefined, plugin.sourceType.toUpperCase()));
       name.appendChild(el('span', undefined, { style: 'font-size:12px;font-weight:400;color:var(--tok-text-muted)', dir: 'ltr' }, `v${plugin.version}`));
+
+      if (plugin.safeModeBlocked) {
+        name.appendChild(el('span', 'tok-tag tok-tag-warning', { style: 'background:rgba(239,68,68,0.15);color:var(--tok-status-error);' }, t('pluginsBlockedBySafeMode')));
+      }
+
       main.appendChild(name);
       main.appendChild(el('div', 'tok-plugin-desc', undefined, plugin.description));
+
+      // Display declared permissions as tags
+      if (plugin.permissions && plugin.permissions.length > 0) {
+        const permsWrap = el('div', undefined, { style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;' });
+        for (const perm of plugin.permissions) {
+          let label: string = perm;
+          if (perm === 'document:read') label = t('pluginsPermDocRead');
+          else if (perm === 'document:write') label = t('pluginsPermDocWrite');
+          else if (perm === 'ui:commands') label = t('pluginsPermCommands');
+          else if (perm === 'ui:notifications') label = t('pluginsPermNotifications');
+          else if (perm === 'ui:modals') label = t('pluginsPermModals');
+          else if (perm === 'canvas:read' || perm === 'canvas:navigate') label = t('pluginsPermCanvas');
+          else if (perm === 'network:fetch') label = t('pluginsPermNetwork');
+
+          permsWrap.appendChild(el('span', 'tok-tag', { style: 'font-size:11px;opacity:0.85;' }, label));
+        }
+        main.appendChild(permsWrap);
+      }
+
       if (plugin.error) {
-        // e.g. "Main entry file not found" from the main process.
         main.appendChild(el('div', 'tok-plugin-error', undefined, `${t('pluginsLoadError')}: ${plugin.error}`));
       }
       card.appendChild(main);
 
-      const state = el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary)' }, plugin.enabled ? t('pluginsEnabled') : t('pluginsDisabled'));
+      const isCurrentEnabled = plugin.enabled && !plugin.safeModeBlocked;
+      const state = el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary)' }, isCurrentEnabled ? t('pluginsEnabled') : t('pluginsDisabled'));
       card.appendChild(state);
+
       const sw = el('button', 'tok-switch', {
-        type: 'button', role: 'switch', 'aria-checked': String(plugin.enabled), 'aria-label': plugin.name,
-        disabled: !!plugin.error, 'data-focus-key': `plugin-${plugin.id}`
+        type: 'button',
+        role: 'switch',
+        'aria-checked': String(isCurrentEnabled),
+        'aria-label': plugin.name,
+        disabled: !!plugin.error || plugin.safeModeBlocked,
+        'data-focus-key': `plugin-${plugin.id}`
       });
       sw.addEventListener('click', async () => {
         const wanted = sw.getAttribute('aria-checked') !== 'true';
@@ -616,7 +711,6 @@ export class SettingsModal {
           state.textContent = wanted ? t('pluginsEnabled') : t('pluginsDisabled');
           this.callbacks.showToast(`${plugin.name}: ${onOff(wanted)}`);
         } catch (e: any) {
-          // Not persisted: leave the switch where it really is.
           this.callbacks.showToast(`${t('actionFailed')}: ${e?.message ?? e}`);
         } finally {
           sw.disabled = false;

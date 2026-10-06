@@ -107,10 +107,53 @@ export class TypesetOkApp {
   private initUI(): void {
     // 1. Initialize Plugin Engine
     this.pluginEngine = new PluginEngine(
-      (cmd) => this.commandPalette?.registerItem(cmd),
-      (msg) => this.showToast(msg),
+      (cmd) => this.commandPalette?.registerItem(cmd as any),
+      (msg, isError) => this.showToast(msg, isError),
       (id) => this.commandPalette?.unregisterItem(id)
     );
+    this.pluginEngine.setDelegate({
+      getStory: () => (this.storyEditor ? this.storyEditor.getStory() : []),
+      loadStory: (paragraphs) => {
+        if (this.storyEditor) {
+          this.storyEditor.loadStory(paragraphs);
+          this.scheduleWordCountUpdate();
+        }
+      },
+      getSelectedText: () => {
+        const sel = window.getSelection();
+        return sel ? sel.toString() : '';
+      },
+      replaceSelection: (text) => {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(document.createTextNode(text));
+          this.scheduleWordCountUpdate();
+        }
+      },
+      getDocumentTitle: () => this.documentTitle,
+      getStats: () => {
+        const story = this.storyEditor ? this.storyEditor.getStory() : [];
+        const text = story.map((s) => s.text).join(' ');
+        const wordCount = (text.match(/\S+/g) || []).length;
+        return { wordCount, charCount: text.length, paragraphCount: story.length };
+      },
+      getViewMode: () => this.currentViewMode,
+      setViewMode: (mode) => {
+        this.setViewMode(mode);
+        this.topBar?.setViewMode(mode);
+      },
+      getTheme: () => themeManager.getSettings().paletteId,
+      getLanguage: () => i18n.getLanguage(),
+      getPageCount: () => this.pages.length,
+      getActivePageIndex: () => this.activePageIndex,
+      scrollToPage: (idx) => this.canvas?.scrollToPage(idx),
+      getZoom: () => (this.canvas ? this.canvas.getZoom() : 100),
+      setZoom: (pct) => this.canvas?.setZoom(pct),
+      toggleMarginsGuide: () => this.canvas?.toggleMarginsGuide(),
+      toggleBaselineGuide: () => this.canvas?.toggleBaselineGuide(),
+    });
 
     // 2. Top System Bar (Modern, seamless, no grey toolbar)
     this.topBar = new TopSystemBar({
