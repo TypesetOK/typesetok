@@ -11,6 +11,8 @@ export interface PluginManifest {
   author?: string;
   main: string; // e.g. "index.ts" or "index.js"
   enabled?: boolean;
+  permissions?: string[];
+  minTokVersion?: string;
 }
 
 export interface LoadedPlugin {
@@ -20,10 +22,18 @@ export interface LoadedPlugin {
   compiledCode: string;
   enabled: boolean;
   error?: string;
+  safeModeBlocked?: boolean;
+}
+
+export interface PluginSystemStatus {
+  isSafeMode: boolean;
+  isSaferActive: boolean;
+  userPluginsDir: string;
+  builtinPluginsDir: string;
 }
 
 /** Bump when compiler options change so stale compiled output is discarded. */
-const COMPILE_CACHE_VERSION = 2;
+const COMPILE_CACHE_VERSION = 3;
 
 interface CompileCacheEntry {
   mtimeMs: number;
@@ -44,7 +54,7 @@ async function pathExists(p: string): Promise<boolean> {
 
 /** Write-then-rename so a crash or quit mid-write never leaves a truncated JSON file. */
 async function writeFileAtomic(file: string, data: string): Promise<void> {
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   await fsp.writeFile(tmp, data, 'utf-8');
   try {
     await fsp.rename(tmp, file);
@@ -52,6 +62,30 @@ async function writeFileAtomic(file: string, data: string): Promise<void> {
     await fsp.unlink(tmp).catch(() => {});
     throw err;
   }
+}
+
+/** Checks whether Safer (סייפר - מערכת עמדות מחשב תורניות / מוסדיות) is installed or active */
+export function isSaferEnvironment(): boolean {
+  try {
+    const candidates = [
+      'C:\\Program Files\\safer',
+      'C:\\Program Files (x86)\\safer',
+      'C:\\safer'
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return true;
+    }
+  } catch {}
+  return process.argv.includes('--safer') || process.env.SAFER_MODE === '1';
+}
+
+/** Checks whether Safe Mode (מצב בטוח) was requested via CLI flags or env */
+export function isSafeModeRequested(): boolean {
+  return (
+    process.argv.includes('--safe-mode') ||
+    process.argv.includes('--disable-plugins') ||
+    process.env.TOK_SAFE_MODE === '1'
+  );
 }
 
 /** esbuild is a dev dependency: present when running from source, absent in packaged builds. */
@@ -76,6 +110,8 @@ export class TokPluginManager {
   private compileCache: Record<string, CompileCacheEntry> = {};
   private initPromise: Promise<void> | null = null;
   private discoverPromise: Promise<LoadedPlugin[]> | null = null;
+  private safeModeConfigured = false;
+  private isSaferActiveCached = false;
 
   constructor() {
     let base: string;
@@ -89,12 +125,47 @@ export class TokPluginManager {
     this.cacheFile = path.join(base, 'plugins_compile_cache.json');
     // <app root>/plugins (repo root in dev, resources/app in packaged builds)
     this.builtinPluginsDir = path.join(__dirname, '../../../plugins');
+    this.isSaferActiveCached = isSaferEnvironment();
+  }
+
+  /** Returns true if Safe Mode is currently active (CLI flag or user config) */
+  public isSafeMode(): boolean {
+    return isSafeModeRequested() || this.safeModeConfigured;
+  }
+
+  /** Returns true if Safer managed workstation environment is detected */
+  public isSaferActive(): boolean {
+    return this.isSaferActiveCached;
+  }
+
+  public getSystemStatus(): PluginSystemStatus {
+    return {
+      isSafeMode: this.isSafeMode(),
+      isSaferActive: this.isSaferActive(),
+      userPluginsDir: this.userPluginsDir,
+      builtinPluginsDir: this.builtinPluginsDir
+    };
+  }
+
+  public async setSafeMode(enabled: boolean): Promise<boolean> {
+    await this.init();
+    this.safeModeConfigured = Boolean(enabled);
+    const config = await this.readJson<Record<string, any>>(this.configFile, {});
+    config.__safeMode = this.safeModeConfigured;
+    try {
+      await writeFileAtomic(this.configFile, JSON.stringify(config, null, 2));
+      logger.info(`[PLUGINS] Safe Mode state persisted: ${this.safeModeConfigured}`);
+      return true;
+    } catch (err: any) {
+      logger.error('[PLUGINS] Failed to persist Safe Mode state:', err?.message);
+      return false;
+    }
   }
 
   /**
    * Lazy, idempotent, non-blocking initialisation: creates the user plugin folder
-   * (with starter examples) on first run and loads the enabled/disabled states and
-   * the compile cache. Runs on first use instead of on the startup path.
+   * on first run, loads enabled/disabled states and compile cache.
+   * Resilient to restricted environments (e.g. Safer / Deep Freeze).
    */
   public init(): Promise<void> {
     if (!this.initPromise) {
@@ -106,27 +177,61 @@ export class TokPluginManager {
   }
 
   private async doInit(): Promise<void> {
-    if (!(await pathExists(this.userPluginsDir))) {
-      await fsp.mkdir(this.userPluginsDir, { recursive: true });
-    } else {
-      // Clean up legacy starter examples if present so users don't see mock/dummy plugins
-      for (const legacyDir of ['smart-quotes-ts', 'word-counter-js']) {
-        const p = path.join(this.userPluginsDir, legacyDir);
-        if (await pathExists(p)) {
-          try {
-            await fsp.rm(p, { recursive: true, force: true });
-          } catch {}
+    try {
+      if (!(await pathExists(this.userPluginsDir))) {
+        await fsp.mkdir(this.userPluginsDir, { recursive: true });
+      } else {
+        // Clean up legacy starter examples if present so users don't see mock/dummy plugins
+        for (const legacyDir of ['smart-quotes-ts', 'word-counter-js']) {
+          const p = path.join(this.userPluginsDir, legacyDir);
+          if (await pathExists(p)) {
+            try {
+              await fsp.rm(p, { recursive: true, force: true });
+            } catch {}
+          }
         }
       }
+    } catch (err: any) {
+      // In locked down or Deep Freeze environments, fallback to Documents folder
+      logger.warn('[PLUGINS] Cannot write to default userData plugins dir. Attempting fallback:', err?.message);
+      try {
+        let fallbackBase: string;
+        try {
+          fallbackBase = app.getPath('documents');
+        } catch {
+          fallbackBase = process.cwd();
+        }
+        this.userPluginsDir = path.join(fallbackBase, 'TypesetOK', 'plugins');
+        await fsp.mkdir(this.userPluginsDir, { recursive: true });
+      } catch (fallbackErr: any) {
+        logger.error('[PLUGINS] Plugin folder fallback also failed:', fallbackErr?.message);
+      }
     }
-    this.pluginStates = await this.readJson(this.configFile, {});
+
+    const config = await this.readJson<Record<string, any>>(this.configFile, {});
+    if (typeof config.__safeMode === 'boolean') {
+      this.safeModeConfigured = config.__safeMode;
+    }
+
+    // Load states, ignoring internal metadata keys starting with "__"
+    this.pluginStates = {};
+    for (const [key, val] of Object.entries(config)) {
+      if (!key.startsWith('__') && typeof val === 'boolean') {
+        this.pluginStates[key] = val;
+      }
+    }
+
     // Clean legacy dummy ids from config
     delete this.pluginStates['tok-smart-quotes'];
     delete this.pluginStates['tok-word-counter'];
 
     const cache = await this.readJson<{ version?: number; entries?: Record<string, CompileCacheEntry> }>(this.cacheFile, {});
     this.compileCache = cache.version === COMPILE_CACHE_VERSION && cache.entries ? cache.entries : {};
-    logger.info('[PLUGINS] Plugin Manager initialized.', { dir: this.userPluginsDir });
+    logger.info('[PLUGINS] Plugin Manager initialized.', {
+      dir: this.userPluginsDir,
+      isSafer: this.isSaferActive(),
+      isSafeMode: this.isSafeMode()
+    });
   }
 
   private async readJson<T>(file: string, fallback: T): Promise<T> {
@@ -141,24 +246,26 @@ export class TokPluginManager {
 
   private async saveConfig(): Promise<void> {
     try {
-      await writeFileAtomic(this.configFile, JSON.stringify(this.pluginStates, null, 2));
+      const payload = {
+        ...this.pluginStates,
+        __safeMode: this.safeModeConfigured
+      };
+      await writeFileAtomic(this.configFile, JSON.stringify(payload, null, 2));
     } catch (err: any) {
       logger.error('[PLUGINS] Failed to save plugins config:', err?.message);
     }
   }
 
   /**
-   * Compiles TypeScript code to runnable JavaScript using esbuild's async API
-   * (never blocks the main process). Falls back to a crude type-stripping regex
-   * when esbuild is not available (packaged builds).
+   * Compiles TypeScript code to runnable JavaScript using esbuild's async API.
+   * If esbuild is absent (packaged builds without devDependencies), uses a robust
+   * syntax transform that safely strips TypeScript types without corrupting
+   * JavaScript object literals or colons.
    */
   private async compileTypeScript(code: string, filename: string): Promise<string> {
     const esbuild = loadEsbuild();
     if (esbuild) {
       try {
-        // CommonJS output: `export function activate` becomes `module.exports.activate`,
-        // which the renderer's PluginEngine looks up. (An IIFE would hide `activate`
-        // inside its closure, so TS plugins never activated.)
         const result = await esbuild.transform(code, {
           loader: 'ts',
           target: 'es2022',
@@ -171,11 +278,25 @@ export class TokPluginManager {
         logger.warn(`[PLUGINS] esbuild transform failed for ${filename}, using fallback:`, err?.message);
       }
     }
-    // Fallback: strip basic TS type annotations with regex
+
+    // Robust TypeScript stripper fallback (does not damage JSON or object literals)
     return code
-      .replace(/:\s*([A-Za-z0-9_<>\[\]]+)/g, '')
-      .replace(/interface\s+\w+\s*\{[^}]*\}/g, '')
-      .replace(/export\s+/g, '');
+      // Strip type-only imports: import type { ... } from '...';
+      .replace(/import\s+type\s+[^;]+;/g, '')
+      // Strip interfaces
+      .replace(/(?:export\s+)?interface\s+\w+(?:<[^>]*>)?(?:\s+extends\s+[^{]+)?\s*\{[^}]*\}/gs, '')
+      // Strip type aliases
+      .replace(/(?:export\s+)?type\s+\w+(?:<[^>]*>)?\s*=\s*[^;]+;/g, '')
+      // Transform export function activate(...) to module.exports.activate = function(...)
+      .replace(/export\s+function\s+([A-Za-z0-9_$]+)/g, 'module.exports.$1 = function $1')
+      .replace(/export\s+const\s+([A-Za-z0-9_$]+)/g, 'const $1 = module.exports.$1')
+      .replace(/export\s+default\s+/g, 'module.exports = ')
+      // Strip function parameter types: (tok: TokPluginContext) -> (tok)
+      .replace(/\(([^):]+):\s*[A-Za-z0-9_<>\[\]|&\s]+\)/g, '($1)')
+      // Strip function return types: ): void { or ): Promise<void> { -> ) {
+      .replace(/\)\s*:\s*[A-Za-z0-9_<>\[\]|&\s]+(?=\s*\{)/g, ') ')
+      // Strip 'as Type' casts
+      .replace(/\s+as\s+[A-Za-z0-9_<>\[\]]+/g, '');
   }
 
   /** Returns compiled code for a TS entry, reusing the on-disk cache when the source is unchanged. */
@@ -186,14 +307,13 @@ export class TokPluginManager {
       return { code: cached.code, fresh: false };
     }
     const compiled = await this.compileTypeScript(code, filename);
-    // Only cache real esbuild output, so a later run with esbuild available recompiles.
     if (loadEsbuild()) {
       this.compileCache[mainPath] = { mtimeMs: stats.mtimeMs, size: stats.size, code: compiled };
     }
     return { code: compiled, fresh: true };
   }
 
-  private async loadPlugin(pluginDir: string): Promise<{ plugin: LoadedPlugin | null; compiled: boolean }> {
+  private async loadPlugin(pluginDir: string, isBuiltin = false): Promise<{ plugin: LoadedPlugin | null; compiled: boolean }> {
     const manifestPath = path.join(pluginDir, 'plugin.json');
     let manifest: PluginManifest;
     try {
@@ -207,9 +327,20 @@ export class TokPluginManager {
       return { plugin: null, compiled: false };
     }
 
-    const isEnabled = this.pluginStates[manifest.id] !== undefined
-      ? this.pluginStates[manifest.id]
-      : (manifest.enabled ?? true);
+    // Security: normalize permissions
+    if (manifest.permissions && !Array.isArray(manifest.permissions)) {
+      manifest.permissions = [];
+    }
+
+    const safeMode = this.isSafeMode();
+    // In Safe Mode, all non-builtin user plugins are strictly blocked from activating
+    const blockedBySafeMode = safeMode && !isBuiltin;
+
+    const isEnabled = blockedBySafeMode
+      ? false
+      : (this.pluginStates[manifest.id] !== undefined
+          ? this.pluginStates[manifest.id]
+          : (manifest.enabled ?? true));
 
     const mainPath = path.resolve(pluginDir, manifest.main);
     const isTs = mainPath.endsWith('.ts');
@@ -219,10 +350,11 @@ export class TokPluginManager {
       sourceType: isTs ? 'ts' : 'js',
       compiledCode: '',
       enabled: false,
-      error
+      error,
+      safeModeBlocked: blockedBySafeMode
     });
 
-    // The entry file must live inside the plugin's own folder.
+    // Security: Path Traversal Guard. The entry file must strictly reside inside the plugin's folder.
     const rel = path.relative(pluginDir, mainPath);
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
       return { plugin: broken(`Main entry must be inside the plugin folder: ${manifest.main}`), compiled: false };
@@ -244,7 +376,14 @@ export class TokPluginManager {
     }
 
     return {
-      plugin: { manifest, dirPath: pluginDir, sourceType: isTs ? 'ts' : 'js', compiledCode, enabled: isEnabled },
+      plugin: {
+        manifest,
+        dirPath: pluginDir,
+        sourceType: isTs ? 'ts' : 'js',
+        compiledCode,
+        enabled: isEnabled,
+        safeModeBlocked: blockedBySafeMode
+      },
       compiled
     };
   }
@@ -267,7 +406,12 @@ export class TokPluginManager {
     const plugins: LoadedPlugin[] = [];
     let cacheDirty = false;
 
-    for (const baseDir of [this.userPluginsDir, this.builtinPluginsDir]) {
+    const dirsToScan = [
+      { dir: this.builtinPluginsDir, isBuiltin: true },
+      { dir: this.userPluginsDir, isBuiltin: false }
+    ];
+
+    for (const { dir: baseDir, isBuiltin } of dirsToScan) {
       let entries: fs.Dirent[];
       try {
         entries = await fsp.readdir(baseDir, { withFileTypes: true });
@@ -280,7 +424,7 @@ export class TokPluginManager {
         entries
           .filter((e) => e.isDirectory() || e.isSymbolicLink())
           .map((e) =>
-            this.loadPlugin(path.join(baseDir, e.name)).catch((err: any) => {
+            this.loadPlugin(path.join(baseDir, e.name), isBuiltin).catch((err: any) => {
               logger.warn(`[PLUGINS] Failed to load plugin in ${path.join(baseDir, e.name)}:`, err?.message);
               return { plugin: null, compiled: false };
             })
@@ -302,7 +446,6 @@ export class TokPluginManager {
     }
 
     if (cacheDirty) {
-      // Shut down esbuild's helper process; it restarts on demand.
       Promise.resolve()
         .then(() => loadEsbuild()?.stop?.())
         .catch(() => {});
@@ -330,8 +473,12 @@ export class TokPluginManager {
       logger.error('[PLUGINS] Cannot create plugins folder:', err?.message);
       return;
     }
-    const err = await shell.openPath(this.userPluginsDir);
-    if (err) logger.warn('[PLUGINS] Failed to open plugins folder:', err);
+    try {
+      const err = await shell.openPath(this.userPluginsDir);
+      if (err) logger.warn('[PLUGINS] Failed to open plugins folder:', err);
+    } catch (openErr: any) {
+      logger.warn('[PLUGINS] shell.openPath blocked or failed (Safer / restricted environment):', openErr?.message);
+    }
   }
 }
 

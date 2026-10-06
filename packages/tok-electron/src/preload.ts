@@ -21,6 +21,8 @@ export interface TokIpcBridge {
   togglePlugin: (pluginId: string, enabled: boolean) => Promise<boolean>;
   openPluginsFolder: () => Promise<void>;
   reloadPlugins: () => Promise<unknown[]>;
+  getPluginSystemStatus: () => Promise<{ isSafeMode: boolean; isSaferActive: boolean; userPluginsDir: string; builtinPluginsDir: string }>;
+  setPluginSafeMode: (enabled: boolean) => Promise<boolean>;
 
   // System & Utilities
   openExternal: (url: string) => Promise<void>;
@@ -88,6 +90,12 @@ const tokIpc: TokIpcBridge = {
   },
   reloadPlugins: async () => {
     return await ipcRenderer.invoke('tok:reload-plugins');
+  },
+  getPluginSystemStatus: async () => {
+    return await ipcRenderer.invoke('tok:get-plugin-system-status');
+  },
+  setPluginSafeMode: async (enabled: boolean) => {
+    return await ipcRenderer.invoke('tok:set-plugin-safe-mode', enabled);
   },
 
   // System

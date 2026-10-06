@@ -459,6 +459,8 @@ handle('tok:get-plugins', async () => {
 handle('tok:toggle-plugin', (_, payload) => pluginManager.togglePlugin(payload?.pluginId, payload?.enabled));
 handle('tok:open-plugins-folder', () => pluginManager.openPluginsFolder());
 handle('tok:reload-plugins', () => pluginManager.discoverPlugins());
+handle('tok:get-plugin-system-status', () => pluginManager.getSystemStatus());
+handle('tok:set-plugin-safe-mode', (_, enabled: boolean) => pluginManager.setSafeMode(enabled));
 
 // System Handlers
 handle('tok:open-external', (_, url: string) => openExternalSafely(url));
