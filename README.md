@@ -7,7 +7,7 @@
 
 [![CI Build](https://github.com/TypesetOK/typesetok/actions/workflows/ci.yml/badge.svg)](https://github.com/TypesetOK/typesetok/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/Version-0.9.1-blue.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-235%2F235%20Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-239%2F239%20Passing-brightgreen.svg)]()
 [![Electron](https://img.shields.io/badge/Electron-29.4%2B-blue.svg?logo=electron)](https://www.electronjs.org)
 [![Rust](https://img.shields.io/badge/Rust-1.85%2B-orange.svg?logo=rust)](https://www.rust-lang.org)
 [![Standard](https://img.shields.io/badge/Standard-ת"י%206100%20(SI%206100)-blue.svg)]()
@@ -89,6 +89,12 @@ graph TD
 - **שמירה אטומית מוגנת (Atomic Safe-Save):** כתיבה לקובץ זמני, סנכרון חומרה מלא (`fsync`), והחלפה אטומית.
 - **מנהל רב-מסמכים (`.tokbook`):** סנכרון סגנונות מסטר, רציפות מספור עמודים עברי ומפתח עניינים (TOC) מאוחד.
 
+#### 5. מערכת הרחבות ותוספים מאובטחת (`tok-plugin-host` & Plugin Engine)
+- **API רשמי עשיר:** עריכת פסקאות אטומית (`tok.document`), כלי עזר לטיפוגרפיה עברית וגימטריה ב-0 השהיה (`tok.hebrew`), סרגל פקודות וטוסטים (`tok.ui`), ניווט דפים וזום (`tok.canvas`).
+- **ארגז חול ומודל הרשאות מפורש:** הצללת IPC, חסימת תקשורת רשת לא מורשית, גבול בידוד שגיאות (Error Boundary).
+- **תאימות מלאה לעמדות סייפר ומצב בטוח:** זיהוי אוטומטי של עמדות סייפר תורניות, פעולה מקומית מלאה (Offline), שמירה במחשבים מוקפאים, ומתג השבתת חירום / Safe Mode (`--safe-mode`).
+- 📘 **מדריך מקיף ודוגמאות קוד:** ראו [מדריך ומפרט ה-API המלא לפיתוח תוספים (docs/PLUGINS_API.md)](docs/PLUGINS_API.md).
+
 ---
 
 ## 🇺🇸 English
@@ -162,7 +168,7 @@ npm install
 # Build all TypeScript packages and bundle UI
 npm run build
 
-# Run frontend test suite (60 passing tests across 27 suites)
+# Run frontend test suite (64 passing tests across 28 suites)
 npm test
 
 # Build Standalone Desktop App bundle
