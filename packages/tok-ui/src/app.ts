@@ -19,6 +19,13 @@ import { i18n, t, tf } from './i18n';
 import { themeManager } from './theme';
 import { FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR } from './fonts';
 import { el, icon, iconButton, button } from './ui';
+import {
+  FlowPaginator,
+  MultiFlowDocumentState,
+  DEFAULT_TALMUD_FLOWS,
+  DEFAULT_PROSE_FLOWS,
+  TemplateType
+} from './engine/FlowPaginator';
 
 import { toHebrewGematria } from './gematria';
 export { toHebrewGematria };
@@ -87,6 +94,12 @@ export class TypesetOkApp {
   private activePageIndex = 0;
   private activeFlowId: string | null = null;
   private wordCountTimer: ReturnType<typeof setTimeout> | null = null;
+  private repaginateTimer: ReturnType<typeof setTimeout> | null = null;
+  private documentState: MultiFlowDocumentState = {
+    title: 'פרויקט דף גמרא.tok',
+    templateType: 'gemara',
+    flows: JSON.parse(JSON.stringify(DEFAULT_TALMUD_FLOWS))
+  };
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -199,10 +212,8 @@ export class TypesetOkApp {
       },
       onAddPage: () => this.addNewPage(),
       onSelectFlow: (flowId) => {
-        this.activeFlowId = flowId;
+        this.switchActiveFlow(flowId);
         const name = this.flowDisplayName(flowId);
-        this.statusBar.updateStats({ activeFlow: name });
-        this.updateStoryToolbar();
         this.showToast(tf('toastFlowSelected', { name }));
       },
       onSelectStyle: (styleId) => {
@@ -233,7 +244,8 @@ export class TypesetOkApp {
       onPageChange: (idx) => {
         this.updatePageStats(idx);
       },
-      onZoomChange: (z) => this.statusBar?.updateStats({ zoom: z })
+      onZoomChange: (z) => this.statusBar?.updateStats({ zoom: z }),
+      onSelectFrameFlow: (flowId, paraId) => this.handleCanvasFrameSelect(flowId, paraId)
     });
 
     // 3c. Continuous story editor (hidden in page view). In RTL the editor sits on the
@@ -249,9 +261,11 @@ export class TypesetOkApp {
     this.storyContainer.appendChild(storyScroll);
     this.storyEditor = new StoryEditor(storyScroll);
     this.storyEditor.onTextChange(() => {
+      if (this.activeFlowId) {
+        this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory();
+      }
       this.scheduleWordCountUpdate();
-      // Real-time live update of page rendering in split view
-      this.canvas.updateActivePageText(this.storyEditor.getStory(), this.activeFlowId || 'gemara');
+      this.scheduleRepaginate();
     });
 
     this.splitDivider = this.buildSplitDivider();
@@ -324,7 +338,12 @@ export class TypesetOkApp {
       this.pluginEngine.loadPlugins().catch(console.error);
     });
 
-    // 8. Main startup: Open project picker unconditionally as the primary screen
+    // 8. Initialize default multi-flow document state
+    this.activeFlowId = 'gemara';
+    this.storyEditor.loadStory(this.documentState.flows.gemara);
+    this.repaginateAndSync(true);
+
+    // 9. Main startup: Open project picker unconditionally as the primary screen
     this.welcomeModal.setHasOpenDocument(false);
     this.welcomeModal.show();
   }
@@ -913,13 +932,92 @@ export class TypesetOkApp {
     );
   }
 
+  /** Switches active flow, syncing the story editor and structure bar. */
+  public switchActiveFlow(flowId: string, scrollToParaId?: string): void {
+    if (this.storyEditor && this.activeFlowId) {
+      this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory();
+    }
+    this.activeFlowId = flowId;
+    const targetFlowParas = this.documentState.flows[flowId] || [];
+    this.storyEditor.loadStory(targetFlowParas);
+
+    const name = this.flowDisplayName(flowId);
+    this.statusBar.updateStats({ activeFlow: name });
+    this.structureBar.setActiveFlow(flowId);
+    this.updateStoryToolbar();
+
+    if (scrollToParaId) {
+      setTimeout(() => {
+        const editorEl = this.storyEditor.getElement();
+        const paraEl = editorEl.querySelector<HTMLElement>(`p[data-para-id="${CSS.escape(scrollToParaId)}"]`);
+        if (paraEl) {
+          editorEl.querySelectorAll('p.tok-current').forEach((p) => p.classList.remove('tok-current'));
+          paraEl.classList.add('tok-current');
+          paraEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+    }
+  }
+
+  private handleCanvasFrameSelect(flowId: string, paraId?: string): void {
+    if (flowId !== this.activeFlowId) {
+      this.switchActiveFlow(flowId, paraId);
+      const name = this.flowDisplayName(flowId);
+      this.showToast(tf('toastFlowSelected', { name }));
+    } else if (paraId) {
+      const editorEl = this.storyEditor.getElement();
+      const paraEl = editorEl.querySelector<HTMLElement>(`p[data-para-id="${CSS.escape(paraId)}"]`);
+      if (paraEl) {
+        editorEl.querySelectorAll('p.tok-current').forEach((p) => p.classList.remove('tok-current'));
+        paraEl.classList.add('tok-current');
+        paraEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }
+
+  private scheduleRepaginate(): void {
+    if (this.repaginateTimer) clearTimeout(this.repaginateTimer);
+    this.repaginateTimer = setTimeout(() => {
+      this.repaginateTimer = null;
+      this.repaginateAndSync(false);
+    }, 120);
+  }
+
+  private repaginateAndSync(forceReset = false): void {
+    const minPages = Math.max(1, this.pages.length);
+    const newPages = FlowPaginator.paginateDocument(this.documentState, minPages);
+    this.pages = newPages;
+    this.canvas.setPages(newPages, this.activePageIndex);
+    this.refreshThumbnails();
+    if (forceReset || this.activePageIndex >= newPages.length) {
+      this.updatePageStats(0);
+    } else {
+      this.updatePageStats(this.activePageIndex);
+    }
+
+    // Update flow word counts across all flows
+    const counts: Record<string, number> = {};
+    let totalWords = 0;
+    for (const [fid, paras] of Object.entries(this.documentState.flows)) {
+      const w = paras.reduce((sum, p) => sum + countWords(p.text), 0);
+      counts[fid] = w;
+      totalWords += w;
+    }
+    this.structureBar.updateFlowWordCounts(counts);
+    this.statusBar.updateStats({ wordCount: totalWords });
+    this.updateStoryToolbar();
+  }
+
   /** Story edits update the word count in the status bar (debounced while typing). */
   private scheduleWordCountUpdate(): void {
     if (this.wordCountTimer) clearTimeout(this.wordCountTimer);
     this.wordCountTimer = setTimeout(() => {
       this.wordCountTimer = null;
-      const words = this.storyEditor.getStory().reduce((sum, p) => sum + countWords(p.text), 0);
-      this.statusBar.updateStats({ wordCount: words });
+      let totalWords = 0;
+      for (const paras of Object.values(this.documentState.flows)) {
+        totalWords += paras.reduce((sum, p) => sum + countWords(p.text), 0);
+      }
+      this.statusBar.updateStats({ wordCount: totalWords });
       this.updateStoryToolbar();
     }, 250);
   }
@@ -928,18 +1026,21 @@ export class TypesetOkApp {
     const name = TEMPLATE_TITLES[templateId] || BLANK_TEMPLATE_TITLE;
     this.documentTitle = name;
     this.topBar.setDocumentTitle(name);
-    this.pages = [{
-      pageIndex: 0,
-      gematriaNumber: 'א׳',
-      widthPt: 480,
-      heightPt: 678,
-      htmlContent: ''
-    }];
-    this.loadDocumentPages(this.pages);
-    this.storyEditor.loadStory([]);
-    this.statusBar.updateStats({ wordCount: 0, activeFlow: this.flowDisplayName('gemara') });
+    this.documentState.title = name;
+    this.documentState.templateType = (templateId in TEMPLATE_TITLES ? templateId : 'gemara') as TemplateType;
+
+    if (templateId === 'prose') {
+      this.documentState.flows = JSON.parse(JSON.stringify(DEFAULT_PROSE_FLOWS));
+    } else {
+      this.documentState.flows = JSON.parse(JSON.stringify(DEFAULT_TALMUD_FLOWS));
+    }
+
+    this.activeFlowId = 'gemara';
+    this.storyEditor.loadStory(this.documentState.flows.gemara);
+    this.repaginateAndSync(true);
+
     this.hasOpenDocument = true;
-    addRecentProject({ name, pages: 1, lastSavedAt: new Date().toISOString() });
+    addRecentProject({ name, pages: this.pages.length, lastSavedAt: new Date().toISOString() });
     this.welcomeModal.setHasOpenDocument(true);
     this.showToast(tf('toastProjectCreated', { name }));
   }
@@ -991,18 +1092,15 @@ export class TypesetOkApp {
   }
 
   private addNewPage(): void {
-    const newIdx = this.pages.length;
-    const newGematria = toHebrewGematria(newIdx + 1);
-    this.pages.push({
-      pageIndex: newIdx,
-      gematriaNumber: newGematria,
-      widthPt: 480,
-      heightPt: 680,
-      htmlContent: ''
-    });
-    this.loadDocumentPages(this.pages);
+    const minP = this.pages.length + 1;
+    const newPages = FlowPaginator.paginateDocument(this.documentState, minP);
+    this.pages = newPages;
+    this.canvas.setPages(newPages, this.activePageIndex);
+    this.refreshThumbnails();
+    const newIdx = this.pages.length - 1;
     this.canvas.scrollToPage(newIdx);
     this.updatePageStats(newIdx);
+    const newGematria = this.pages[newIdx].gematriaNumber;
     this.showToast(tf('toastPageAdded', { page: newGematria, index: newIdx + 1 }));
   }
 

@@ -959,3 +959,117 @@ describe('Feature: Official Plugin APIs & Security Sandbox', () => {
   });
 });
 
+describe('Multi-Flow Real-Time Paginator & Live Canvas Sync (Talmud Engine)', () => {
+  test('Talmud pagination produces Recto/Verso aware commentary placement', async () => {
+    const { FlowPaginator, DEFAULT_TALMUD_FLOWS } = await loadTs('packages/tok-ui/src/engine/FlowPaginator.ts');
+    const doc = {
+      title: 'Talmud Test',
+      templateType: 'gemara',
+      flows: {
+        gemara: [...DEFAULT_TALMUD_FLOWS.gemara],
+        rashi: [...DEFAULT_TALMUD_FLOWS.rashi],
+        tosafot: [...DEFAULT_TALMUD_FLOWS.tosafot],
+        notes: [...DEFAULT_TALMUD_FLOWS.notes]
+      }
+    };
+
+    const pages = FlowPaginator.paginateDocument(doc, 2);
+    assert.ok(pages.length >= 2, 'Must generate at least 2 pages');
+
+    // Page 0 is Recto (ע״א - right page in Hebrew spread)
+    const p0Html = pages[0].htmlContent;
+    assert.ok(p0Html.includes('data-flow-id="gemara"'), 'Recto page must contain Gemara frame');
+    assert.ok(p0Html.includes('data-flow-id="rashi"'), 'Recto page must contain Rashi frame');
+    assert.ok(p0Html.includes('data-flow-id="tosafot"'), 'Recto page must contain Tosafot frame');
+    assert.ok(p0Html.includes('data-flow-id="notes"'), 'Recto page must contain Footnotes frame');
+
+    // Check Hebrew spine awareness:
+    // On Recto (page 0), Spine is on the LEFT.
+    // Inner commentary (Rashi) -> Left column.
+    // Outer commentary (Tosafot) -> Right column.
+    const p0RightIdx = p0Html.indexOf('data-flow-id="tosafot"');
+    const p0CenterIdx = p0Html.indexOf('data-flow-id="gemara"');
+    const p0LeftIdx = p0Html.indexOf('data-flow-id="rashi"');
+    assert.ok(p0RightIdx < p0CenterIdx, 'Tosafot on Recto should be on the right (outer) column');
+    assert.ok(p0CenterIdx < p0LeftIdx, 'Rashi on Recto should be on the left (inner spine) column');
+
+    // Page 1 is Verso (ע״ב - left page in Hebrew spread)
+    const p1Html = pages[1].htmlContent;
+    // On Verso (page 1), Spine is on the RIGHT.
+    // Inner commentary (Rashi) -> Right column.
+    // Outer commentary (Tosafot) -> Left column.
+    const p1RightIdx = p1Html.indexOf('data-flow-id="rashi"');
+    const p1CenterIdx = p1Html.indexOf('data-flow-id="gemara"');
+    const p1LeftIdx = p1Html.indexOf('data-flow-id="tosafot"');
+    assert.ok(p1RightIdx < p1CenterIdx, 'Rashi on Verso should be on the right (inner spine) column');
+    assert.ok(p1CenterIdx < p1LeftIdx, 'Tosafot on Verso should be on the left (outer) column');
+  });
+
+  test('Dynamic L-Shape expansion triggers when Gemara ends early', async () => {
+    const { FlowPaginator, DEFAULT_TALMUD_FLOWS } = await loadTs('packages/tok-ui/src/engine/FlowPaginator.ts');
+    // Short gemara, long rashi
+    const doc = {
+      title: 'Talmud Short Gemara',
+      templateType: 'gemara',
+      flows: {
+        gemara: [{ id: 'g-short', styleId: 'style-gemara-main', text: 'קצר מאד.' }],
+        rashi: [...DEFAULT_TALMUD_FLOWS.rashi],
+        tosafot: [...DEFAULT_TALMUD_FLOWS.tosafot],
+        notes: []
+      }
+    };
+
+    const pages = FlowPaginator.paginateDocument(doc, 1);
+    const p0Html = pages[0].htmlContent;
+    assert.ok(p0Html.includes('tok-lshape-box'), 'Should render L-shape expansion zone');
+    assert.ok(p0Html.includes('צורת הדף'), 'Should mention Tzurat HaDaf in expansion');
+  });
+
+  test('Prose template paginates continuous text across pages', async () => {
+    const { FlowPaginator } = await loadTs('packages/tok-ui/src/engine/FlowPaginator.ts');
+    const paras = Array.from({ length: 40 }, (_, i) => ({
+      id: `p-${i}`,
+      styleId: 'style-body',
+      text: `פסקה מספר ${i + 1} עם מלל רציף לצורך בדיקת חלוקת עמודים רב עמודית בפורמט פרוזה.`
+    }));
+
+    const doc = {
+      title: 'Prose Test',
+      templateType: 'prose',
+      flows: {
+        gemara: paras,
+        rashi: [],
+        tosafot: [],
+        notes: []
+      }
+    };
+
+    const pages = FlowPaginator.paginateDocument(doc, 1);
+    assert.ok(pages.length > 1, 'Long prose must paginate into multiple pages');
+    for (const page of pages) {
+      assert.ok(page.htmlContent.includes('data-flow-id="gemara"'));
+    }
+  });
+
+  test('Footnotes layout displays gemara and bottom footnote notes', async () => {
+    const { FlowPaginator } = await loadTs('packages/tok-ui/src/engine/FlowPaginator.ts');
+    const doc = {
+      title: 'Footnotes Test',
+      templateType: 'notes',
+      flows: {
+        gemara: [{ id: 'g-1', styleId: 'style-body', text: 'טקסט ראשי עם הערת שוליים.' }],
+        rashi: [],
+        tosafot: [],
+        notes: [{ id: 'fn-1', styleId: 'style-notes', text: '1. הערת שוליים בתחתית העמוד.' }]
+      }
+    };
+
+    const pages = FlowPaginator.paginateDocument(doc, 1);
+    assert.equal(pages.length, 1);
+    const html = pages[0].htmlContent;
+    assert.ok(html.includes('data-flow-id="gemara"'));
+    assert.ok(html.includes('data-flow-id="notes"'));
+  });
+});
+
+
