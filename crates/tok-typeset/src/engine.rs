@@ -10,6 +10,7 @@ use crate::geometry::{
 };
 use crate::hebrew_justify::HebrewJustifier;
 use crate::knuth_plass::{KnuthPlassBreaker, LayoutItem};
+use crate::multi_flow::{FlowGeometrySpec, MultiFlowSolver, SpreadSide};
 use crate::shaper::PositionedGlyph;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -402,6 +403,11 @@ impl TypesettingEngine {
 
     /// Typesets an entire DocumentRoot into multi-page layout boxes.
     pub fn typeset_document(&self, doc: &DocumentRoot) -> Vec<PageLayoutBox> {
+        let has_multi_flow = doc.sections.iter().any(|s| s.flows.len() > 1);
+        if has_multi_flow {
+            return self.typeset_document_multi_flow(doc);
+        }
+
         let content_width =
             self.config.page_width_pt - self.config.margin_inner_pt - self.config.margin_outer_pt;
         let content_height =
@@ -547,6 +553,236 @@ impl TypesettingEngine {
                 None,
             );
             pages.push(page);
+        }
+
+        pages
+    }
+
+    /// Typesets a multi-flow document (Talmud / Mikraot / commentaries) using MultiFlowSolver.
+    pub fn typeset_document_multi_flow(&self, doc: &DocumentRoot) -> Vec<PageLayoutBox> {
+        let content_width =
+            self.config.page_width_pt - self.config.margin_inner_pt - self.config.margin_outer_pt;
+        let content_height =
+            self.config.page_height_pt - self.config.margin_top_pt - self.config.margin_bottom_pt;
+
+        let Some(first_sec) = doc.sections.first() else {
+            return Vec::new();
+        };
+
+        // Layout lines for each flow
+        let mut flow_lines_map: HashMap<String, Vec<LineBox>> = HashMap::new();
+        for flow in &first_sec.flows {
+            let flow_width = if flow.id.0 == "main" || flow.id.0 == "gemara" {
+                content_width * 0.40
+            } else if flow.id.0.contains("rashi") {
+                content_width * 0.28
+            } else if flow.id.0.contains("tosafot") {
+                content_width * 0.32
+            } else {
+                content_width
+            };
+
+            let mut lines = Vec::new();
+            for p in &flow.paragraphs {
+                let (font_family, font_size, line_height) = doc
+                    .paragraph_styles
+                    .iter()
+                    .find(|s| s.id == p.style_id)
+                    .map(|style| {
+                        (
+                            self.font_manager
+                                .face_for(&style.font_family, style.font_weight),
+                            style.font_size_pt,
+                            style.line_height_pt,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        let is_gemara = flow.id.0 == "main" || flow.id.0 == "gemara";
+                        let font = if is_gemara { "Frank Ruhl Libre" } else { "Noto Rashi Hebrew" };
+                        let sz = if is_gemara { 13.5 } else { 10.5 };
+                        (font.to_string(), sz, sz * 1.45)
+                    });
+
+                let p_lines = self.typeset_paragraph_with_font(
+                    p,
+                    &font_family,
+                    flow_width,
+                    font_size,
+                    line_height,
+                );
+                lines.extend(p_lines);
+            }
+            flow_lines_map.insert(flow.id.0.clone(), lines);
+        }
+
+        // Build geometric flow specs for MultiFlowSolver
+        let flow_specs: Vec<FlowGeometrySpec> = first_sec
+            .flows
+            .iter()
+            .filter(|f| !f.id.0.contains("note"))
+            .map(|f| {
+                let priority = if f.id.0 == "main" || f.id.0 == "gemara" {
+                    1
+                } else if f.id.0.contains("rashi") {
+                    2
+                } else {
+                    3
+                };
+                FlowGeometrySpec {
+                    flow_id: f.id.clone(),
+                    priority,
+                    min_width_pt: 50.0,
+                    max_width_pt: content_width,
+                    target_height_pt: content_height,
+                }
+            })
+            .collect();
+
+        let has_notes = first_sec.flows.iter().any(|f| f.id.0.contains("note"));
+
+        let mut pages = Vec::new();
+        let mut current_page_num = 1;
+
+        let mut flow_cursors: HashMap<String, usize> = HashMap::new();
+        for k in flow_lines_map.keys() {
+            flow_cursors.insert(k.clone(), 0);
+        }
+
+        loop {
+            let side = if current_page_num % 2 == 1 {
+                SpreadSide::Recto
+            } else {
+                SpreadSide::Verso
+            };
+
+            let footnote_target = if has_notes { Some(50.0) } else { None };
+
+            let talmud_result = MultiFlowSolver::solve_talmud_dynamic_with_footnotes(
+                self.config.page_width_pt,
+                self.config.page_height_pt,
+                self.config.margin_inner_pt,
+                self.config.margin_outer_pt,
+                self.config.margin_top_pt,
+                &flow_specs,
+                side,
+                None,
+                footnote_target,
+            );
+
+            let mut page_frames = Vec::new();
+            let mut any_lines_placed = false;
+
+            // Place commentary & main columns
+            for alloc in &talmud_result.allocations {
+                let lines_pool = flow_lines_map.get(&alloc.flow_id.0);
+                let cursor = flow_cursors.get(&alloc.flow_id.0).copied().unwrap_or(0);
+
+                let mut frame_lines = Vec::new();
+                let mut current_h = 0.0;
+
+                if let Some(pool) = lines_pool {
+                    let mut idx = cursor;
+                    while idx < pool.len() {
+                        let l = &pool[idx];
+                        if current_h + l.height > alloc.allocated_height_pt && !frame_lines.is_empty() {
+                            break;
+                        }
+                        let mut positioned_line = l.clone();
+                        positioned_line.baseline_y = current_h + positioned_line.height;
+                        positioned_line.line_index = frame_lines.len();
+                        current_h += positioned_line.height;
+                        frame_lines.push(positioned_line);
+                        idx += 1;
+                    }
+                    if idx > cursor {
+                        flow_cursors.insert(alloc.flow_id.0.clone(), idx);
+                        any_lines_placed = true;
+                    }
+                }
+
+                page_frames.push(TextFrameBox {
+                    frame_id: format!("frame_{}_{}", current_page_num, alloc.flow_id.0),
+                    flow_id: alloc.flow_id.0.clone(),
+                    rect: PhysicalRect::new(
+                        alloc.allocated_x_pt,
+                        alloc.allocated_y_pt,
+                        alloc.allocated_width_pt,
+                        alloc.allocated_height_pt,
+                    ),
+                    lines: frame_lines,
+                });
+            }
+
+            // Place footnotes if present
+            if let Some(fn_alloc) = talmud_result.footnote_allocation {
+                let notes_id = first_sec
+                    .flows
+                    .iter()
+                    .find(|f| f.id.0.contains("note"))
+                    .map(|f| f.id.0.clone())
+                    .unwrap_or_else(|| "notes".to_string());
+
+                let lines_pool = flow_lines_map.get(&notes_id);
+                let cursor = flow_cursors.get(&notes_id).copied().unwrap_or(0);
+                let mut frame_lines = Vec::new();
+                let mut current_h = 0.0;
+
+                if let Some(pool) = lines_pool {
+                    let mut idx = cursor;
+                    while idx < pool.len() {
+                        let l = &pool[idx];
+                        if current_h + l.height > fn_alloc.allocated_height_pt && !frame_lines.is_empty() {
+                            break;
+                        }
+                        let mut positioned_line = l.clone();
+                        positioned_line.baseline_y = current_h + positioned_line.height;
+                        positioned_line.line_index = frame_lines.len();
+                        current_h += positioned_line.height;
+                        frame_lines.push(positioned_line);
+                        idx += 1;
+                    }
+                    if idx > cursor {
+                        flow_cursors.insert(notes_id.clone(), idx);
+                        any_lines_placed = true;
+                    }
+                }
+
+                page_frames.push(TextFrameBox {
+                    frame_id: format!("frame_{}_{}", current_page_num, notes_id),
+                    flow_id: notes_id,
+                    rect: PhysicalRect::new(
+                        fn_alloc.allocated_x_pt,
+                        fn_alloc.allocated_y_pt,
+                        fn_alloc.allocated_width_pt,
+                        fn_alloc.allocated_height_pt,
+                    ),
+                    lines: frame_lines,
+                });
+            }
+
+            pages.push(PageLayoutBox {
+                page_index: current_page_num - 1,
+                page_number_gematria: GematriaEngine::to_hebrew_numeral(current_page_num),
+                dimensions: PhysicalRect::new(
+                    0.0,
+                    0.0,
+                    self.config.page_width_pt,
+                    self.config.page_height_pt,
+                ),
+                frames: page_frames,
+                break_token: None,
+            });
+
+            current_page_num += 1;
+
+            let all_exhausted = flow_cursors.iter().all(|(fid, &idx)| {
+                let total = flow_lines_map.get(fid).map_or(0, |v| v.len());
+                idx >= total
+            });
+
+            if all_exhausted || !any_lines_placed || current_page_num > 500 {
+                break;
+            }
         }
 
         pages
@@ -1006,5 +1242,44 @@ mod tests {
         // Margins collapsed: 5.0.max(12.0).max(8.0).max(6.0) = 12.0
         // baseline = 14.0 + 12.0 + 14.0 = 40.0
         assert_eq!(lines[1].baseline_y, 40.0);
+    }
+
+    #[test]
+    fn test_typeset_document_multi_flow_talmud() {
+        use tok_core::model::{Flow, FlowId, FlowType};
+
+        let mut doc = DocumentRoot::new("תלמוד מסכת ברכות");
+        let sec = &mut doc.sections[0];
+        let mut rashi_flow = Flow::new(FlowId::new("rashi"), FlowType::CommentA);
+        rashi_flow.add_paragraph(ParagraphNode::new(
+            FractionalIndex::new("r01"),
+            "rashi",
+            "רש\"י: מאימתי קורין את שמע בערבית משעה שהכהנים נכנסין לאכול בתרומתן",
+        ));
+        let mut tosafot_flow = Flow::new(FlowId::new("tosafot"), FlowType::CommentB);
+        tosafot_flow.add_paragraph(ParagraphNode::new(
+            FractionalIndex::new("t01"),
+            "tosafot",
+            "תוספות: מאימתי קורין פירש הקונטרס דאקרא קאי ותימה",
+        ));
+
+        let main_flow = sec.main_flow_mut().unwrap();
+        main_flow.add_paragraph(ParagraphNode::new(
+            FractionalIndex::new("m01"),
+            "main",
+            "מאימתי קורין את שמע בערבית משעה שהכהנים נכנסים לאכול בתרומתן עד סוף האשמורה הראשונה דברי רבי אליעזר",
+        ));
+
+        sec.flows.push(rashi_flow);
+        sec.flows.push(tosafot_flow);
+
+        let pages = engine().typeset_document(&doc);
+        assert!(!pages.is_empty());
+        let p0 = &pages[0];
+        assert_eq!(p0.frames.len(), 3);
+        let flow_ids: Vec<&str> = p0.frames.iter().map(|f| f.flow_id.as_str()).collect();
+        assert!(flow_ids.contains(&"main"));
+        assert!(flow_ids.contains(&"rashi"));
+        assert!(flow_ids.contains(&"tosafot"));
     }
 }
