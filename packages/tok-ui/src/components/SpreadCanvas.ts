@@ -65,6 +65,8 @@ export interface SpreadCanvasCallbacks {
   onPageChange: (pageIndex: number) => void;
   /** The zoom changed from the canvas's own controls. */
   onZoomChange?: (zoomPercent: number) => void;
+  /** User clicked on an interactive text frame on the canvas. */
+  onSelectFrameFlow?: (flowId: string, paraId?: string) => void;
 }
 
 export class SpreadCanvas {
@@ -386,6 +388,58 @@ export class SpreadCanvas {
       const content = el('div', 'tok-page-content', { style: 'flex: 1; min-height: 0; overflow: hidden;' });
       content.innerHTML = page.htmlContent;
       sheet.appendChild(content);
+
+      // Bind interactive clicks on all frames inside the rendered multi-flow content
+      const frames = content.querySelectorAll<HTMLElement>('.tok-interactive-frame');
+      frames.forEach((fr) => {
+        fr.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const flowId = (fr.dataset.flowId || 'gemara') as FlowId;
+          const frameId = fr.dataset.frameId || `frame-${page.pageIndex}-${flowId}`;
+          const target = e.target as HTMLElement | null;
+          const paraEl = target?.closest('[data-para-id]') as HTMLElement | null;
+          const paraId = paraEl?.dataset?.paraId;
+
+          this.selectFrame(fr, {
+            id: frameId,
+            title: this.flowTitle(flowId),
+            flowId,
+            className: '',
+            text: ''
+          });
+
+          this.callbacks.onSelectFrameFlow?.(flowId, paraId);
+
+          const sel = window.getSelection();
+          if (sel && sel.toString().trim().length > 0) {
+            this.callbacks.onSelectionModeChange('text-edit');
+            this.callbacks.onRequestActionHud(e.clientX, e.clientY, {
+              size: flowId === 'gemara' ? 14 : 11,
+              bold: flowId === 'gemara',
+              align: 'justify',
+              style: flowId
+            });
+          } else {
+            this.callbacks.onSelectionModeChange('text-frame', {
+              id: frameId,
+              xMm: 35,
+              yMm: 45,
+              widthMm: 110,
+              heightMm: 240,
+              rotationDeg: 0,
+              flowId,
+              columns: 1,
+              columnGapMm: 0,
+              insetTopMm: 3,
+              insetBottomMm: 3,
+              insetRightMm: 4,
+              insetLeftMm: 4,
+              verticalAlign: 'top',
+              text: ''
+            });
+          }
+        });
+      });
     } else {
       const bodyFrame = this.createInteractiveFrame({
         id: `frame-main-${page.pageIndex}`,
@@ -590,4 +644,20 @@ export class SpreadCanvas {
       });
     }, { passive: true });
   }
+
+  private flowTitle(flowId: string): string {
+    switch (flowId) {
+      case 'gemara':
+        return 'גמרא (טקסט ראשי)';
+      case 'rashi':
+        return 'רש"י';
+      case 'tosafot':
+        return 'תוספות';
+      case 'notes':
+        return 'הערות ומסורת';
+      default:
+        return flowId;
+    }
+  }
 }
+

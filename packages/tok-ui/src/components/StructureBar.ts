@@ -103,6 +103,15 @@ export class StructureBar {
     if (this.activeTab === 'flows') this.renderPanel();
   }
 
+  public updateFlowWordCounts(counts: Record<string, number>): void {
+    for (const f of this.flows) {
+      if (typeof counts[f.id] === 'number') {
+        f.wordCount = counts[f.id];
+      }
+    }
+    if (this.activeTab === 'flows') this.renderPanel();
+  }
+
   public getFlows(): MultiFlowItem[] {
     return this.flows.map((f) => ({ ...f }));
   }
