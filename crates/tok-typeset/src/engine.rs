@@ -598,7 +598,11 @@ impl TypesettingEngine {
                     })
                     .unwrap_or_else(|| {
                         let is_gemara = flow.id.0 == "main" || flow.id.0 == "gemara";
-                        let font = if is_gemara { "Frank Ruhl Libre" } else { "Noto Rashi Hebrew" };
+                        let font = if is_gemara {
+                            "Frank Ruhl Libre"
+                        } else {
+                            "Noto Rashi Hebrew"
+                        };
                         let sz = if is_gemara { 13.5 } else { 10.5 };
                         (font.to_string(), sz, sz * 1.45)
                     });
@@ -684,7 +688,9 @@ impl TypesettingEngine {
                     let mut idx = cursor;
                     while idx < pool.len() {
                         let l = &pool[idx];
-                        if current_h + l.height > alloc.allocated_height_pt && !frame_lines.is_empty() {
+                        if current_h + l.height > alloc.allocated_height_pt
+                            && !frame_lines.is_empty()
+                        {
                             break;
                         }
                         let mut positioned_line = l.clone();
@@ -731,7 +737,9 @@ impl TypesettingEngine {
                     let mut idx = cursor;
                     while idx < pool.len() {
                         let l = &pool[idx];
-                        if current_h + l.height > fn_alloc.allocated_height_pt && !frame_lines.is_empty() {
+                        if current_h + l.height > fn_alloc.allocated_height_pt
+                            && !frame_lines.is_empty()
+                        {
                             break;
                         }
                         let mut positioned_line = l.clone();
