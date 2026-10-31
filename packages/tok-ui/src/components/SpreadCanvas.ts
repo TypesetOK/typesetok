@@ -116,6 +116,7 @@ export class SpreadCanvas {
   private programmaticScroll = false;
   private scrollSettleTimer = 0;
   private baselineGridPt = 13;
+  private baselineOffsetPt = 48;
 
   constructor(callbacks: SpreadCanvasCallbacks) {
     this.callbacks = callbacks;
@@ -282,9 +283,9 @@ export class SpreadCanvas {
     requestAnimationFrame(() => this.revealPage(this.activePageIndex, false, true));
   }
 
-  public setBaselineGrid(pt: number): void {
-    if (!(pt > 0)) return;
-    this.baselineGridPt = pt;
+  public setBaselineGrid(pt: number, offsetPt?: number): void {
+    if (pt > 0) this.baselineGridPt = pt;
+    if (typeof offsetPt === 'number' && offsetPt >= 0) this.baselineOffsetPt = offsetPt;
     this.updateGuides();
   }
 
@@ -1001,11 +1002,36 @@ export class SpreadCanvas {
     });
 
     const stepPx = (this.baselineGridPt * 96) / 72;
+    const offsetPx = (this.baselineOffsetPt * 96) / 72;
     const line = 'var(--tok-guide-baseline)';
     this.innerContainer.querySelectorAll<HTMLElement>('.tok-guide-baseline').forEach((g) => {
       g.style.display = this.showBaseline ? 'block' : 'none';
-      g.style.backgroundImage =
-        `repeating-linear-gradient(to bottom, transparent 0, transparent ${stepPx - 1}px, ${line} ${stepPx - 1}px, ${line} ${stepPx}px)`;
+      if (!this.showBaseline) return;
+
+      const sheet = g.closest<HTMLElement>('.tok-page-sheet');
+      // If the sheet contains rendered lines from the typesetting engine, synchronize
+      // the baseline guide perfectly with the actual text frames.
+      const firstLine = sheet?.querySelector<HTMLElement>('.tok-line[data-baseline-y]');
+      const firstFrame = sheet?.querySelector<HTMLElement>('.tok-interactive-frame');
+      if (firstLine && firstFrame) {
+        const frameTop = parseFloat(firstFrame.style.top || '0') || 0;
+        const baselineY = parseFloat(firstLine.dataset.baselineY || '0') || 0;
+        const syncedTopPt = frameTop + baselineY;
+        const syncedTopPx = (syncedTopPt * 96) / 72;
+        g.style.top = `${syncedTopPx}px`;
+        g.style.bottom = '40px';
+        g.style.left = '38px';
+        g.style.right = '36px';
+        g.style.backgroundImage =
+          `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
+      } else {
+        g.style.top = `${Math.max(0, offsetPx)}px`;
+        g.style.bottom = '40px';
+        g.style.left = '38px';
+        g.style.right = '36px';
+        g.style.backgroundImage =
+          `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
+      }
     });
   }
 
