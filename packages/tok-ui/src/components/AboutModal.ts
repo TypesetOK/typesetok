@@ -12,17 +12,17 @@ export interface AboutModalCallbacks {
 
 const REPO_URL = 'https://github.com/TypesetOK/typesetok';
 
-function isSafeGitHubUrl(url: string): boolean {
+/** Only https GitHub profile links are ever opened from this screen. */
+function safeProfileUrl(url: string): string | null {
   try {
     const u = new URL(url);
-    return u.hostname === 'github.com' && u.protocol === 'https:';
+    return u.protocol === 'https:' && u.hostname === 'github.com' ? u.href : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function openSafeLink(url: string): void {
-  if (!isSafeGitHubUrl(url)) return;
+function openExternalUrl(url: string): void {
   const win = window as any;
   if (win.tokIpc && win.tokIpc.openExternal) {
     Promise.resolve(win.tokIpc.openExternal(url)).catch((e: any) => {
@@ -31,6 +31,18 @@ function openSafeLink(url: string): void {
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
+}
+
+/** Profile picture (embedded data: URI) or, when there is none, a round badge with the first letter. */
+function avatarEl(c: Contributor, size: number): HTMLElement {
+  const round = `width:${size}px;height:${size}px;border-radius:50%;flex:none;`;
+  if (c.avatar.startsWith('data:image/')) {
+    return el('img', undefined, { src: c.avatar, alt: '', width: String(size), height: String(size), style: `${round}object-fit:cover;background:var(--tok-bg-surface-2);` });
+  }
+  return el('span', undefined, {
+    'aria-hidden': 'true',
+    style: `${round}display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(size * 0.42)}px;background:var(--tok-accent-soft);color:var(--tok-accent-text);`
+  }, (c.name || c.login).charAt(0).toUpperCase());
 }
 
 export class AboutModal {
@@ -76,7 +88,7 @@ export class AboutModal {
     this.element.dir = i18n.getDirection();
 
     const card = el('div', 'tok-dialog tok-about-card');
-    card.style.width = '620px';
+    card.style.width = '680px';
     card.style.maxHeight = '88vh';
 
     // Header
@@ -89,14 +101,13 @@ export class AboutModal {
 
     // Scrollable Body
     const body = el('div', 'tok-about-body', {
-      style: 'flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:18px;'
+      style: 'flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:20px;'
     });
 
-    // 1. Hero Brand Banner
+    // 1. Hero brand banner
     const hero = el('div', 'tok-card', {
-      style: 'display:flex;align-items:center;gap:18px;padding:18px 20px;background:var(--tok-bg-surface-2);border-radius:12px;'
+      style: 'align-self:stretch;display:flex;align-items:center;gap:18px;padding:18px 20px;background:var(--tok-bg-surface-2);border-radius:12px;'
     });
-
     const brandMark = el('span', 'tok-brand-mark', {
       'aria-hidden': 'true',
       style: 'width:56px;height:56px;border-radius:14px;box-shadow:0 3px 10px rgba(30,74,158,0.25);flex-shrink:0;'
@@ -106,110 +117,62 @@ export class AboutModal {
 
     const heroDetails = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px;flex:1;' });
     const titleRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' });
-    titleRow.appendChild(el('h1', undefined, { style: 'font-size:20px;font-weight:800;letter-spacing:-0.02em;margin:0;' }, 'TypesetOK (TOK)'));
-
+    titleRow.appendChild(el('h1', undefined, { style: 'font-size:20px;font-weight:800;letter-spacing:-0.02em;' }, 'TypesetOK (TOK)'));
     const verBadge = el('span', 'tok-badge tok-badge-success', { dir: 'ltr' }, 'Stable');
     verBadge.setAttribute('data-app-version', '');
     fillAppVersion(verBadge, (v) => `v${v} Stable`);
     titleRow.appendChild(verBadge);
     heroDetails.appendChild(titleRow);
-
     heroDetails.appendChild(el('p', undefined, {
-      style: 'font-size:13px;color:var(--tok-text-secondary);line-height:1.45;margin:0;'
+      style: 'font-size:14px;color:var(--tok-text-secondary);line-height:1.5;'
     }, t('aboutAppDesc')));
-
     hero.appendChild(heroDetails);
     body.appendChild(hero);
 
-    // 2. Main Developer Section
-    const devCard = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;padding:16px 18px;' });
-    const devHead = el('div', undefined, { style: 'font-size:12px;font-weight:600;color:var(--tok-text-muted);text-transform:uppercase;letter-spacing:0.05em;' }, t('aboutDevelopedBy'));
-    devCard.appendChild(devHead);
-
-    const devRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:14px;' });
-    if (MAIN_DEVELOPER.avatar) {
-      const avatarImg = el('img', undefined, {
-        src: MAIN_DEVELOPER.avatar,
-        alt: MAIN_DEVELOPER.name,
-        style: 'width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--tok-border-strong);flex-shrink:0;'
-      });
-      devRow.appendChild(avatarImg);
-    } else {
-      const avatarPlaceholder = el('div', undefined, {
-        style: 'width:48px;height:48px;border-radius:50%;background:var(--tok-accent-soft);color:var(--tok-accent-text);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0;'
-      }, MAIN_DEVELOPER.name ? MAIN_DEVELOPER.name.charAt(0) : 'A');
-      devRow.appendChild(avatarPlaceholder);
-    }
-
-    const devInfo = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;' });
-    const devNameRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:8px;' });
-    devNameRow.appendChild(el('strong', undefined, { style: 'font-size:15px;font-weight:700;' }, t('aboutMainDevName')));
-    devNameRow.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted);' }, `@${MAIN_DEVELOPER.login}`));
-    devInfo.appendChild(devNameRow);
-
-    devInfo.appendChild(el('span', undefined, { style: 'font-size:13px;color:var(--tok-text-secondary);' }, t('aboutMainDevBio')));
-    devRow.appendChild(devInfo);
-
-    if (MAIN_DEVELOPER.url) {
-      const profileBtn = button(t('aboutProfileLink'), {
+    // 2. Main developer
+    const dev = el('div', 'tok-card', { style: 'align-self:stretch;display:flex;align-items:center;gap:18px;padding:20px 22px;' });
+    dev.appendChild(avatarEl(MAIN_DEVELOPER, 76));
+    const devText = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;text-align:start;' });
+    devText.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted);' }, t('aboutDevelopedBy')));
+    devText.appendChild(el('h2', undefined, { style: 'font-size:20px;font-weight:700;' }, t('aboutMainDevName')));
+    devText.appendChild(el('p', undefined, { style: 'font-size:14px;color:var(--tok-text-secondary);line-height:1.5;' }, t('aboutMainDevBio')));
+    const devUrl = safeProfileUrl(MAIN_DEVELOPER.url);
+    if (devUrl) {
+      const link = button(t('aboutProfileLink'), {
         className: 'tok-btn tok-btn-sm',
         icon: 'brand',
-        onClick: () => openSafeLink(MAIN_DEVELOPER.url)
+        attrs: { 'data-focus-key': 'main-dev' },
+        onClick: () => openExternalUrl(devUrl)
       });
-      devRow.appendChild(profileBtn);
+      link.style.alignSelf = 'flex-start';
+      link.style.marginTop = '6px';
+      devText.appendChild(link);
     }
-    devCard.appendChild(devRow);
-    body.appendChild(devCard);
+    dev.appendChild(devText);
+    body.appendChild(dev);
 
-    // 3. Contributors Section
-    if (CONTRIBUTORS && CONTRIBUTORS.length > 0) {
-      const contribCard = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;padding:16px 18px;' });
-      const contribHead = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px;' });
-      contribHead.appendChild(el('strong', undefined, { style: 'font-size:14px;font-weight:700;' }, t('aboutThanksTitle')));
-      contribHead.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary);' }, t('aboutThanksSub')));
-      contribCard.appendChild(contribHead);
-
-      const contribList = el('div', undefined, {
-        style: 'display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));gap:10px;'
-      });
-
-      for (const contrib of CONTRIBUTORS) {
-        const item = el('button', 'tok-card', {
+    // 3. Other contributors (smaller)
+    const people = CONTRIBUTORS.filter((c) => safeProfileUrl(c.url));
+    if (people.length > 0) {
+      const thanks = el('div', undefined, { style: 'align-self:stretch;display:flex;flex-direction:column;gap:10px;padding:2px 4px;text-align:start;' });
+      thanks.appendChild(el('span', undefined, { style: 'font-size:13px;font-weight:700;color:var(--tok-text-primary);' }, t('aboutThanksTitle')));
+      thanks.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted);margin-top:-6px;' }, t('aboutThanksSub')));
+      const grid = el('div', undefined, { style: 'display:flex;flex-wrap:wrap;gap:8px;' });
+      for (const c of people) {
+        const url = safeProfileUrl(c.url)!;
+        const chip = el('button', 'tok-btn tok-btn-sm', {
           type: 'button',
-          style: 'display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--tok-border-subtle);background:var(--tok-bg-surface-2);border-radius:8px;text-align:start;cursor:pointer;transition:all 0.15s ease;'
+          title: `${c.name} (@${c.login})`,
+          'data-focus-key': `contrib-${c.login}`,
+          style: 'height:36px;padding:0 12px 0 6px;gap:8px;border-radius:18px;'
         });
-
-        if (contrib.avatar) {
-          const img = el('img', undefined, {
-            src: contrib.avatar,
-            alt: contrib.name,
-            style: 'width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;'
-          });
-          item.appendChild(img);
-        } else {
-          const initials = el('div', undefined, {
-            style: 'width:32px;height:32px;border-radius:50%;background:var(--tok-accent-soft);color:var(--tok-accent-text);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;'
-          }, contrib.name ? contrib.name.charAt(0) : 'U');
-          item.appendChild(initials);
-        }
-
-        const nameCol = el('div', undefined, { style: 'display:flex;flex-direction:column;overflow:hidden;' });
-        nameCol.appendChild(el('span', undefined, {
-          style: 'font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
-        }, contrib.name || contrib.login));
-        nameCol.appendChild(el('span', undefined, {
-          style: 'font-size:11px;color:var(--tok-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
-        }, `@${contrib.login}`));
-        item.appendChild(nameCol);
-
-        item.addEventListener('click', () => {
-          if (contrib.url) openSafeLink(contrib.url);
-        });
-
-        contribList.appendChild(item);
+        chip.appendChild(avatarEl(c, 24));
+        chip.appendChild(el('span', undefined, { style: 'font-size:12px;' }, c.name || c.login));
+        chip.addEventListener('click', () => openExternalUrl(url));
+        grid.appendChild(chip);
       }
-      contribCard.appendChild(contribList);
-      body.appendChild(contribCard);
+      thanks.appendChild(grid);
+      body.appendChild(thanks);
     }
 
     card.appendChild(body);
@@ -221,21 +184,7 @@ export class AboutModal {
       className: 'tok-btn',
       icon: 'brand',
       attrs: { 'data-focus-key': 'github' },
-      onClick: () => openSafeLink(REPO_URL)
-    }));
-
-    foot.appendChild(button(t('updatesCheckNow'), {
-      className: 'tok-btn',
-      icon: 'refresh',
-      attrs: { 'data-focus-key': 'updates' },
-      onClick: () => {
-        this.hide();
-        if (this.callbacks.onCheckUpdates) {
-          this.callbacks.onCheckUpdates();
-        } else {
-          (window as any).tokApp?.openSettings();
-        }
-      }
+      onClick: () => openExternalUrl(REPO_URL)
     }));
 
     foot.appendChild(button(t('whatsNewTitle'), {
@@ -264,4 +213,3 @@ export class AboutModal {
     this.element.appendChild(card);
   }
 }
-
