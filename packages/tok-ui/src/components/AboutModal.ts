@@ -2,6 +2,7 @@ import { t, tf, i18n } from '../i18n';
 import { el, icon, iconButton, button } from '../ui';
 import { ModalController } from './ModalController';
 import { fillAppVersion } from '../appInfo';
+import { MAIN_DEVELOPER, CONTRIBUTORS, Contributor } from '../contributors.generated';
 
 export interface AboutModalCallbacks {
   onClose: () => void;
@@ -10,6 +11,27 @@ export interface AboutModalCallbacks {
 }
 
 const REPO_URL = 'https://github.com/TypesetOK/typesetok';
+
+function isSafeGitHubUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === 'github.com' && u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function openSafeLink(url: string): void {
+  if (!isSafeGitHubUrl(url)) return;
+  const win = window as any;
+  if (win.tokIpc && win.tokIpc.openExternal) {
+    Promise.resolve(win.tokIpc.openExternal(url)).catch((e: any) => {
+      console.warn('[ABOUT] openExternal failed:', e?.message ?? e);
+    });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
 
 export class AboutModal {
   public element: HTMLElement;
@@ -54,7 +76,7 @@ export class AboutModal {
     this.element.dir = i18n.getDirection();
 
     const card = el('div', 'tok-dialog tok-about-card');
-    card.style.width = '680px';
+    card.style.width = '620px';
     card.style.maxHeight = '88vh';
 
     // Header
@@ -67,7 +89,7 @@ export class AboutModal {
 
     // Scrollable Body
     const body = el('div', 'tok-about-body', {
-      style: 'flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:20px;'
+      style: 'flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:18px;'
     });
 
     // 1. Hero Brand Banner
@@ -84,7 +106,7 @@ export class AboutModal {
 
     const heroDetails = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px;flex:1;' });
     const titleRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' });
-    titleRow.appendChild(el('h1', undefined, { style: 'font-size:20px;font-weight:800;letter-spacing:-0.02em;' }, 'TypesetOK (TOK)'));
+    titleRow.appendChild(el('h1', undefined, { style: 'font-size:20px;font-weight:800;letter-spacing:-0.02em;margin:0;' }, 'TypesetOK (TOK)'));
 
     const verBadge = el('span', 'tok-badge tok-badge-success', { dir: 'ltr' }, 'Stable');
     verBadge.setAttribute('data-app-version', '');
@@ -93,101 +115,102 @@ export class AboutModal {
     heroDetails.appendChild(titleRow);
 
     heroDetails.appendChild(el('p', undefined, {
-      style: 'font-size:13px;color:var(--tok-text-secondary);line-height:1.45;'
-    }, 'מערכת שולחנית מקצועית לסדר ועימוד דפוס עברי, ספרי קודש וספרות עברית.'));
-
-    const tagsRow = el('div', undefined, { style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;' });
-    const makeTag = (label: string) => el('span', 'tok-badge-count', { style: 'font-size:11px;' }, label);
-    tagsRow.appendChild(makeTag('Rust Core'));
-    tagsRow.appendChild(makeTag('Knuth-Plass'));
-    tagsRow.appendChild(makeTag('PDF/X-1a & X-4'));
-    tagsRow.appendChild(makeTag('נרמול יוניקוד קנוני'));
-    tagsRow.appendChild(makeTag('Windows x64 Native'));
-    heroDetails.appendChild(tagsRow);
+      style: 'font-size:13px;color:var(--tok-text-secondary);line-height:1.45;margin:0;'
+    }, t('aboutAppDesc')));
 
     hero.appendChild(heroDetails);
     body.appendChild(hero);
 
-    // Section Helper
-    const createSection = (title: string, iconName: any, items: { title: string; desc: string }[]) => {
-      const sec = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;padding:16px 18px;' });
-      const secHead = el('div', undefined, { style: 'display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;color:var(--tok-text-primary);' });
-      secHead.appendChild(icon(iconName, 17));
-      secHead.appendChild(el('span', undefined, undefined, title));
-      sec.appendChild(secHead);
+    // 2. Main Developer Section
+    const devCard = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;padding:16px 18px;' });
+    const devHead = el('div', undefined, { style: 'font-size:12px;font-weight:600;color:var(--tok-text-muted);text-transform:uppercase;letter-spacing:0.05em;' }, t('aboutDevelopedBy'));
+    devCard.appendChild(devHead);
 
-      const itemsList = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:10px;' });
-      for (const item of items) {
-        const row = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px;' });
-        const itemTitle = el('span', undefined, { style: 'font-size:12.5px;font-weight:600;color:var(--tok-text-primary);' }, item.title);
-        const itemDesc = el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary);line-height:1.5;' }, item.desc);
-        row.appendChild(itemTitle);
-        row.appendChild(itemDesc);
-        itemsList.appendChild(row);
-      }
-      sec.appendChild(itemsList);
-      return sec;
-    };
+    const devRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:14px;' });
+    if (MAIN_DEVELOPER.avatar) {
+      const avatarImg = el('img', undefined, {
+        src: MAIN_DEVELOPER.avatar,
+        alt: MAIN_DEVELOPER.name,
+        style: 'width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--tok-border-strong);flex-shrink:0;'
+      });
+      devRow.appendChild(avatarImg);
+    } else {
+      const avatarPlaceholder = el('div', undefined, {
+        style: 'width:48px;height:48px;border-radius:50%;background:var(--tok-accent-soft);color:var(--tok-accent-text);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0;'
+      }, MAIN_DEVELOPER.name ? MAIN_DEVELOPER.name.charAt(0) : 'A');
+      devRow.appendChild(avatarPlaceholder);
+    }
 
-    // 2. Typesetting & Core Algorithms
-    body.appendChild(createSection('ליבת מנוע העימוד והאלגוריתמיקה (Typesetting Engine)', 'sparkle', [
-      {
-        title: 'מנוע Rust Native (tok-typeset / tok-cli)',
-        desc: 'ליבת עימוד מהירה ודטרמיניסטית הכתובה כולה ב-Rust לבטיחות זיכרון מרבית, עיבוד עשרות אלפי מילים בשניות ספורות ופלט ביט-לביט זהה לחלוטין.'
-      },
-      {
-        title: 'אלגוריתם שבירת שורות אופטימלי Knuth-Plass',
-        desc: 'שבירת שורות מבוססת תכנות דינמי (Dynamic Programming) על פני הפסקה כולה למינימום Total Badness, מניעת רווחים לא אחידים והימנעות מוחלטת מיתומים ואלמנות (Orphans & Widows).'
-      },
-      {
-        title: 'יישור עברי מסורתי תלת-שכבתי (3-Tier Hebrew Justifier)',
-        desc: 'שילוב מתמטי עדין של שלושת רבדי היישור המסורתיים בדפוס העברי: רווחי מילים גמישים (85%–125%), מתיחת אותיות עבריות רפויות / אהלתר"ם עד 120%, וריווח בין-אותי מיקרומטרי עדין.'
-      },
-      {
-        title: 'תזרימים מקבילים לצורת הדף ומקראות גדולות',
-        desc: 'מנוע אילוצים הידראולי רציף לסינכרון טקסט מרכזי (גמרא/מקרא) עם מפרשים בטורים מקבילים (רש"י, תוספות, תרגום, הערות) בדיוק של עשירית המילימטר.'
-      },
-      {
-        title: 'דיוק טיפוגרפי וקדושת הטקסט',
-        desc: 'נרמול סדר הניקוד והטעמים (יוניקוד קנוני), מגן שמות קדושים (No-Break איסור שבירה בשמות הויה ואדנות), וסנכרון מספור עמודים עברי בגימטריה כולל כללי טו/טז וגרשיים.'
-      }
-    ]));
+    const devInfo = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;' });
+    const devNameRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:8px;' });
+    devNameRow.appendChild(el('strong', undefined, { style: 'font-size:15px;font-weight:700;' }, t('aboutMainDevName')));
+    devNameRow.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted);' }, `@${MAIN_DEVELOPER.login}`));
+    devInfo.appendChild(devNameRow);
 
-    // 3. Pre-Press & Standards
-    body.appendChild(createSection('תקני דפוס ואיכות קדם-דפוס (Pre-Press & Print Standards)', 'export', [
-      {
-        title: 'ייצוא תקני ISO PDF/X-1a ו-PDF/X-4',
-        desc: 'הפקת קובצי PDF תקניים להדפסה מקצועית בבתי דפוס מסחריים (אופסט ודיגיטלי) עם פרופילי צבע Fogra 39, Fogra 51 ו-ISO Coated v2.'
-      },
-      {
-        title: 'הפרדת צבעים מלאה עם 100% K (שחור נקי)',
-        desc: 'טקסט עברי מודפס ב-100% שחור נקי בערוץ ה-K ללא ערבוב ערוצי CMY, למניעת עכירות, טשטוש ופסיפס בדפוס.'
-      },
-      {
-        title: 'רשת שורות בסיס (Baseline Grid) ושולי גלישה (Bleed)',
-        desc: 'יישור שורות קפדני בין טורים סמוכים ובשני צדי הדף (Back-to-back Register), שולי גלישה של 3 מ"מ, סימני חיתוך וסרגלי צבע.'
-      }
-    ]));
+    devInfo.appendChild(el('span', undefined, { style: 'font-size:13px;color:var(--tok-text-secondary);' }, t('aboutMainDevBio')));
+    devRow.appendChild(devInfo);
 
-    // 4. Runtime & System Environment
-    body.appendChild(createSection('סביבת ריצה ואבטחה (Runtime & Security)', 'settings', [
-      {
-        title: 'מעטפת שולחן עבודה מוקשחת (Hardened Lean Electron)',
-        desc: 'סביבת ריצה מודרנית המבוססת על Electron 29, מנוע Chromium 122, Node.js 20 ומנוע V8, ללא תקורות מיותרות ועם אבטחת זיכרון מחמירה.'
-      },
-      {
-        title: 'תמיכה בסינוני אינטרנט בישראל (נטפרי, רימון, אתרוג)',
-        desc: 'מודול סינון מאובטח ייעודי (Filter-SSL) המטפל בתעודות אבטחה מקומיות של כלל הסינונים, למניעת שגיאות תעודה בבדיקת עדכונים.'
-      },
-      {
-        title: 'מערכת תוספים מודולרית (Plugins System)',
-        desc: 'תמיכה מלאה בהרחבות קוד מותאמות אישית ב-TypeScript (.ts) ו-JavaScript (.js), עם הידור חי ב-esbuild ובידוד ביצועים.'
-      },
-      {
-        title: 'גופנים עבריים מובנים ברישיון חופשי (SIL OFL)',
-        desc: 'Frank Ruhl Libre (טקסט ראשי), IBM Plex Sans Hebrew (ממשק), Noto Rashi Hebrew (רש"י), Noto Serif Hebrew ו-David Libre.'
+    if (MAIN_DEVELOPER.url) {
+      const profileBtn = button(t('aboutProfileLink'), {
+        className: 'tok-btn tok-btn-sm',
+        icon: 'brand',
+        onClick: () => openSafeLink(MAIN_DEVELOPER.url)
+      });
+      devRow.appendChild(profileBtn);
+    }
+    devCard.appendChild(devRow);
+    body.appendChild(devCard);
+
+    // 3. Contributors Section
+    if (CONTRIBUTORS && CONTRIBUTORS.length > 0) {
+      const contribCard = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;padding:16px 18px;' });
+      const contribHead = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px;' });
+      contribHead.appendChild(el('strong', undefined, { style: 'font-size:14px;font-weight:700;' }, t('aboutThanksTitle')));
+      contribHead.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary);' }, t('aboutThanksSub')));
+      contribCard.appendChild(contribHead);
+
+      const contribList = el('div', undefined, {
+        style: 'display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));gap:10px;'
+      });
+
+      for (const contrib of CONTRIBUTORS) {
+        const item = el('button', 'tok-card', {
+          type: 'button',
+          style: 'display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--tok-border-subtle);background:var(--tok-bg-surface-2);border-radius:8px;text-align:start;cursor:pointer;transition:all 0.15s ease;'
+        });
+
+        if (contrib.avatar) {
+          const img = el('img', undefined, {
+            src: contrib.avatar,
+            alt: contrib.name,
+            style: 'width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;'
+          });
+          item.appendChild(img);
+        } else {
+          const initials = el('div', undefined, {
+            style: 'width:32px;height:32px;border-radius:50%;background:var(--tok-accent-soft);color:var(--tok-accent-text);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0;'
+          }, contrib.name ? contrib.name.charAt(0) : 'U');
+          item.appendChild(initials);
+        }
+
+        const nameCol = el('div', undefined, { style: 'display:flex;flex-direction:column;overflow:hidden;' });
+        nameCol.appendChild(el('span', undefined, {
+          style: 'font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+        }, contrib.name || contrib.login));
+        nameCol.appendChild(el('span', undefined, {
+          style: 'font-size:11px;color:var(--tok-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+        }, `@${contrib.login}`));
+        item.appendChild(nameCol);
+
+        item.addEventListener('click', () => {
+          if (contrib.url) openSafeLink(contrib.url);
+        });
+
+        contribList.appendChild(item);
       }
-    ]));
+      contribCard.appendChild(contribList);
+      body.appendChild(contribCard);
+    }
 
     card.appendChild(body);
 
@@ -198,16 +221,7 @@ export class AboutModal {
       className: 'tok-btn',
       icon: 'brand',
       attrs: { 'data-focus-key': 'github' },
-      onClick: () => {
-        const win = window as any;
-        if (win.tokIpc && win.tokIpc.openExternal) {
-          Promise.resolve(win.tokIpc.openExternal(REPO_URL)).catch((e: any) => {
-            console.warn('[ABOUT] openExternal failed:', e?.message ?? e);
-          });
-        } else {
-          window.open(REPO_URL, '_blank', 'noopener,noreferrer');
-        }
-      }
+      onClick: () => openSafeLink(REPO_URL)
     }));
 
     foot.appendChild(button(t('updatesCheckNow'), {
@@ -219,7 +233,6 @@ export class AboutModal {
         if (this.callbacks.onCheckUpdates) {
           this.callbacks.onCheckUpdates();
         } else {
-          // Open settings on updates tab
           (window as any).tokApp?.openSettings();
         }
       }
@@ -251,3 +264,4 @@ export class AboutModal {
     this.element.appendChild(card);
   }
 }
+
