@@ -2845,8 +2845,7 @@ export class TypesetOkApp {
     toast.appendChild(el('span', undefined, undefined, msg));
     document.body.appendChild(toast);
     setTimeout(() => {
-      toast.style.transition = 'opacity 0.25s ease';
-      toast.style.opacity = '0';
+      toast.classList.add('tok-toast-out');
       setTimeout(() => toast.remove(), 250);
     }, 3200);
   }

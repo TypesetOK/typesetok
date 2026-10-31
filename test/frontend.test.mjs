@@ -3700,3 +3700,35 @@ describe('Switching book layout template on an open document (without re-importi
   });
 });
 
+describe('Home screen, dialogs and About screen', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('home screen no longer offers demo templates', () => {
+    const welcome = read('packages/tok-ui/src/components/WelcomeModal.ts');
+    assert.ok(!welcome.includes('tok-template-demo-card'), 'demo cards must be gone');
+    assert.ok(!welcome.includes('welcomeDemoSection'), 'demo section title must be gone');
+    assert.ok(welcome.includes('tok-template-import') && welcome.includes('tok-template-blank'), 'blank and import cards stay');
+  });
+
+  test('the import card is styled like the blank card (text no longer sticks to the edges)', () => {
+    const html = read('packages/tok-ui/src/index.html');
+    assert.ok(/\.tok-template-blank,\s*\.tok-template-import\s*\{/.test(html));
+  });
+
+  test('every dialog fades and rises in and out through CSS (open class drives both directions)', () => {
+    const html = read('packages/tok-ui/src/index.html');
+    assert.ok(html.includes('@starting-style'), 'enter animation');
+    assert.ok(html.includes('display 0.22s allow-discrete'), 'exit animation keeps the overlay visible while it fades');
+  });
+
+  test('About screen shows the main developer and contributors from generated data, with safe links only', () => {
+    const about = read('packages/tok-ui/src/components/AboutModal.ts');
+    assert.ok(about.includes('aboutMainDevBio') && about.includes('aboutThanksTitle'));
+    assert.ok(about.includes("u.hostname === 'github.com'") && about.includes("u.protocol === 'https:'"), 'only https GitHub links');
+    assert.ok(!about.includes('Knuth-Plass') && !about.includes('Hardened Lean Electron'), 'technical engine text was removed');
+    const data = read('packages/tok-ui/src/contributors.generated.ts');
+    assert.ok(data.includes("login: 'Amlaach'") && data.includes('https://github.com/Amlaach'));
+    const script = read('scripts/update-contributors.mjs');
+    assert.ok(script.includes("c.type === 'User'"), 'bots are excluded');
+  });
+});

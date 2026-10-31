@@ -11,6 +11,7 @@
     "build:ts": "tsc --build",
     "sync:changelog": "node scripts/sync-changelog.mjs",
     "bundle:ui": "node scripts/bundle-ui.mjs",
+    "contributors": "node scripts/update-contributors.mjs",
     "lint": "tsc --build",
     "build": "npm run build:ts && npm run bundle:ui",
     "package:desktop": "node scripts/build-desktop-bundle.mjs",
