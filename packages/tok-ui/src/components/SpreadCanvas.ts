@@ -1,3 +1,4 @@
+import { drawLineGuides } from './baselineGuides';
 import { PageDescriptor, PageDomVirtualizer, computeActiveWindow } from 'tok-viewer';
 import { SelectionMode, TextFrameData } from '../types';
 import { t, tf, i18n } from '../i18n';
@@ -1009,29 +1010,19 @@ export class SpreadCanvas {
       if (!this.showBaseline) return;
 
       const sheet = g.closest<HTMLElement>('.tok-page-sheet');
-      // If the sheet contains rendered lines from the typesetting engine, synchronize
-      // the baseline guide perfectly with the actual text frames.
-      const firstLine = sheet?.querySelector<HTMLElement>('.tok-line[data-baseline-y]');
-      const firstFrame = sheet?.querySelector<HTMLElement>('.tok-interactive-frame');
-      if (firstLine && firstFrame) {
-        const frameTop = parseFloat(firstFrame.style.top || '0') || 0;
-        const baselineY = parseFloat(firstLine.dataset.baselineY || '0') || 0;
-        const syncedTopPt = frameTop + baselineY;
-        const syncedTopPx = (syncedTopPt * 96) / 72;
-        g.style.top = `${syncedTopPx}px`;
-        g.style.bottom = '40px';
-        g.style.left = '38px';
-        g.style.right = '36px';
-        g.style.backgroundImage =
-          `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
-      } else {
-        g.style.top = `${Math.max(0, offsetPx)}px`;
-        g.style.bottom = '40px';
-        g.style.left = '38px';
-        g.style.right = '36px';
-        g.style.backgroundImage =
-          `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
+      // With engine lines on the page, draw one rule per real line (exact alignment with the text).
+      if (drawLineGuides(g, sheet, line)) {
+        g.style.inset = '0';
+        g.style.backgroundImage = 'none';
+        return;
       }
+      // Blank page: show a plain fixed grid inside the margins.
+      g.style.top = `${Math.max(0, offsetPx)}px`;
+      g.style.bottom = '40px';
+      g.style.left = '38px';
+      g.style.right = '36px';
+      g.style.backgroundImage =
+        `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
     });
   }
 

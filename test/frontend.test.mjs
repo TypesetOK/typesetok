@@ -3776,3 +3776,16 @@ describe('Home screen keeps its place until a file is chosen; What\u2019s New op
     assert.ok(pkg.scripts.build.startsWith('npm run contributors'));
   });
 });
+
+describe('Baseline guides follow the real text lines', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('guides are drawn per rendered line and measured, not from a fixed step', () => {
+    const guides = read('packages/tok-ui/src/components/baselineGuides.ts');
+    assert.ok(guides.includes('getBoundingClientRect'), 'positions are measured from the rendered lines');
+    assert.ok(guides.includes('.tok-line[data-baseline-y]'), 'one rule per engine line');
+    const canvas = read('packages/tok-ui/src/components/SpreadCanvas.ts');
+    assert.ok(canvas.includes('drawLineGuides(g, sheet, line)'), 'SpreadCanvas uses the per-line guides');
+    assert.ok(!canvas.includes('syncedTopPt'), 'the old single-grid sync is gone');
+  });
+});
