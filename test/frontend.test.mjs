@@ -3727,7 +3727,8 @@ describe('Home screen, dialogs and About screen', () => {
     assert.ok(about.includes("u.hostname === 'github.com'") && about.includes("u.protocol === 'https:'"), 'only https GitHub links');
     assert.ok(!about.includes('Knuth-Plass') && !about.includes('Hardened Lean Electron'), 'technical engine text was removed');
     const data = read('packages/tok-ui/src/contributors.generated.ts');
-    assert.ok(data.includes("login: 'Amlaach'") && data.includes('https://github.com/Amlaach'));
+    // The build rewrites this file as JSON (double quotes), so accept both quote styles.
+    assert.ok(/login['"]?:\s*['"]Amlaach['"]/.test(data) && data.includes('https://github.com/Amlaach'));
     const script = read('scripts/update-contributors.mjs');
     assert.ok(script.includes("c.type === 'User'"), 'bots are excluded');
   });
