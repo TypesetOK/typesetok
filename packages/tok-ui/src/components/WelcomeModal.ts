@@ -318,7 +318,7 @@ export class WelcomeModal {
     importCard.appendChild(el('span', 'tok-template-title', undefined, t('importDocument')));
     importCard.appendChild(el('span', 'tok-template-desc', undefined, t('importDocumentDesc')));
     importCard.addEventListener('click', () => {
-      this.hide();
+      // Stay visible while the file dialog is open; the app hides this screen once a file is loaded.
       this.callbacks.onImportDocument?.();
     });
     primaryGrid.appendChild(importCard);
@@ -338,7 +338,6 @@ export class WelcomeModal {
       iconSize: 15,
       attrs: { 'data-focus-key': 'import', title: t('importDocumentDesc') },
       onClick: () => {
-        this.hide();
         this.callbacks.onImportDocument?.();
       }
     });
@@ -350,7 +349,6 @@ export class WelcomeModal {
       iconSize: 15,
       attrs: { 'data-focus-key': 'open' },
       onClick: () => {
-        this.hide();
         this.callbacks.onOpenProject();
       }
     });

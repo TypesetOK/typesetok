@@ -3750,3 +3750,28 @@ describe('User guide content', () => {
     assert.ok(!guide.includes('תבניות מובנות') && !guide.includes('Built-in Templates'));
   });
 });
+
+describe('Home screen keeps its place until a file is chosen; What\u2019s New opens from everywhere', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('import and open buttons do not hide the home screen before the file dialog finishes', () => {
+    const welcome = read('packages/tok-ui/src/components/WelcomeModal.ts');
+    assert.ok(!/this\.hide\(\);\s*this\.callbacks\.onImportDocument/.test(welcome), 'import must not hide first');
+    assert.ok(!/this\.hide\(\);\s*this\.callbacks\.onOpenProject\(\);/.test(welcome), 'open-file dialog must not hide first');
+  });
+
+  test('the command palette action open-whats-new is handled', () => {
+    assert.ok(read('packages/tok-ui/src/app.ts').includes("case 'open-whats-new':"));
+  });
+
+  test('the What\u2019s New drawer stacks above the home screen', () => {
+    const html = read('packages/tok-ui/src/index.html');
+    const z = (selector) => Number(new RegExp(selector.replace(/\./g, '\\.') + '\\s*\\{[^}]*?z-index:\\s*(\\d+)').exec(html)?.[1]);
+    assert.ok(z('.tok-updates-overlay') > z('.tok-welcome-overlay'), 'drawer must be above the welcome overlay');
+  });
+
+  test('every build refreshes the contributors list first', () => {
+    const pkg = JSON.parse(read('package.json'));
+    assert.ok(pkg.scripts.build.startsWith('npm run contributors'));
+  });
+});

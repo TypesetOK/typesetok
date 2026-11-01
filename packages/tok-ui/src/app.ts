@@ -2657,6 +2657,9 @@ export class TypesetOkApp {
       case 'open-about':
         this.aboutModal.show();
         break;
+      case 'open-whats-new':
+        this.openWhatsNew();
+        break;
       case 'open-file-at-path':
         if (typeof data === 'string' && data) {
           if (!this.confirmDiscardUnsaved()) return;

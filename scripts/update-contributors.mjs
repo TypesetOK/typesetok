@@ -4,6 +4,7 @@
 //   node scripts/update-contributors.mjs            (npm run contributors)
 //   GITHUB_TOKEN=... node scripts/update-contributors.mjs   (avoids the anonymous API rate limit)
 //
+// Runs at the start of `npm run build`, so every build ships a fresh contributors list.
 // Never breaks a build: if GitHub cannot be reached the existing file is kept (use --strict to fail instead).
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,7 +21,7 @@ const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'typeseto
 if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
 
 async function getJson(url) {
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
   return res.json();
 }
@@ -29,7 +30,7 @@ async function avatarDataUri(avatarUrl) {
   try {
     const url = new URL(avatarUrl);
     url.searchParams.set('s', '96');
-    const res = await fetch(url, { headers: { 'User-Agent': headers['User-Agent'] } });
+    const res = await fetch(url, { headers: { 'User-Agent': headers['User-Agent'] }, signal: AbortSignal.timeout(10000) });
     const type = res.headers.get('content-type') || '';
     if (!res.ok || !type.startsWith('image/')) return '';
     const buf = Buffer.from(await res.arrayBuffer());
