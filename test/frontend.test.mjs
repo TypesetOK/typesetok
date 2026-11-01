@@ -3732,3 +3732,21 @@ describe('Home screen, dialogs and About screen', () => {
     assert.ok(script.includes("c.type === 'User'"), 'bots are excluded');
   });
 });
+
+describe('User guide content', () => {
+  const guide = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/UserGuideModal.ts'), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('every section exists in both Hebrew and English with the same number of blocks', () => {
+    const count = (re) => (guide.match(re) || []).length;
+    assert.equal(count(/titleHe:/g), count(/titleEn:/g));
+    assert.equal(count(/contentHe: \[/g), count(/contentEn: \[/g));
+    assert.equal(count(/\n {8}title: /g) > 0, true);
+    const heBlocks = count(/\n {8}title: '[^'\n]*[\u0590-\u05FF]/g);
+    const enBlocks = count(/\n {8}title: '[^\u0590-\u05FF'\n]+'/g);
+    assert.equal(heBlocks, enBlocks, 'each Hebrew block needs an English twin');
+  });
+
+  test('the guide no longer describes the removed built-in demo templates', () => {
+    assert.ok(!guide.includes('תבניות מובנות') && !guide.includes('Built-in Templates'));
+  });
+});
