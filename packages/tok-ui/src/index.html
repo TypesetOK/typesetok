@@ -566,25 +566,120 @@
        ========================================================================== */
     .tok-inspector-bar {
       width: var(--tok-inspector-width); min-width: var(--tok-inspector-width); flex: none;
-      display: flex; flex-direction: column; overflow-y: auto;
+      display: flex; flex-direction: column; overflow: hidden;
       background: var(--tok-bg-surface-1); border-inline-start: 1px solid var(--tok-border-subtle);
+      transition: width 0.15s ease, min-width 0.15s ease;
+      position: relative;
     }
-    .tok-insp-head { padding: 14px 16px; border-bottom: 1px solid var(--tok-border-subtle); display: flex; flex-direction: column; gap: 3px; }
-    .tok-insp-eyebrow { font-size: 12px; color: var(--tok-text-muted); }
+    .tok-inspector-bar.tok-collapsed {
+      width: 44px !important; min-width: 44px !important;
+      background: var(--tok-bg-app);
+    }
+    .tok-inspector-top-bar {
+      height: 38px; min-height: 38px; flex: none;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 8px;
+      background: var(--tok-bg-surface-2);
+      border-bottom: 1px solid var(--tok-border-subtle);
+    }
+    .tok-inspector-bar.tok-collapsed .tok-inspector-top-bar {
+      padding: 0; justify-content: center;
+    }
+    .tok-insp-toggle-btn {
+      width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+      border: none; border-radius: 6px; background: transparent; color: var(--tok-text-secondary);
+      cursor: pointer; transition: background 0.12s, color 0.12s;
+    }
+    .tok-insp-toggle-btn:hover {
+      background: var(--tok-bg-surface-hover); color: var(--tok-text-primary);
+    }
+    .tok-insp-whatsnew-btn {
+      width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+      border: none; border-radius: 6px; background: transparent; color: var(--tok-accent-text);
+      cursor: pointer; transition: background 0.12s, transform 0.12s;
+    }
+    .tok-insp-whatsnew-btn:hover {
+      background: var(--tok-accent-soft); transform: scale(1.08);
+    }
+    .tok-insp-header-title {
+      font-size: 12.5px; font-weight: 700; color: var(--tok-text-primary);
+    }
+    .tok-inspector-body {
+      flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;
+      padding: 4px 0 12px;
+    }
+    .tok-inspector-bar.tok-collapsed .tok-inspector-body {
+      display: none !important;
+    }
+    .tok-inspector-collapsed-strip {
+      display: none; flex-direction: column; align-items: center; gap: 14px;
+      padding: 16px 0; flex: 1;
+    }
+    .tok-inspector-bar.tok-collapsed .tok-inspector-collapsed-strip {
+      display: flex;
+    }
+    .tok-collapsed-vertical-title {
+      writing-mode: vertical-rl; transform: rotate(180deg);
+      font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--tok-text-secondary); user-select: none;
+    }
+    .tok-inspector-footer {
+      height: 42px; min-height: 42px; flex: none;
+      display: flex; align-items: center; padding: 0 10px;
+      border-top: 1px solid var(--tok-border-subtle);
+      background: var(--tok-bg-surface-2);
+    }
+    .tok-inspector-bar.tok-collapsed .tok-inspector-footer {
+      padding: 0; justify-content: center; width: 100%;
+    }
+    .tok-insp-settings-btn {
+      display: inline-flex; align-items: center; gap: 8px; width: 100%; height: 32px;
+      padding: 0 10px; border-radius: 6px; border: none; background: transparent;
+      color: var(--tok-text-secondary); font-size: 12.5px; font-weight: 500;
+      transition: background 0.12s, color 0.12s; cursor: pointer;
+    }
+    .tok-insp-settings-btn:hover {
+      background: var(--tok-bg-surface-hover); color: var(--tok-text-primary);
+    }
+    .tok-inspector-bar.tok-collapsed .tok-insp-settings-btn {
+      width: 32px; padding: 0; justify-content: center;
+    }
+    .tok-inspector-bar.tok-collapsed .tok-insp-settings-btn span {
+      display: none;
+    }
+
+    .tok-insp-head { padding: 12px 14px; border-bottom: 1px solid var(--tok-border-subtle); display: flex; flex-direction: column; gap: 3px; background: var(--tok-bg-surface-1); }
+    .tok-insp-eyebrow { font-size: 11px; font-weight: 500; color: var(--tok-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .tok-insp-title { display: flex; align-items: center; gap: 8px; }
-    .tok-insp-title h2 { font-size: 15px; font-weight: 600; }
+    .tok-insp-title h2 { font-size: 14px; font-weight: 700; color: var(--tok-text-primary); }
     .tok-insp-title .tok-swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--tok-accent-text); }
-    .tok-insp-sub { font-size: 12px; color: var(--tok-text-secondary); }
-    .tok-inspector-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--tok-border-subtle); }
-    .tok-inspector-card:last-child { border-bottom: none; }
-    .tok-inspector-card-header { font-size: 12px; font-weight: 600; color: var(--tok-text-primary); display: flex; align-items: center; justify-content: space-between; }
-    .tok-inspector-sub { font-size: 12px; font-weight: 500; color: var(--tok-text-secondary); margin-top: 4px; }
-    .tok-insp-spacer { flex: 1; }
+    .tok-insp-sub { font-size: 11.5px; color: var(--tok-text-secondary); }
+
+    /* Clearly segmented cards with border and subtle brightness difference */
+    .tok-inspector-card {
+      margin: 6px 10px; padding: 12px 12px; display: flex; flex-direction: column; gap: 10px;
+      background: var(--tok-bg-surface-2); border: 1px solid var(--tok-border-subtle); border-radius: var(--tok-radius);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03); transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    .tok-inspector-card:hover { border-color: var(--tok-border-strong); }
+    .tok-inspector-card-header {
+      font-size: 12px; font-weight: 700; color: var(--tok-text-primary); display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 6px; border-bottom: 1px solid var(--tok-border-subtle); margin-bottom: 2px;
+    }
+    .tok-inspector-sub { font-size: 11.5px; font-weight: 500; color: var(--tok-text-secondary); margin-top: 2px; }
+    .tok-insp-spacer { flex: 1; min-height: 12px; }
     .tok-status-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; min-height: 22px; }
     .tok-status-line > span:first-child { color: var(--tok-text-secondary); }
     .tok-status-line > span:last-child { font-weight: 500; }
-    .tok-check-card { margin: 0 16px 16px; padding: 12px 14px; border: 1px solid var(--tok-border-subtle); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
-    .tok-check-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
+    .tok-check-card {
+      margin: 6px 10px 14px; padding: 12px 12px; border: 1px solid var(--tok-border-subtle); border-radius: var(--tok-radius);
+      background: var(--tok-bg-surface-2); display: flex; flex-direction: column; gap: 10px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .tok-check-head {
+      display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700;
+      padding-bottom: 6px; border-bottom: 1px solid var(--tok-border-subtle);
+    }
     .tok-check-list { list-style: none; display: flex; flex-direction: column; gap: 7px; }
     .tok-check-list li { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tok-text-secondary); }
     .tok-check-list .tok-ok { color: var(--tok-status-success); display: flex; }

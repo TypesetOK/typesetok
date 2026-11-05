@@ -477,7 +477,9 @@ export class TypesetOkApp {
         }
         this.setDirty(true);
         this.showToast(tf('toastAlignApplied', { type: alignType }));
-      }
+      },
+      onOpenSettings: () => this.settingsModal.show(),
+      onOpenWhatsNew: () => this.openWhatsNew()
     });
     this.workbench.appendChild(this.inspector.element);
 

@@ -244,6 +244,9 @@ export const strings: Translations = {
 
   // Contextual Inspector
   inspAriaLabel: { he: 'מפקח מאפיינים', en: 'Properties inspector' },
+  inspCollapse: { he: 'הקטן סרגל', en: 'Collapse Inspector' },
+  inspExpand: { he: 'הרחב סרגל', en: 'Expand Inspector' },
+  inspInspectorTitle: { he: 'מאפיינים', en: 'Properties' },
   inspDocTitle: { he: 'מסמך ועמוד', en: 'Document & page' },
   inspDocSubtitle: { he: 'מסמך תורני', en: 'Torah document' },
   inspPageSize: { he: 'גודל עמוד', en: 'Page size' },

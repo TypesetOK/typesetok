@@ -37,6 +37,9 @@ export interface InspectorCallbacks {
   onNormalizeNiqqud: () => void;
   onOpenTextCleanup?: () => void;
   onAlignFrames: (alignType: string) => void;
+  onOpenSettings?: () => void;
+  onOpenWhatsNew?: () => void;
+  onToggleCollapse?: (collapsed: boolean) => void;
 }
 
 const FLOW_COLORS: Record<string, string> = { gemara: '#1E4A9E', rashi: '#B45309', tosafot: '#15803D', notes: '#7C3AED' };
@@ -45,6 +48,7 @@ export class ContextualInspector {
   public element: HTMLElement;
   private mode: SelectionMode = 'zero';
   private callbacks: InspectorCallbacks;
+  private isCollapsed = false;
 
   private documentSettings: DocumentSettings = {
     title: 'מסמך ללא שם',
@@ -123,6 +127,25 @@ export class ContextualInspector {
     this.render();
   }
 
+  public toggleCollapse(): void {
+    this.setCollapsed(!this.isCollapsed);
+  }
+
+  public setCollapsed(collapsed: boolean): void {
+    this.isCollapsed = collapsed;
+    if (this.isCollapsed) {
+      this.element.classList.add('tok-collapsed');
+    } else {
+      this.element.classList.remove('tok-collapsed');
+    }
+    this.callbacks.onToggleCollapse?.(this.isCollapsed);
+    this.render();
+  }
+
+  public isInspectorCollapsed(): boolean {
+    return this.isCollapsed;
+  }
+
   public setMode(mode: SelectionMode, frameData?: Partial<TextFrameData>, typoData?: Partial<TypographySettings>): void {
     this.mode = mode;
     if (frameData) Object.assign(this.selectedFrame, frameData);
@@ -160,8 +183,88 @@ export class ContextualInspector {
     return keys[flowId] ? t(keys[flowId]) : flowId;
   }
 
+  private getContainer(): HTMLElement {
+    return this.element.querySelector<HTMLElement>('.tok-inspector-body') || this.element;
+  }
+
   private render(): void {
     this.element.innerHTML = '';
+
+    if (this.isCollapsed) {
+      this.element.classList.add('tok-collapsed');
+
+      const topBar = el('div', 'tok-inspector-top-bar');
+      const expandBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-toggle-btn', {
+        type: 'button',
+        title: t('inspExpand'),
+        'aria-label': t('inspExpand')
+      });
+      // In RTL, the inspector is on the left; expanding points inward towards the right.
+      const expandIcon = i18n.getDirection() === 'rtl' ? 'chevronRight' : 'chevronLeft';
+      expandBtn.appendChild(icon(expandIcon, 16));
+      expandBtn.addEventListener('click', () => this.toggleCollapse());
+      topBar.appendChild(expandBtn);
+      this.element.appendChild(topBar);
+
+      const strip = el('div', 'tok-inspector-collapsed-strip');
+      strip.appendChild(icon('ruler', 18));
+      const vertLabel = el('span', 'tok-collapsed-vertical-title', undefined, t('inspInspectorTitle'));
+      strip.appendChild(vertLabel);
+      this.element.appendChild(strip);
+
+      if (this.callbacks.onOpenSettings) {
+        const foot = el('div', 'tok-inspector-footer');
+        const footSettings = el('button', 'tok-btn tok-btn-ghost tok-insp-settings-btn', {
+          type: 'button',
+          title: t('sidebarSettings'),
+          'aria-label': t('sidebarSettings')
+        });
+        footSettings.appendChild(icon('settings', 18));
+        footSettings.addEventListener('click', () => this.callbacks.onOpenSettings?.());
+        foot.appendChild(footSettings);
+        this.element.appendChild(foot);
+      }
+      return;
+    }
+
+    this.element.classList.remove('tok-collapsed');
+
+    // 1. Top bar of inspector
+    const topBar = el('div', 'tok-inspector-top-bar');
+
+    // In RTL, the inner edge facing the canvas is at the right side (start edge in RTL)
+    const collapseBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-toggle-btn', {
+      type: 'button',
+      title: t('inspCollapse'),
+      'aria-label': t('inspCollapse')
+    });
+    // In RTL, collapsing moves outward toward the left edge
+    const collapseIcon = i18n.getDirection() === 'rtl' ? 'chevronLeft' : 'chevronRight';
+    collapseBtn.appendChild(icon(collapseIcon, 16));
+    collapseBtn.addEventListener('click', () => this.toggleCollapse());
+    topBar.appendChild(collapseBtn);
+
+    const titleEl = el('span', 'tok-insp-header-title', undefined, t('inspInspectorTitle'));
+    topBar.appendChild(titleEl);
+
+    if (this.callbacks.onOpenWhatsNew) {
+      const whatsNewBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-whatsnew-btn', {
+        type: 'button',
+        title: t('whatsNewTitle'),
+        'aria-label': t('whatsNewTitle')
+      });
+      whatsNewBtn.appendChild(icon('sparkle', 16));
+      whatsNewBtn.addEventListener('click', () => this.callbacks.onOpenWhatsNew?.());
+      topBar.appendChild(whatsNewBtn);
+    } else {
+      topBar.appendChild(el('span', undefined, { style: 'width:28px;' }));
+    }
+
+    this.element.appendChild(topBar);
+
+    // 2. Scrollable Body
+    const body = el('div', 'tok-inspector-body');
+    this.element.appendChild(body);
 
     switch (this.mode) {
       case 'zero':
@@ -180,13 +283,29 @@ export class ContextualInspector {
         this.renderMultiSelectMode();
         break;
     }
+
+    // 3. Footer with Settings button
+    if (this.callbacks.onOpenSettings) {
+      const footer = el('footer', 'tok-inspector-footer');
+      const settingsBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-settings-btn', {
+        type: 'button',
+        title: t('sidebarSettings'),
+        'aria-label': t('sidebarSettings')
+      });
+      settingsBtn.appendChild(icon('settings', 16));
+      settingsBtn.appendChild(el('span', undefined, undefined, t('sidebarSettings')));
+      settingsBtn.addEventListener('click', () => this.callbacks.onOpenSettings?.());
+      footer.appendChild(settingsBtn);
+      this.element.appendChild(footer);
+    }
   }
 
   // =========================================================================
   // State 1: Zero Selection (document setup & print check)
   // =========================================================================
   private renderZeroSelection(): void {
-    this.element.appendChild(this.createHeader(t('inspNothingSelected'), this.documentSettings.title, `${t('inspDocTitle')} · ${t('inspDocSubtitle')}`, 'file'));
+    const c = this.getContainer();
+    c.appendChild(this.createHeader(t('inspNothingSelected'), this.documentSettings.title, `${t('inspDocTitle')} · ${t('inspDocSubtitle')}`, 'file'));
 
     // 1. Page size
     const sizeCard = this.createCard(t('inspPageSize'));
@@ -215,7 +334,7 @@ export class ContextualInspector {
         this.callbacks.onDocumentChange({ pageHeightMm: v });
       })
     ));
-    this.element.appendChild(sizeCard);
+    c.appendChild(sizeCard);
 
     // 2. Graded margins
     const marginCard = this.createCard(t('inspGradedMargins'));
@@ -239,7 +358,7 @@ export class ContextualInspector {
         this.callbacks.onDocumentChange({ marginOutsideMm: v });
       })
     ));
-    this.element.appendChild(marginCard);
+    c.appendChild(marginCard);
 
     // 3. Baseline grid
     const gridCard = this.createCard(t('inspBaselineGrid'));
@@ -253,12 +372,12 @@ export class ContextualInspector {
         this.callbacks.onDocumentChange({ baselineOffsetPt: v });
       })
     ));
-    this.element.appendChild(gridCard);
+    c.appendChild(gridCard);
 
-    this.element.appendChild(el('div', 'tok-insp-spacer'));
+    c.appendChild(el('div', 'tok-insp-spacer'));
 
     // 4. Continuous print check
-    this.element.appendChild(this.createCheckCard(t('inspPreflight'), [
+    c.appendChild(this.createCheckCard(t('inspPreflight'), [
       { label: t('inspProdStatus'), value: t('inspReadyForPrint'), ok: true },
       { label: t('inspColorProfile'), value: 'ISO Coated v2 (100% K)', ok: true },
       { label: t('inspOverset'), value: t('inspNoIssues'), ok: true },
@@ -270,8 +389,9 @@ export class ContextualInspector {
   // State 2: Text frame selected (object mode)
   // =========================================================================
   private renderTextFrameMode(): void {
+    const c = this.getContainer();
     const flow = this.selectedFrame.flowId;
-    this.element.appendChild(this.createHeader(t('inspSelected'), this.flowName(flow), `${t('inspTextFrame')} · ${this.selectedFrame.id}`, 'frame', FLOW_COLORS[flow]));
+    c.appendChild(this.createHeader(t('inspSelected'), this.flowName(flow), `${t('inspTextFrame')} · ${this.selectedFrame.id}`, 'frame', FLOW_COLORS[flow]));
 
     // 1. Geometry
     const geoCard = this.createCard(t('inspGeometry'));
@@ -295,7 +415,7 @@ export class ContextualInspector {
         this.callbacks.onFrameChange({ id: this.selectedFrame.id, heightMm: v });
       })
     ));
-    this.element.appendChild(geoCard);
+    c.appendChild(geoCard);
 
     // 2. Flow & threading
     const flowCard = this.createCard(t('inspFlowThreading'));
@@ -309,7 +429,7 @@ export class ContextualInspector {
     thread.appendChild(el('span', undefined, undefined, t('inspThreading')));
     thread.appendChild(el('span', undefined, { dir: 'ltr', style: 'color:var(--tok-accent-text)' }, this.selectedFrame.nextFrameId || t('inspNone')));
     flowCard.appendChild(thread);
-    this.element.appendChild(flowCard);
+    c.appendChild(flowCard);
 
     // 3. Insets & vertical alignment
     const insetCard = this.createCard(t('inspInsets'));
@@ -331,7 +451,6 @@ export class ContextualInspector {
       this.selectedFrame.insetLeftMm = v;
       this.callbacks.onFrameChange({ id: this.selectedFrame.id, insetLeftMm: v });
     });
-    // Keep the physical order (Right field on the right) in both UI directions.
     insetCard.appendChild(i18n.getDirection() === 'rtl' ? this.row(rightInset, leftInset) : this.row(leftInset, rightInset));
 
     insetCard.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspVAlign')));
@@ -344,14 +463,15 @@ export class ContextualInspector {
       this.selectedFrame.verticalAlign = id;
       this.callbacks.onFrameChange({ id: this.selectedFrame.id, verticalAlign: id });
     }, { fill: true }));
-    this.element.appendChild(insetCard);
+    c.appendChild(insetCard);
   }
 
   // =========================================================================
   // State 3: Text edit mode (typography, 3-tier Hebrew justification, niqqud)
   // =========================================================================
   private renderTextEditMode(): void {
-    this.element.appendChild(this.createHeader(t('inspSelected'), this.typographySettings.styleTokenName, t('inspTypography'), 'typography'));
+    const c = this.getContainer();
+    c.appendChild(this.createHeader(t('inspSelected'), this.typographySettings.styleTokenName, t('inspTypography'), 'typography'));
 
     // 1. Paragraph style & override sync
     const styleCard = this.createCard(t('inspStyleToken'));
@@ -371,7 +491,7 @@ export class ContextualInspector {
         this.render();
       }
     }));
-    this.element.appendChild(styleCard);
+    c.appendChild(styleCard);
 
     // 2. Font
     const fontCard = this.createCard(t('inspFontSpacing'));
@@ -408,7 +528,7 @@ export class ContextualInspector {
         this.callbacks.onTypographyChange({ lineHeightPt: v, isOverride: true });
       })
     ));
-    this.element.appendChild(fontCard);
+    c.appendChild(fontCard);
 
     // 3. Alignment
     const alignCard = this.createCard(t('inspAlignTitle'));
@@ -421,7 +541,7 @@ export class ContextualInspector {
       this.typographySettings.alignment = id;
       this.callbacks.onTypographyChange({ alignment: id });
     }, { fill: true, iconOnly: true }));
-    this.element.appendChild(alignCard);
+    c.appendChild(alignCard);
 
     // 4. Three-tier Hebrew justification
     const j = this.typographySettings.justification;
@@ -467,7 +587,7 @@ export class ContextualInspector {
       j.tier3MicroTrackingRange = v;
       this.callbacks.onTypographyChange({ justification: j });
     }));
-    this.element.appendChild(justCard);
+    c.appendChild(justCard);
 
     // 5. Niqqud, cantillation & divine names
     const sacredCard = this.createCard(t('inspSacred'));
@@ -487,14 +607,15 @@ export class ContextualInspector {
       this.typographySettings.shieldDivineNames = v;
       this.callbacks.onTypographyChange({ shieldDivineNames: v });
     }));
-    this.element.appendChild(sacredCard);
+    c.appendChild(sacredCard);
   }
 
   // =========================================================================
   // State 4: Image frame
   // =========================================================================
   private renderImageFrameMode(): void {
-    this.element.appendChild(this.createHeader(t('inspSelected'), t('inspImageFrame'), t('inspImage'), 'image'));
+    const c = this.getContainer();
+    c.appendChild(this.createHeader(t('inspSelected'), t('inspImageFrame'), t('inspImage'), 'image'));
 
     const imgCard = this.createCard(t('inspFitting'));
     const isHe = i18n.getLanguage() === 'he';
@@ -517,14 +638,15 @@ export class ContextualInspector {
     imgCard.appendChild(this.createStatusRow(t('inspEffRes'), '—', 'var(--tok-text-muted)'));
     imgCard.appendChild(this.createStatusRow(t('inspColorSpace'), '—', 'var(--tok-text-muted)'));
     imgCard.appendChild(this.createStatusRow(t('inspWrap'), t('inspWrapAround'), 'var(--tok-text-muted)'));
-    this.element.appendChild(imgCard);
+    c.appendChild(imgCard);
   }
 
   // =========================================================================
   // State 5: Multi-selection (align & distribute)
   // =========================================================================
   private renderMultiSelectMode(): void {
-    this.element.appendChild(this.createHeader(t('inspSelected'), t('inspMulti'), t('inspMultiCount'), 'layers'));
+    const c = this.getContainer();
+    c.appendChild(this.createHeader(t('inspSelected'), t('inspMulti'), t('inspMultiCount'), 'layers'));
 
     const alignCard = this.createCard(t('inspAlignDist'));
     const grid = el('div', undefined, { style: 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px' });
@@ -549,7 +671,7 @@ export class ContextualInspector {
       className: 'tok-btn tok-btn-block tok-btn-sm',
       onClick: () => this.callbacks.onAlignFrames('distribute-h')
     }));
-    this.element.appendChild(alignCard);
+    c.appendChild(alignCard);
   }
 
   // =========================================================================
@@ -581,7 +703,6 @@ export class ContextualInspector {
     let lastVal = initialVal;
 
     const show = (v: number) => {
-      // The unit is drawn inside the field; the value itself stays a plain number.
       input.value = formatScrubberValue(v, unit).replace(` ${unit}`, '');
     };
     const commit = (v: number) => {
@@ -594,7 +715,6 @@ export class ContextualInspector {
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      // Dragging toward the inline end increases the value: right in LTR, left in RTL.
       const rtl = getComputedStyle(wrap).direction === 'rtl';
       const dx = rtl ? startX - e.clientX : e.clientX - startX;
       commit(clampScrubberValue(startVal + Math.round(dx / 3), min, max));
@@ -620,13 +740,12 @@ export class ContextualInspector {
     input.addEventListener('change', () => {
       const parsed = parseScrubberValue(input.value);
       if (parsed === null) {
-        show(lastVal); // restore instead of leaving garbage
+        show(lastVal);
         return;
       }
       commit(clampScrubberValue(parsed, min, max));
     });
 
-    // Keyboard stepping: ArrowUp/Down ±1 (Shift: ±10).
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
       e.preventDefault();

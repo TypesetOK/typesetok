@@ -322,7 +322,8 @@ const ICONS_SVG: Record<IconName, string> = {
   `,
   sparkle: `
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3.5 14.5h13M3.5 10h13M3.5 5.5h8"/><circle cx="15.5" cy="5.5" r="1.5" fill="currentColor"/>
+      <path d="M10 2c0 4-3.5 8-8 8 4.5 0 8 4 8 8 0-4 3.5-8 8-8-4.5 0-8-4-8-8z"/>
+      <path d="M15.5 2.5c0 1.2-1 2.5-2.5 2.5 1.5 0 2.5 1.3 2.5 2.5 0-1.2 1-2.5 2.5-2.5-1.5 0-2.5-1.3-2.5-2.5z"/>
     </svg>
   `,
   alignJustify: `
