@@ -3726,6 +3726,62 @@ describe('Home screen, dialogs and About screen', () => {
     assert.ok(welcome.includes('tok-template-import') && welcome.includes('tok-template-blank'), 'blank and import cards stay');
   });
 
+  test('isDemoProject and getRecentProjects purge demo projects completely from home screen', async () => {
+    const { isDemoProject, getRecentProjects, addRecentProject, purgeAllDemoProjects } = await loadTs('packages/tok-ui/src/components/WelcomeModal.ts');
+    assert.strictEqual(isDemoProject('דמו — מסכת ברכות.tok'), true);
+    assert.strictEqual(isDemoProject('דמו — מקראות גדולות.tok'), true);
+    assert.strictEqual(isDemoProject('פרויקט דף גמרא.tok'), true);
+    assert.strictEqual(isDemoProject('דף גמרא.tok'), true);
+    assert.strictEqual(isDemoProject('פרויקט מקראות גדולות.tok'), true);
+    assert.strictEqual(isDemoProject('ספר קריאה וטקסט רציף.tok'), true);
+    assert.strictEqual(isDemoProject('עלון וקונטרס.tok'), true);
+    assert.strictEqual(isDemoProject('demo_project.tok'), true);
+    assert.strictEqual(isDemoProject('ספר תהילים עם פירוש המילות.tok'), true);
+    assert.strictEqual(isDemoProject('מסמך ריק.tok'), true);
+    assert.strictEqual(isDemoProject('any_name.tok', 'any_name.tok'), true, 'Path without directory is rejected as phantom project');
+    assert.strictEqual(isDemoProject('פרויקט אישי חדש.tok', '/home/user/doc.tok'), false);
+
+    // Mock localStorage to verify purging
+    const mockStorage = {
+      tok_recent_projects: JSON.stringify([
+        { name: 'דמו — מסכת ברכות.tok', path: '' },
+        { name: 'פרויקט דף גמרא.tok', path: 'פרויקט דף גמרא.tok' },
+        { name: 'ספר אישי.tok', path: '/docs/sefer.tok' },
+        { name: 'עלון שבת קודש — גיליון ק״מ.tok', path: '' }
+      ])
+    };
+    global.localStorage = {
+      getItem: (k) => mockStorage[k] || null,
+      setItem: (k, v) => { mockStorage[k] = String(v); },
+      removeItem: (k) => { delete mockStorage[k]; }
+    };
+
+    purgeAllDemoProjects();
+    const recent = getRecentProjects();
+    assert.strictEqual(recent.length, 1);
+    assert.strictEqual(recent[0].name, 'ספר אישי.tok');
+
+    // Verify localStorage was cleaned up
+    const stored = JSON.parse(mockStorage.tok_recent_projects);
+    assert.strictEqual(stored.length, 1);
+    assert.strictEqual(stored[0].name, 'ספר אישי.tok');
+
+    // addRecentProject should reject any demo or phantom project
+    addRecentProject({ name: 'דמו — ספר חדש.tok' });
+    addRecentProject({ name: 'פרויקט דף גמרא.tok', path: 'פרויקט דף גמרא.tok' });
+    assert.strictEqual(getRecentProjects().length, 1);
+
+    // Valid project is added
+    addRecentProject({ name: 'ספר בראשית.tok', path: '/docs/bereshit.tok' });
+    assert.strictEqual(getRecentProjects().length, 2);
+  });
+
+  test('TEMPLATE_TITLES in app.ts contains no demo projects', () => {
+    const appCode = read('packages/tok-ui/src/app.ts');
+    assert.ok(!appCode.includes('דמו —'), 'No demo titles in TEMPLATE_TITLES');
+    assert.ok(!appCode.includes('toastDemoLoaded'), 'toastDemoLoaded must not be used');
+  });
+
   test('the import card is styled like the blank card (text no longer sticks to the edges)', () => {
     const html = read('packages/tok-ui/src/index.html');
     assert.ok(/\.tok-template-blank,\s*\.tok-template-import\s*\{/.test(html));

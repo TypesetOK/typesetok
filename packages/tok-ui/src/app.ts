@@ -7,7 +7,7 @@ import { CommandPalette, PaletteItem } from './components/CommandPalette';
 import { StatusBar } from './components/StatusBar';
 import { SpreadCanvas, isRightHandPage, isRectoPage, groupIntoSpreads } from './components/SpreadCanvas';
 import { ExportDialog, ExportOptions } from './components/ExportDialog';
-import { WelcomeModal, addRecentProject, updateProjectClosedTime } from './components/WelcomeModal';
+import { WelcomeModal, addRecentProject, updateProjectClosedTime, isDemoProject, purgeAllDemoProjects } from './components/WelcomeModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AboutModal } from './components/AboutModal';
 import { UpdatesDrawer } from './components/UpdatesDrawer';
@@ -97,11 +97,11 @@ const FLOW_NAME_KEYS: Record<string, string> = {
 
 /** Template id → document title shown in the top bar (document names, not UI text). */
 const TEMPLATE_TITLES: Record<string, string> = {
-  gemara: 'דמו — מסכת ברכות.tok',
-  mikraot: 'דמו — מקראות גדולות.tok',
-  prose: 'דמו — ספר קריאה וטקסט רציף.tok',
-  notes: 'דמו — ספר עם הערות שוליים.tok',
-  bulletin: 'דמו — עלון וקונטרס.tok'
+  gemara: 'פרויקט דף גמרא.tok',
+  mikraot: 'פרויקט מקראות גדולות.tok',
+  prose: 'ספר קריאה וטקסט רציף.tok',
+  notes: 'ספר עם הערות שוליים.tok',
+  bulletin: 'עלון וקונטרס.tok'
 };
 const BLANK_TEMPLATE_TITLE = 'מסמך ריק.tok';
 import { countWords, getParagraphWordCount, clearWordCountCache } from './textStats';
@@ -165,9 +165,9 @@ export class TypesetOkApp {
   private latestTypesetRequestId = 0;
   private activeTypesetAbortController: AbortController | null = null;
   private documentState: MultiFlowDocumentState = {
-    title: 'פרויקט דף גמרא.tok',
+    title: 'מסמך ריק.tok',
     templateType: 'gemara',
-    flows: JSON.parse(JSON.stringify(DEFAULT_TALMUD_FLOWS))
+    flows: { gemara: [], rashi: [], tosafot: [], notes: [] }
   };
 
   private onBeforeUnload = (e: BeforeUnloadEvent): void => {
@@ -204,6 +204,9 @@ export class TypesetOkApp {
 
     // Apply theme & language
     themeManager.applyTheme();
+
+    // Purge any legacy sample or demo projects from storage immediately
+    purgeAllDemoProjects();
 
     this.initUI();
 
@@ -2159,20 +2162,13 @@ export class TypesetOkApp {
   private handleTemplateSelect(templateId: string): void {
     this.resetDocumentSession();
     const isBlank = templateId === 'blank';
-    const isDemo = !isBlank;
-    const name = TEMPLATE_TITLES[templateId] || BLANK_TEMPLATE_TITLE;
+    const name = isBlank ? BLANK_TEMPLATE_TITLE : (TEMPLATE_TITLES[templateId] || BLANK_TEMPLATE_TITLE);
     this.documentTitle = name;
     this.documentState.title = name;
     this.documentState.templateType = (templateId in TEMPLATE_TITLES ? templateId : 'gemara') as TemplateType;
     this.currentFilePath = '';
 
-    if (isBlank) {
-      this.documentState.flows = { gemara: [], rashi: [], tosafot: [], notes: [] };
-    } else if (templateId === 'prose') {
-      this.documentState.flows = JSON.parse(JSON.stringify(DEFAULT_PROSE_FLOWS));
-    } else {
-      this.documentState.flows = JSON.parse(JSON.stringify(DEFAULT_TALMUD_FLOWS));
-    }
+    this.documentState.flows = { gemara: [], rashi: [], tosafot: [], notes: [] };
 
     this.activeFlowId = 'gemara';
     this.storyEditor.loadStory(this.documentState.flows.gemara);
@@ -2185,15 +2181,10 @@ export class TypesetOkApp {
     this.hasOpenDocument = true;
     this.setDirty(false);
     this.showDocumentTitle(name, false);
-    addRecentProject({ name, pages: this.pages.length, lastSavedAt: new Date().toISOString() });
     this.welcomeModal.setHasOpenDocument(true);
     this.welcomeModal.hide();
 
-    if (isDemo) {
-      this.showToast(t('toastDemoLoaded'));
-    } else {
-      this.showToast(tf('toastProjectCreated', { name }));
-    }
+    this.showToast(tf('toastProjectCreated', { name }));
   }
 
     private async saveDocumentToFile(filePath: string, options: { silent?: boolean } = {}): Promise<boolean> {
@@ -3004,6 +2995,10 @@ export class TypesetOkApp {
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (parsed && parsed.document && parsed.savedAt) {
+        if (parsed.title && isDemoProject(parsed.title, parsed.filePath)) {
+          this.clearDraftRecovery();
+          return;
+        }
         const savedTime = new Date(parsed.savedAt).toLocaleTimeString();
         if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !(window as any).__TOK_TEST_ENV__) {
           if (window.confirm(tf('draftRecoveryFound', { time: savedTime }))) {

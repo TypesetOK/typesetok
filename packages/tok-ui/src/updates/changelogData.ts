@@ -52,6 +52,13 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
           "he": "התאמת ניגודיות צבעים והפרדות קו בכל ערכות הנושא של התוכנה (כהה, בהיר וניגודיות גבוהה)",
           "en": "Harmonized contrast and line separators across all themes (dark, light, and high contrast)"
         }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "הסרת פרויקטי דמו ממסך הבית, מניעת רישום פרויקטי דמה בהיסטוריה וטיהור רשומות ישנות מזיכרון התוכנה",
+          "en": "Purged demo projects from home screen and storage, preventing demo entries in recent projects history"
+        }
       }
     ],
     "highlights": [

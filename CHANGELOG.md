@@ -25,6 +25,7 @@
 - [features] עברית: כפתור מה חדש עם אייקון כוכב עדכונים ייעודי בצד שמאל למעלה ותצוגה תמציתית של יומן הגרסאות | en: What's New button with star icon at top-left and concise changelog summary presentation
 - [features] עברית: סרגל ימני מתקפל בעיצוב מסילה ופאנל עם כפתור קיפול כיווני וכפתור אודות תחתון | en: Right structure bar with rail/panel layout, directional collapse button, and bottom about button
 - [improvements] עברית: התאמת ניגודיות צבעים והפרדות קו בכל ערכות הנושא של התוכנה (כהה, בהיר וניגודיות גבוהה) | en: Harmonized contrast and line separators across all themes (dark, light, and high contrast)
+- [fixes] עברית: הסרת פרויקטי דמו ממסך הבית, מניעת רישום פרויקטי דמה בהיסטוריה וטיהור רשומות ישנות מזיכרון התוכנה | en: Purged demo projects from home screen and storage, preventing demo entries in recent projects history
 
 ---
 

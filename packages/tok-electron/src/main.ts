@@ -536,18 +536,6 @@ handle('tok:send-command', async (_, cmd: any) => {
     return { status: 'ok', version: getAppVersion(), cliPath: cli, cliExists: fs.existsSync(cli) };
   }
 
-  if (action === 'get-demo-html') {
-    const tempPath = path.join(app.getPath('temp'), `tok_demo_${process.pid}_${Date.now()}.html`);
-    try {
-      const { code, stderr } = await runCli(['render-html', '--demo', tempPath]);
-      if (code !== 0) throw new Error(`Failed to generate demo HTML (code ${code}): ${stderr}`);
-      const html = await fs.promises.readFile(tempPath, 'utf-8');
-      return { ok: true, html };
-    } finally {
-      fs.promises.unlink(tempPath).catch(() => {});
-    }
-  }
-
   if (action === 'benchmark-typeset') {
     const { code, stdout, stderr } = await runCli(['benchmark-typeset', '--pages', '100']);
     if (code === 0) return { ok: true, output: stdout };
