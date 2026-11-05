@@ -6,6 +6,94 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.34.0",
+    "releaseDate": "2026-11-05",
+    "importance": "major",
+    "title": {
+      "he": "עיצוב מרחב עבודה מודרני, סרגלים מודולריים מתקפלים ופס חלון דק",
+      "en": "Modern Workspace UI, Modular Collapsible Sidebars & Slim Titlebar"
+    },
+    "summary": {
+      "he": "שחרור גרסה 0.34.0 עם עיצוב מחדש למרחב העבודה: פס כותרת עליון דק (32px) עם בקרות חלון מובנות, סרגל מאפיינים מודולרי המחולק לכרטיסיות עם קווי הפרדה וניגודיות בהירות, מנגנוני קיפול והרחבה אינטואיטיביים, אייקון כוכב עדכונים ייעודי בצד שמאל, וכפתורי הגדרות ואודות תחתונים.",
+      "en": "Release 0.34.0 delivering workspace redesign: centered slim 32px titlebar with integrated window controls, modular inspector cards with subtle brightness contrast and dividing lines, intuitive sidebar collapse/expand controls, celestial star What's New icon with concise updates, and bottom settings and about buttons."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "פס כותרת דק (32px) במרכז החלון עם בקרות מובנות (מזעור, הגדלה, סגירה) ועריכת שם פרויקט בלחיצה כפולה",
+          "en": "Centered slim 32px titlebar with window controls and double-click rename"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "חלוקת סרגל המאפיינים השמאלי לכרטיסיות מופרדות בקו ובגוון בהיר יותר עם כפתור צמצום והרחבה",
+          "en": "Left inspector partitioned into distinct cards with dividing lines, subtle brightness contrast, and collapse/expand toggle"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "כפתור מה חדש עם אייקון כוכב עדכונים ייעודי בצד שמאל למעלה ותצוגה תמציתית של יומן הגרסאות",
+          "en": "What's New button with star icon at top-left and concise changelog summary presentation"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "סרגל ימני מתקפל בעיצוב מסילה ופאנל עם כפתור קיפול כיווני וכפתור אודות תחתון",
+          "en": "Right structure bar with rail/panel layout, directional collapse button, and bottom about button"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "התאמת ניגודיות צבעים והפרדות קו בכל ערכות הנושא של התוכנה (כהה, בהיר וניגודיות גבוהה)",
+          "en": "Harmonized contrast and line separators across all themes (dark, light, and high contrast)"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "modern-workspace",
+        "icon": "sparkle",
+        "title": {
+          "he": "מרחב עבודה נקי ורחב",
+          "en": "Uncluttered Expansive Workspace"
+        },
+        "description": {
+          "he": "הארכת סרגלי הצד עד לפס הכותרת הדק (32px) במקום הסרגל העליון הישן, ליצירת משטח עבודה רציף ללא הסחות דעת.",
+          "en": "Full-height sidebars reaching the slim 32px titlebar for a continuous, distraction-free typesetting canvas."
+        },
+        "badge": {
+          "he": "מרחב עבודה",
+          "en": "Workspace"
+        }
+      },
+      {
+        "id": "collapsible-sidebars",
+        "icon": "layers",
+        "title": {
+          "he": "שליטה מודולרית בסרגלי המבנה והמאפיינים",
+          "en": "Modular Structure and Inspector Controls"
+        },
+        "description": {
+          "he": "כפתורי הרחבה וקיפול ייעודיים, כרטיסיות מופרדות ויזואלית בשינוי בהירות עדין, וכפתורי הגדרות ואודות נגישים בתחתית.",
+          "en": "Dedicated expand/collapse toggles, visual brightness contrast segmentation, and accessible bottom settings/about buttons."
+        },
+        "badge": {
+          "he": "סרגלים מתקפלים",
+          "en": "Collapsible Sidebars"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה נוכחית",
+      "en": "Current Version"
+    }
+  },
+  {
     "version": "0.33.0",
     "releaseDate": "2026-10-31",
     "importance": "major",
@@ -117,8 +205,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       }
     ],
     "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
     }
   },
   {

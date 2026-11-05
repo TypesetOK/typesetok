@@ -5,9 +5,32 @@
 
 ---
 
-## [0.33.0] - 2026-10-31
+## [0.34.0] - 2026-11-05
 - **Importance**: major
 - **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Title**: עברית: עיצוב מרחב עבודה מודרני, סרגלים מודולריים מתקפלים ופס חלון דק | en: Modern Workspace UI, Modular Collapsible Sidebars & Slim Titlebar
+- **Summary**: עברית: שחרור גרסה 0.34.0 עם עיצוב מחדש למרחב העבודה: פס כותרת עליון דק (32px) עם בקרות חלון מובנות, סרגל מאפיינים מודולרי המחולק לכרטיסיות עם קווי הפרדה וניגודיות בהירות, מנגנוני קיפול והרחבה אינטואיטיביים, אייקון כוכב עדכונים ייעודי בצד שמאל, וכפתורי הגדרות ואודות תחתונים. | en: Release 0.34.0 delivering workspace redesign: centered slim 32px titlebar with integrated window controls, modular inspector cards with subtle brightness contrast and dividing lines, intuitive sidebar collapse/expand controls, celestial star What's New icon with concise updates, and bottom settings and about buttons.
+
+### Highlights
+- [modern-workspace] icon: sparkle | badge: עברית: מרחב עבודה, en: Workspace
+  - Title: עברית: מרחב עבודה נקי ורחב | en: Uncluttered Expansive Workspace
+  - Description: עברית: הארכת סרגלי הצד עד לפס הכותרת הדק (32px) במקום הסרגל העליון הישן, ליצירת משטח עבודה רציף ללא הסחות דעת. | en: Full-height sidebars reaching the slim 32px titlebar for a continuous, distraction-free typesetting canvas.
+- [collapsible-sidebars] icon: layers | badge: עברית: סרגלים מתקפלים, en: Collapsible Sidebars
+  - Title: עברית: שליטה מודולרית בסרגלי המבנה והמאפיינים | en: Modular Structure and Inspector Controls
+  - Description: עברית: כפתורי הרחבה וקיפול ייעודיים, כרטיסיות מופרדות ויזואלית בשינוי בהירות עדין, וכפתורי הגדרות ואודות נגישים בתחתית. | en: Dedicated expand/collapse toggles, visual brightness contrast segmentation, and accessible bottom settings/about buttons.
+
+### Changes
+- [features] עברית: פס כותרת דק (32px) במרכז החלון עם בקרות מובנות (מזעור, הגדלה, סגירה) ועריכת שם פרויקט בלחיצה כפולה | en: Centered slim 32px titlebar with window controls and double-click rename
+- [features] עברית: חלוקת סרגל המאפיינים השמאלי לכרטיסיות מופרדות בקו ובגוון בהיר יותר עם כפתור צמצום והרחבה | en: Left inspector partitioned into distinct cards with dividing lines, subtle brightness contrast, and collapse/expand toggle
+- [features] עברית: כפתור מה חדש עם אייקון כוכב עדכונים ייעודי בצד שמאל למעלה ותצוגה תמציתית של יומן הגרסאות | en: What's New button with star icon at top-left and concise changelog summary presentation
+- [features] עברית: סרגל ימני מתקפל בעיצוב מסילה ופאנל עם כפתור קיפול כיווני וכפתור אודות תחתון | en: Right structure bar with rail/panel layout, directional collapse button, and bottom about button
+- [improvements] עברית: התאמת ניגודיות צבעים והפרדות קו בכל ערכות הנושא של התוכנה (כהה, בהיר וניגודיות גבוהה) | en: Harmonized contrast and line separators across all themes (dark, light, and high contrast)
+
+---
+
+## [0.33.0] - 2026-10-31
+- **Importance**: major
+- **Badge**: עברית: גרסה קודמת | en: Previous Version
 - **Title**: עברית: מהפכת "צורת הדף" חיה, עגינה רב-תזרימית והקשחת דטרמיניזם | en: Living Tzurat HaDaf, Dynamic Multi-Flow Anchoring & Pre-Press Hardening
 - **Summary**: עברית: שחרור רשמי של גרסה 0.33.0 הכוללת עימוד רב-תזרימי חי לש"ס ומקראות גדולות עם עגינה דו-כיוונית, גלישת עמודים מסונכרנת בזמן אמת, איזון גבהי טורים משותף, הקשחת מנוע הדטרמיניזם ואוטומציית שחרור גרסאות מלאה. | en: Official release 0.33.0 introducing Living Tzurat HaDaf with bi-directional multi-flow anchoring, real-time synchronized pagination cascading, shared column height balancing, determinism engine hardening, and automated CI/CD release workflow.
 
