@@ -139,11 +139,7 @@ fn test_multi_flow_intra_page_vertical_alignment_and_overflow_holdback() {
 
     let mut gemara =
         Flow::new(FlowId::new("gemara"), FlowType::Main).with_placement_role("primary");
-    let p1 = make_para(
-        1,
-        "gemara",
-        &"אמר מר הלכה כרבי יהודה בערב הפסח ".repeat(14),
-    );
+    let p1 = make_para(1, "gemara", &"אמר מר הלכה כרבי יהודה בערב הפסח ".repeat(14));
     let p1_id = p1.id;
     let p2 = make_para(
         2,
@@ -365,11 +361,9 @@ fn test_l_shape_expansion_frame_rebreaks_paragraphs_to_wider_measure() {
 
     let mut tosafot =
         Flow::new(FlowId::new("tosafot"), FlowType::CommentB).with_placement_role("outer_margin");
-    tosafot.paragraphs.push(make_para(
-        1,
-        "tosafot",
-        "תוספות קצר בעמודה החיצונית.",
-    ));
+    tosafot
+        .paragraphs
+        .push(make_para(1, "tosafot", "תוספות קצר בעמודה החיצונית."));
 
     sec.flows.push(gemara);
     sec.flows.push(rashi);
@@ -455,12 +449,14 @@ fn test_hebrew_drop_cap_ink_bounds_cantillation_and_pagination() {
     // 3. End-to-end document pagination with drop cap
     let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
     let mut doc = DocumentRoot::new("Drop Cap Pagination Test");
-    let mut style = ParagraphStyle::default();
-    style.id = "drop_cap_body".to_string();
-    style.name = "Drop Cap Body".to_string();
-    style.font_size_pt = 14.0;
-    style.line_height_pt = 18.0;
-    style.drop_cap = Some(cfg);
+    let style = ParagraphStyle {
+        id: "drop_cap_body".to_string(),
+        name: "Drop Cap Body".to_string(),
+        font_size_pt: 14.0,
+        line_height_pt: 18.0,
+        drop_cap: Some(cfg),
+        ..Default::default()
+    };
     doc.paragraph_styles.push(style);
 
     let p = make_para(1, "drop_cap_body", &format!("{} {}", text, text));
@@ -579,17 +575,19 @@ fn test_knuth_plass_last_line_constraints_and_optimal_variable_placement() {
     let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
     let mut doc = DocumentRoot::new("Knuth-Plass Last Line Constraint Test");
 
-    let mut style = ParagraphStyle::default();
-    style.id = "kp_constrained".to_string();
-    style.name = "KP Constrained".to_string();
-    style.font_size_pt = 13.0;
-    style.line_height_pt = 17.0;
-    style.last_line_constraint = Some(LastLineConstraintConfig {
-        min_width_pt: 40.0,
-        min_width_ratio: 0.30,
-        min_words: 2,
-        balance_slack: true,
-    });
+    let style = ParagraphStyle {
+        id: "kp_constrained".to_string(),
+        name: "KP Constrained".to_string(),
+        font_size_pt: 13.0,
+        line_height_pt: 17.0,
+        last_line_constraint: Some(LastLineConstraintConfig {
+            min_width_pt: 40.0,
+            min_width_ratio: 0.30,
+            min_words: 2,
+            balance_slack: true,
+        }),
+        ..Default::default()
+    };
     doc.paragraph_styles.push(style);
 
     let p = make_para(
@@ -751,25 +749,29 @@ fn test_optical_margin_alignment_hebrew_rtl_niqqud_and_ltr_pipeline() {
 
     // 2. End-to-end pipeline test with OpticalMarginConfig enabled vs disabled
     let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
-    let text = "״אמר רבי עקיבא ואהבת לרעך כמוך זה כלל גדול בתורה ובנביאים ובכתובים תמיד״ "
-        .repeat(4);
+    let text =
+        "״אמר רבי עקיבא ואהבת לרעך כמוך זה כלל גדול בתורה ובנביאים ובכתובים תמיד״ ".repeat(4);
 
     let mut doc_off = DocumentRoot::new("OM Off");
-    let mut style_off = ParagraphStyle::default();
-    style_off.id = "om_off".to_string();
-    style_off.name = "OM Off".to_string();
-    style_off.alignment = TextAlignment::Justified;
+    let style_off = ParagraphStyle {
+        id: "om_off".to_string(),
+        name: "OM Off".to_string(),
+        alignment: TextAlignment::Justified,
+        ..Default::default()
+    };
     doc_off.paragraph_styles.push(style_off);
     doc_off.sections[0].flows[0]
         .paragraphs
         .push(make_para(1, "om_off", &text));
 
     let mut doc_on = DocumentRoot::new("OM On");
-    let mut style_on = ParagraphStyle::default();
-    style_on.id = "om_on".to_string();
-    style_on.name = "OM On".to_string();
-    style_on.alignment = TextAlignment::Justified;
-    style_on.optical_margin = Some(cfg);
+    let style_on = ParagraphStyle {
+        id: "om_on".to_string(),
+        name: "OM On".to_string(),
+        alignment: TextAlignment::Justified,
+        optical_margin: Some(cfg),
+        ..Default::default()
+    };
     doc_on.paragraph_styles.push(style_on);
     doc_on.sections[0].flows[0]
         .paragraphs
@@ -864,7 +866,11 @@ fn test_multi_flow_cross_page_commentary_overflow_holdback() {
     doc.sections = vec![sec];
 
     let pages = engine.typeset_document(&doc);
-    assert!(pages.len() >= 2, "Expected at least 2 pages, got {}", pages.len());
+    assert!(
+        pages.len() >= 2,
+        "Expected at least 2 pages, got {}",
+        pages.len()
+    );
 
     // Page 1 must contain p1, and p2 must be held back to Page 2 where c2 can appear alongside it
     let page1_g = pages[0]
@@ -908,8 +914,9 @@ fn test_property_based_invariants_across_all_six_capabilities() {
                 margin_pt,
                 font_size_pt: None,
             };
-            let dc = HebrewDropCapShaper::shape_drop_cap(sample_hebrew, &cfg, &fm, 320.0, 17.0, true)
-                .expect("drop cap");
+            let dc =
+                HebrewDropCapShaper::shape_drop_cap(sample_hebrew, &cfg, &fm, 320.0, 17.0, true)
+                    .expect("drop cap");
             assert!(dc.ink_bounds.x >= dc.window_rect.x - 1e-3);
             assert!(dc.ink_bounds.y >= dc.window_rect.y - 1e-3);
             assert!(
@@ -962,15 +969,17 @@ fn test_property_based_invariants_across_all_six_capabilities() {
 
     // Property 3: Layout determinism across repeated invocations
     let mut doc = DocumentRoot::new("Determinism Property Test");
-    let mut style = ParagraphStyle::default();
-    style.id = "det".to_string();
-    style.optical_margin = Some(OpticalMarginConfig::default());
-    style.last_line_constraint = Some(LastLineConstraintConfig {
-        min_width_pt: 35.0,
-        min_width_ratio: 0.25,
-        min_words: 2,
-        balance_slack: true,
-    });
+    let style = ParagraphStyle {
+        id: "det".to_string(),
+        optical_margin: Some(OpticalMarginConfig::default()),
+        last_line_constraint: Some(LastLineConstraintConfig {
+            min_width_pt: 35.0,
+            min_width_ratio: 0.25,
+            min_words: 2,
+            balance_slack: true,
+        }),
+        ..Default::default()
+    };
     doc.paragraph_styles.push(style);
     doc.sections[0].flows[0].paragraphs.push(make_para(
         1,

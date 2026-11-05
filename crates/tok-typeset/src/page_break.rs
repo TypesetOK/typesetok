@@ -225,12 +225,11 @@ impl GlobalPageBreaker {
                     curr_y = curr_y.max(active_drop_cap_bottom) + margin;
                     let mut line = item.line.clone();
                     line.line_index = l_idx;
-                    let rel_baseline =
-                        if line.baseline_y > 0.0 && line.baseline_y <= line.height {
-                            line.baseline_y
-                        } else {
-                            line.height * 0.78
-                        };
+                    let rel_baseline = if line.baseline_y > 0.0 && line.baseline_y <= line.height {
+                        line.baseline_y
+                    } else {
+                        line.height * 0.78
+                    };
                     line.baseline_y = curr_y + rel_baseline;
                     active_drop_cap_bottom = active_drop_cap_bottom.max(curr_y + line.height);
                     prev_was_drop_cap_for_para = Some(item.paragraph_idx);
@@ -238,8 +237,7 @@ impl GlobalPageBreaker {
                     continue;
                 }
 
-                let is_first_after_dc =
-                    prev_was_drop_cap_for_para == Some(item.paragraph_idx);
+                let is_first_after_dc = prev_was_drop_cap_for_para == Some(item.paragraph_idx);
                 prev_was_drop_cap_for_para = None;
 
                 let margin = if item.line_in_paragraph == 0 && l_idx > 0 && !is_first_after_dc {

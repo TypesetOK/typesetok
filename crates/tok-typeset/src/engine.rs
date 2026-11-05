@@ -611,8 +611,7 @@ impl TypesettingEngine {
             }
 
             let target_w = span.target_width;
-            let is_justified_line =
-                !is_last && align == tok_core::styles::TextAlignment::Justified;
+            let is_justified_line = !is_last && align == tok_core::styles::TextAlignment::Justified;
 
             // Compute optical margin protrusion for the line's visual edge glyphs when enabled
             let protrusion = om_opt
@@ -887,19 +886,14 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
-                    let base_style = doc
-                        .paragraph_styles
-                        .iter()
-                        .find(|s| s.id == p.style_id);
+                    let base_style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
                     let resolved_style = p.effective_style(&doc.paragraph_styles);
                     let (font_family, font_size, line_height) = if base_style.is_some()
                         || !p.style_patches.is_empty()
                     {
                         (
-                            self.font_manager.face_for(
-                                &resolved_style.font_family,
-                                resolved_style.font_weight,
-                            ),
+                            self.font_manager
+                                .face_for(&resolved_style.font_family, resolved_style.font_weight),
                             resolved_style.font_size_pt,
                             resolved_style.line_height_pt,
                         )
@@ -910,7 +904,11 @@ impl TypesettingEngine {
                             DEFAULT_LINE_HEIGHT_PT,
                         )
                     };
-                    let lines = if resolved_style.drop_cap.as_ref().is_some_and(|dc| dc.enabled) {
+                    let lines = if resolved_style
+                        .drop_cap
+                        .as_ref()
+                        .is_some_and(|dc| dc.enabled)
+                    {
                         let profile = MeasureProfile::uniform(content_width);
                         self.typeset_paragraph_shaped_with_style(
                             p,
@@ -1164,19 +1162,14 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
-                    let base_style = doc
-                        .paragraph_styles
-                        .iter()
-                        .find(|s| s.id == p.style_id);
+                    let base_style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
                     let resolved_style = p.effective_style(&doc.paragraph_styles);
                     let (font_family, font_size, line_height) = if base_style.is_some()
                         || !p.style_patches.is_empty()
                     {
                         (
-                            self.font_manager.face_for(
-                                &resolved_style.font_family,
-                                resolved_style.font_weight,
-                            ),
+                            self.font_manager
+                                .face_for(&resolved_style.font_family, resolved_style.font_weight),
                             resolved_style.font_size_pt,
                             resolved_style.line_height_pt,
                         )
@@ -1187,7 +1180,11 @@ impl TypesettingEngine {
                             DEFAULT_LINE_HEIGHT_PT,
                         )
                     };
-                    let lines = if resolved_style.drop_cap.as_ref().is_some_and(|dc| dc.enabled) {
+                    let lines = if resolved_style
+                        .drop_cap
+                        .as_ref()
+                        .is_some_and(|dc| dc.enabled)
+                    {
                         let profile = MeasureProfile::uniform(content_width);
                         self.typeset_paragraph_shaped_with_style(
                             p,
@@ -1567,7 +1564,7 @@ impl TypesettingEngine {
                     merged_sec.flows.push(flow.clone());
                 }
             }
-            for (_, anchor_def) in &sec.anchors.anchors {
+            for anchor_def in sec.anchors.anchors.values() {
                 merged_sec.anchors.register_anchor(anchor_def.clone());
             }
             for links in sec.anchors.anchor_to_commentaries.values() {
@@ -1763,7 +1760,7 @@ impl TypesettingEngine {
 
         let mut anchor_map = tok_core::multi_flow_anchor::MultiFlowAnchorMap::default();
         if let Some(ref map) = doc.multi_flow_anchors {
-            for (_, a) in &map.anchors {
+            for a in map.anchors.values() {
                 anchor_map.register_anchor(a.clone());
             }
             for links in map.anchor_to_commentaries.values() {
@@ -1772,7 +1769,7 @@ impl TypesettingEngine {
                 }
             }
         }
-        for (_, a) in &first_sec.anchors.anchors {
+        for a in first_sec.anchors.anchors.values() {
             anchor_map.register_anchor(a.clone());
         }
         for links in first_sec.anchors.anchor_to_commentaries.values() {
@@ -1787,10 +1784,9 @@ impl TypesettingEngine {
                     .iter()
                     .filter(|f| f.id != primary_flow_id)
                     .collect();
-                anchor_map =
-                    tok_core::multi_flow_anchor::MultiFlowAnchorMap::synthesize_or_default(
-                        pf, &comms,
-                    );
+                anchor_map = tok_core::multi_flow_anchor::MultiFlowAnchorMap::synthesize_or_default(
+                    pf, &comms,
+                );
             }
         }
 
@@ -1991,10 +1987,7 @@ impl TypesettingEngine {
                                 k.clone(),
                                 v.iter()
                                     .map(|l| {
-                                        (
-                                            l.paragraph_id,
-                                            if l.is_drop_cap { 0.0 } else { l.height },
-                                        )
+                                        (l.paragraph_id, if l.is_drop_cap { 0.0 } else { l.height })
                                     })
                                     .collect(),
                             )
@@ -2134,9 +2127,8 @@ impl TypesettingEngine {
                                     for (comm_fid, comm_lines) in &comm_heights_snapshot {
                                         let comm_cur =
                                             flow_cursors.get(comm_fid).copied().unwrap_or(0);
-                                        if let Some(rel_pos) = comm_lines[comm_cur..]
-                                            .iter()
-                                            .position(|(cid, _)| {
+                                        if let Some(rel_pos) =
+                                            comm_lines[comm_cur..].iter().position(|(cid, _)| {
                                                 *cid == Some(anchor.commentary_node_id)
                                             })
                                         {

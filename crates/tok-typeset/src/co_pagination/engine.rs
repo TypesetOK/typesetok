@@ -441,7 +441,8 @@ impl CoPaginationEngine {
             let mut current_rashi_y = 0.0f32;
             for (p_idx, item) in this_page_rashi.into_iter().enumerate() {
                 let start_line = rashi_line_counter;
-                let natural_y = current_rashi_y.max(start_line as f32 * config.commentary_line_height);
+                let natural_y =
+                    current_rashi_y.max(start_line as f32 * config.commentary_line_height);
 
                 // Create paragraph-offset profile
                 let p_profile = if !rashi_profile.is_uniform() {
@@ -571,13 +572,12 @@ impl CoPaginationEngine {
             } else {
                 max_commentary_lines
             };
-            let tosafot_narrow_lines = if current_rashi_y > 0.0
-                && current_rashi_y < math.content_height_pt * 0.5
-            {
-                (current_rashi_y / config.commentary_line_height).ceil() as usize
-            } else {
-                effective_max_tosafot_lines
-            };
+            let tosafot_narrow_lines =
+                if current_rashi_y > 0.0 && current_rashi_y < math.content_height_pt * 0.5 {
+                    (current_rashi_y / config.commentary_line_height).ceil() as usize
+                } else {
+                    effective_max_tosafot_lines
+                };
 
             let mut current_tosafot_y = 0.0f32;
             for (p_idx, item) in this_page_tosafot.into_iter().enumerate() {

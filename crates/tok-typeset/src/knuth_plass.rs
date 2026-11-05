@@ -1729,17 +1729,19 @@ mod tests {
         );
         assert!((unconstrained_spans.last().unwrap().natural_width - 25.0).abs() < 1e-3);
 
-        let constrained_profile = MeasureProfile::uniform(140.0).with_last_line_constraint(
-            LastLineConstraint {
+        let constrained_profile =
+            MeasureProfile::uniform(140.0).with_last_line_constraint(LastLineConstraint {
                 min_width_pt: 60.0,
                 min_width_ratio: 0.4,
                 min_words: 2,
                 balance_slack: true,
                 max_width_ratio: 1.0,
-            },
+            });
+        let constrained_spans = KnuthPlassBreaker::break_paragraph_spans_with_profile(
+            &items,
+            &constrained_profile,
+            2.0,
         );
-        let constrained_spans =
-            KnuthPlassBreaker::break_paragraph_spans_with_profile(&items, &constrained_profile, 2.0);
         let word_counts = boxes_per_line(&items, &constrained_spans);
         let total_words: usize = word_counts.iter().sum();
         assert_eq!(total_words, 7);

@@ -141,21 +141,21 @@ impl OpticalMarginAligner {
             'ו' => (0.05, 0.05), // Narrow vertical stem with top hook
             'ז' => (0.07, 0.07), // Top bar overhangs both sides of stem
             'ח' => (0.02, 0.02),
-            'ט' => (0.04, 0.05), // Rounded belly
-            'י' => (0.14, 0.14), // Small suspended glyph with large lower whitespace
+            'ט' => (0.04, 0.05),       // Rounded belly
+            'י' => (0.14, 0.14),       // Small suspended glyph with large lower whitespace
             'כ' | 'ך' => (0.04, 0.06), // Curved right shoulder
-            'ל' => (0.06, 0.05), // Ascender and curved body
+            'ל' => (0.06, 0.05),       // Ascender and curved body
             'מ' => (0.03, 0.04),
             'ם' => (0.02, 0.03),
             'נ' | 'ן' => (0.03, 0.05),
-            'ס' => (0.07, 0.07), // Round bowl on both left and right edges
-            'ע' => (0.07, 0.06), // Diagonal strokes
+            'ס' => (0.07, 0.07),       // Round bowl on both left and right edges
+            'ע' => (0.07, 0.06),       // Diagonal strokes
             'פ' | 'ף' => (0.05, 0.06), // Curved right bowl
             'צ' | 'ץ' => (0.06, 0.06), // Diagonal upper arms
-            'ק' => (0.06, 0.04), // Open lower-right, curved upper-right
-            'ר' => (0.07, 0.06), // Curved top-right shoulder, open left whitespace
-            'ש' => (0.05, 0.05), // Angled outer arms
-            'ת' => (0.08, 0.03), // Pronounced left foot protrusion (עקב של ת)
+            'ק' => (0.06, 0.04),       // Open lower-right, curved upper-right
+            'ר' => (0.07, 0.06),       // Curved top-right shoulder, open left whitespace
+            'ש' => (0.05, 0.05),       // Angled outer arms
+            'ת' => (0.08, 0.03),       // Pronounced left foot protrusion (עקב של ת)
 
             // Latin letterforms: curved bowls and diagonals
             'C' | 'G' | 'O' | 'Q' | 'c' | 'e' | 'o' => (0.06, 0.06),
@@ -268,13 +268,21 @@ impl OpticalMarginAligner {
         let start_factor = first_char
             .map(|c| {
                 let (lf, rf) = Self::protrusion_factors_for_char(c, config);
-                if is_rtl { rf } else { lf }
+                if is_rtl {
+                    rf
+                } else {
+                    lf
+                }
             })
             .unwrap_or(0.0);
         let end_factor = last_char
             .map(|c| {
                 let (lf, rf) = Self::protrusion_factors_for_char(c, config);
-                if is_rtl { lf } else { rf }
+                if is_rtl {
+                    lf
+                } else {
+                    rf
+                }
             })
             .unwrap_or(0.0);
 
@@ -308,7 +316,11 @@ impl OpticalMarginAligner {
             (eff_target, eff_x_offset, protrusion.right_pt)
         } else {
             match alignment {
-                TextAlignment::Right => (target_width, x_offset + protrusion.right_pt, protrusion.right_pt),
+                TextAlignment::Right => (
+                    target_width,
+                    x_offset + protrusion.right_pt,
+                    protrusion.right_pt,
+                ),
                 TextAlignment::Left => (target_width, x_offset - protrusion.left_pt, 0.0),
                 TextAlignment::Center => (
                     target_width,
@@ -318,7 +330,11 @@ impl OpticalMarginAligner {
                 TextAlignment::Justified => {
                     // Last line of a justified paragraph aligns to the start edge
                     if is_rtl {
-                        (target_width, x_offset + protrusion.right_pt, protrusion.right_pt)
+                        (
+                            target_width,
+                            x_offset + protrusion.right_pt,
+                            protrusion.right_pt,
+                        )
                     } else {
                         (target_width, x_offset - protrusion.left_pt, 0.0)
                     }
@@ -361,9 +377,17 @@ mod tests {
 
         let prot = OpticalMarginAligner::compute_line_protrusion(&glyphs, 12.0, &cfg);
         // Maqaf on left has 0.65 factor -> 4.0 * 0.65 = 2.60pt
-        assert!((prot.left_pt - 2.60).abs() < 1e-2, "left_pt={}", prot.left_pt);
+        assert!(
+            (prot.left_pt - 2.60).abs() < 1e-2,
+            "left_pt={}",
+            prot.left_pt
+        );
         // Bet on right has 0.04 factor -> 8.0 * 0.04 = 0.32pt
-        assert!(prot.right_pt > 0.1 && prot.right_pt < 1.0, "right_pt={}", prot.right_pt);
+        assert!(
+            prot.right_pt > 0.1 && prot.right_pt < 1.0,
+            "right_pt={}",
+            prot.right_pt
+        );
     }
 
     #[test]
