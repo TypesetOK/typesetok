@@ -5,11 +5,11 @@
 
 ---
 
-## [0.34.0] - 2026-11-05
+## [0.34.3] - 2026-11-06
 - **Importance**: major
 - **Badge**: עברית: גרסה נוכחית | en: Current Version
-- **Title**: עברית: עיצוב מרחב עבודה מודרני, סרגלים מודולריים מתקפלים ופס חלון דק | en: Modern Workspace UI, Modular Collapsible Sidebars & Slim Titlebar
-- **Summary**: עברית: שחרור גרסה 0.34.0 עם עיצוב מחדש למרחב העבודה: פס כותרת עליון דק (32px) עם בקרות חלון מובנות, סרגל מאפיינים מודולרי המחולק לכרטיסיות עם קווי הפרדה וניגודיות בהירות, מנגנוני קיפול והרחבה אינטואיטיביים, אייקון כוכב עדכונים ייעודי בצד שמאל, וכפתורי הגדרות ואודות תחתונים. | en: Release 0.34.0 delivering workspace redesign: centered slim 32px titlebar with integrated window controls, modular inspector cards with subtle brightness contrast and dividing lines, intuitive sidebar collapse/expand controls, celestial star What's New icon with concise updates, and bottom settings and about buttons.
+- **Title**: עברית: מרחב עבודה מודרני, שמירה אוטומטית מתמשכת, סרגלים מודולריים ומנוע טיפוגרפיה מורחב | en: Modern Workspace UI, Continuous Autosave, Modular Sidebars & Enhanced Typography
+- **Summary**: עברית: שחרור רשמי של גרסה 0.34.3 הכולל עיצוב מחדש של מרחב העבודה עם פס כותרת דק (32px) ובקרות חלון מובנות, סרגלים מודולריים מתקפלים, מערכת שמירה אוטומטית מתמשכת ברקע ושחזור טיוטות עמיד, התאמת ניגודיות, סילוק פרויקטי דמו ואריזת שולחן עבודה מוקשחת. | en: Official release 0.34.3 delivering modern workspace redesign with slim 32px titlebar and native window controls, modular collapsible sidebars, continuous background autosave and resilient draft recovery, contrast harmonization, demo project cleanup, and hardened desktop packaging.
 
 ### Highlights
 - [modern-workspace] icon: sparkle | badge: עברית: מרחב עבודה, en: Workspace
@@ -18,6 +18,9 @@
 - [collapsible-sidebars] icon: layers | badge: עברית: סרגלים מתקפלים, en: Collapsible Sidebars
   - Title: עברית: שליטה מודולרית בסרגלי המבנה והמאפיינים | en: Modular Structure and Inspector Controls
   - Description: עברית: כפתורי הרחבה וקיפול ייעודיים, כרטיסיות מופרדות ויזואלית בשינוי בהירות עדין, וכפתורי הגדרות ואודות נגישים בתחתית. | en: Dedicated expand/collapse toggles, visual brightness contrast segmentation, and accessible bottom settings/about buttons.
+- [autosave-resilience] icon: check | badge: עברית: שמירה רציפה, en: Continuous Autosave
+  - Title: עברית: שמירה אוטומטית מתמשכת ושחזור טיוטות | en: Continuous Autosave and Draft Recovery
+  - Description: עברית: שמירה ברקע בכל עריכה, שחזור טיוטה מוגן לאחר סגירה פתאומית, וחסימת סגירת חלון עד לסיום כתיבת המסמך לדיסק. | en: Continuous background document saving, crash draft recovery, and window-close guards awaiting disk write completion.
 
 ### Changes
 - [features] עברית: פס כותרת דק (32px) במרכז החלון עם בקרות מובנות (מזעור, הגדלה, סגירה) ועריכת שם פרויקט בלחיצה כפולה | en: Centered slim 32px titlebar with window controls and double-click rename
@@ -26,6 +29,10 @@
 - [features] עברית: סרגל ימני מתקפל בעיצוב מסילה ופאנל עם כפתור קיפול כיווני וכפתור אודות תחתון | en: Right structure bar with rail/panel layout, directional collapse button, and bottom about button
 - [improvements] עברית: התאמת ניגודיות צבעים והפרדות קו בכל ערכות הנושא של התוכנה (כהה, בהיר וניגודיות גבוהה) | en: Harmonized contrast and line separators across all themes (dark, light, and high contrast)
 - [fixes] עברית: הסרת פרויקטי דמו ממסך הבית, מניעת רישום פרויקטי דמה בהיסטוריה וטיהור רשומות ישנות מזיכרון התוכנה | en: Purged demo projects from home screen and storage, preventing demo entries in recent projects history
+- [features] עברית: מנגנון שמירה אוטומטית מתמשכת ברקע (Autosave) ואינדיקטור שינויים שטרם נשמרו | en: Continuous background autosave mechanism with unsaved change indicators
+- [features] עברית: שחזור טיוטות אוטומטי (Draft Recovery) במקרה של יציאה או סגירה בלתי צפויה | en: Automated draft recovery prompt on application startup after abnormal termination
+- [improvements] עברית: הגנת סגירת חלון הממתינה להשלמת שמירה בדיסק למניעת איבוד מידע | en: Window close guard strictly awaiting pending save operations before closing
+- [fixes] עברית: הבטחת בניית חבילת UI רעננה בתהליך אריזת ה-Desktop ותיעוד שגיאות קונסול מרנדרר | en: Ensured fresh UI bundle compilation during desktop packaging and added renderer console error logging
 
 ---
 

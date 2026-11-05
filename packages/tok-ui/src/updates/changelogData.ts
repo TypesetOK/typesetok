@@ -6,16 +6,16 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
-    "version": "0.34.0",
-    "releaseDate": "2026-11-05",
+    "version": "0.34.3",
+    "releaseDate": "2026-11-06",
     "importance": "major",
     "title": {
-      "he": "עיצוב מרחב עבודה מודרני, סרגלים מודולריים מתקפלים ופס חלון דק",
-      "en": "Modern Workspace UI, Modular Collapsible Sidebars & Slim Titlebar"
+      "he": "מרחב עבודה מודרני, שמירה אוטומטית מתמשכת, סרגלים מודולריים ומנוע טיפוגרפיה מורחב",
+      "en": "Modern Workspace UI, Continuous Autosave, Modular Sidebars & Enhanced Typography"
     },
     "summary": {
-      "he": "שחרור גרסה 0.34.0 עם עיצוב מחדש למרחב העבודה: פס כותרת עליון דק (32px) עם בקרות חלון מובנות, סרגל מאפיינים מודולרי המחולק לכרטיסיות עם קווי הפרדה וניגודיות בהירות, מנגנוני קיפול והרחבה אינטואיטיביים, אייקון כוכב עדכונים ייעודי בצד שמאל, וכפתורי הגדרות ואודות תחתונים.",
-      "en": "Release 0.34.0 delivering workspace redesign: centered slim 32px titlebar with integrated window controls, modular inspector cards with subtle brightness contrast and dividing lines, intuitive sidebar collapse/expand controls, celestial star What's New icon with concise updates, and bottom settings and about buttons."
+      "he": "שחרור רשמי של גרסה 0.34.3 הכולל עיצוב מחדש של מרחב העבודה עם פס כותרת דק (32px) ובקרות חלון מובנות, סרגלים מודולריים מתקפלים, מערכת שמירה אוטומטית מתמשכת ברקע ושחזור טיוטות עמיד, התאמת ניגודיות, סילוק פרויקטי דמו ואריזת שולחן עבודה מוקשחת.",
+      "en": "Official release 0.34.3 delivering modern workspace redesign with slim 32px titlebar and native window controls, modular collapsible sidebars, continuous background autosave and resilient draft recovery, contrast harmonization, demo project cleanup, and hardened desktop packaging."
     },
     "changes": [
       {
@@ -59,6 +59,34 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
           "he": "הסרת פרויקטי דמו ממסך הבית, מניעת רישום פרויקטי דמה בהיסטוריה וטיהור רשומות ישנות מזיכרון התוכנה",
           "en": "Purged demo projects from home screen and storage, preventing demo entries in recent projects history"
         }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מנגנון שמירה אוטומטית מתמשכת ברקע (Autosave) ואינדיקטור שינויים שטרם נשמרו",
+          "en": "Continuous background autosave mechanism with unsaved change indicators"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "שחזור טיוטות אוטומטי (Draft Recovery) במקרה של יציאה או סגירה בלתי צפויה",
+          "en": "Automated draft recovery prompt on application startup after abnormal termination"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הגנת סגירת חלון הממתינה להשלמת שמירה בדיסק למניעת איבוד מידע",
+          "en": "Window close guard strictly awaiting pending save operations before closing"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "הבטחת בניית חבילת UI רעננה בתהליך אריזת ה-Desktop ותיעוד שגיאות קונסול מרנדרר",
+          "en": "Ensured fresh UI bundle compilation during desktop packaging and added renderer console error logging"
+        }
       }
     ],
     "highlights": [
@@ -92,6 +120,22 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         "badge": {
           "he": "סרגלים מתקפלים",
           "en": "Collapsible Sidebars"
+        }
+      },
+      {
+        "id": "autosave-resilience",
+        "icon": "check",
+        "title": {
+          "he": "שמירה אוטומטית מתמשכת ושחזור טיוטות",
+          "en": "Continuous Autosave and Draft Recovery"
+        },
+        "description": {
+          "he": "שמירה ברקע בכל עריכה, שחזור טיוטה מוגן לאחר סגירה פתאומית, וחסימת סגירת חלון עד לסיום כתיבת המסמך לדיסק.",
+          "en": "Continuous background document saving, crash draft recovery, and window-close guards awaiting disk write completion."
+        },
+        "badge": {
+          "he": "שמירה רציפה",
+          "en": "Continuous Autosave"
         }
       }
     ],
