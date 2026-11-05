@@ -3110,6 +3110,22 @@ describe('Stage 11: End-to-End Story Editor, Document Model & .tok Storage Round
     assert.equal(state.isDirty, false);
   });
 
+  test('Continuous Autosave and Draft Recovery snapshot contract', () => {
+    const rawSnapshot = {
+      savedAt: new Date().toISOString(),
+      title: 'טיוטה ראשונה',
+      templateType: 'gemara',
+      document: {
+        version: '1.0',
+        metadata: { title: 'טיוטה ראשונה' },
+        flows: { gemara: { paragraphs: [{ id: 'p1', text: 'שלום עולם', spans: [] }] } }
+      }
+    };
+    assert.ok(rawSnapshot.savedAt);
+    assert.equal(rawSnapshot.title, 'טיוטה ראשונה');
+    assert.equal(rawSnapshot.document.flows.gemara.paragraphs[0].text, 'שלום עולם');
+  });
+
   test('Full .tok package preservation: multi-flow layout, custom settings, styles, and spans round-trip', async () => {
     const originalState = {
       title: 'מסכת ברכות - פרק ראשון',

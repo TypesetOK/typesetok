@@ -150,6 +150,10 @@ export class TypesetOkApp {
   private pendingImportResult: { result: ImportResult; filePath?: string } | null = null;
   private isChangingActiveDocumentTemplate = false;
   private pluginEngine!: PluginEngine;
+  private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private autosaveInterval: ReturnType<typeof setInterval> | null = null;
+  private isAutosaving = false;
+  private isAutosaveEnabled = true;
 
   private hasOpenDocument = false;
   private currentViewMode: ViewMode = 'canvas';
@@ -556,6 +560,12 @@ export class TypesetOkApp {
     this.activeFlowId = 'gemara';
     this.storyEditor.loadStory(this.documentState.flows.gemara);
     this.repaginateAndSync(true);
+
+    // 8c. Continuous Autosave & Draft Recovery initialization
+    this.initAutosave();
+    runWhenIdle(() => {
+      this.checkDraftRecoveryOnStartup();
+    });
 
     // 9. Startup file inspection: if opened with a file argument, load it directly
     const win = window as any;
@@ -2186,8 +2196,10 @@ export class TypesetOkApp {
     }
   }
 
-  private async saveDocumentToFile(filePath: string): Promise<boolean> {
-    this.statusBar?.setBusy(true, 'שומר מסמך...');
+    private async saveDocumentToFile(filePath: string, options: { silent?: boolean } = {}): Promise<boolean> {
+    if (!options.silent) {
+      this.statusBar?.setBusy(true, 'שומר מסמך...');
+    }
     try {
       const win = window as any;
       if (this.storyEditor && this.activeFlowId) {
@@ -2216,11 +2228,18 @@ export class TypesetOkApp {
             pages: this.pages.length || 1,
             lastSavedAt: new Date().toISOString()
           });
-          this.showToast(t('toastSaved'));
+          this.clearDraftRecovery();
+          if (!options.silent) {
+            this.showToast(t('toastSaved'));
+          } else {
+            this.statusBar?.setTemporaryStatus(t('autosavedStatus'), 2000);
+          }
           return true;
         } catch (err: any) {
           console.error('[TOK] Failed to save document:', err);
-          this.showToast(tf('toastSaveError', { error: err?.message ?? String(err) }), true);
+          if (!options.silent) {
+            this.showToast(tf('toastSaveError', { error: err?.message ?? String(err) }), true);
+          }
           return false;
         }
       } else {
@@ -2247,16 +2266,25 @@ export class TypesetOkApp {
             pages: this.pages.length || 1,
             lastSavedAt: new Date().toISOString()
           });
-          this.showToast(t('toastSaved'));
+          this.clearDraftRecovery();
+          if (!options.silent) {
+            this.showToast(t('toastSaved'));
+          } else {
+            this.statusBar?.setTemporaryStatus(t('autosavedStatus'), 2000);
+          }
           return true;
         } catch (err: any) {
           console.error('[TOK] Failed to export/save file:', err);
-          this.showToast(tf('toastSaveError', { error: err?.message ?? String(err) }), true);
+          if (!options.silent) {
+            this.showToast(tf('toastSaveError', { error: err?.message ?? String(err) }), true);
+          }
           return false;
         }
       }
     } finally {
-      this.statusBar?.setBusy(false);
+      if (!options.silent) {
+        this.statusBar?.setBusy(false);
+      }
     }
   }
 
@@ -2889,6 +2917,106 @@ export class TypesetOkApp {
     const cleanTitle = (this.documentTitle || 'TypesetOK').replace(/\.tok$/i, '');
     if (typeof document !== 'undefined') {
       document.title = dirty ? `• ${cleanTitle} - TypesetOK` : `${cleanTitle} - TypesetOK`;
+    }
+    if (dirty) {
+      this.scheduleAutosave();
+    }
+  }
+
+  private initAutosave(): void {
+    try {
+      this.isAutosaveEnabled = typeof localStorage !== 'undefined'
+        ? localStorage.getItem('tok_autosave_enabled') !== 'false'
+        : true;
+    } catch {
+      this.isAutosaveEnabled = true;
+    }
+    if (typeof window !== 'undefined') {
+      this.autosaveInterval = setInterval(() => {
+        if (this.documentState?.isDirty && !this.isAutosaving) {
+          this.triggerAutosave();
+        }
+      }, 30000);
+    }
+  }
+
+  private scheduleAutosave(): void {
+    if (!this.isAutosaveEnabled || !this.documentState) return;
+    if (this.autosaveTimer) {
+      clearTimeout(this.autosaveTimer);
+    }
+    this.autosaveTimer = setTimeout(() => {
+      this.triggerAutosave();
+    }, 2500);
+  }
+
+  public async triggerAutosave(): Promise<void> {
+    if (!this.documentState || !this.documentState.isDirty || this.isAutosaving) return;
+    this.isAutosaving = true;
+    try {
+      if (this.currentFilePath && this.currentFilePath.toLowerCase().endsWith('.tok')) {
+        await this.saveDocumentToFile(this.currentFilePath, { silent: true });
+      } else {
+        this.saveDraftRecovery();
+      }
+    } catch (err) {
+      console.warn('[TOK] Autosave failure:', err);
+    } finally {
+      this.isAutosaving = false;
+    }
+  }
+
+  private saveDraftRecovery(): void {
+    try {
+      if (!this.documentState) return;
+      if (this.storyEditor && this.activeFlowId) {
+        this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory(true);
+      }
+      const docRoot = documentStateToDocumentRoot(this.documentState);
+      const snapshot = {
+        savedAt: new Date().toISOString(),
+        title: this.documentTitle || 'פרויקט ללא שם',
+        templateType: this.documentState.templateType,
+        document: docRoot
+      };
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tok_draft_recovery', JSON.stringify(snapshot));
+      }
+      this.setDirty(false);
+      this.statusBar?.setTemporaryStatus(t('draftSavedStatus'), 2000);
+    } catch (err) {
+      console.warn('[TOK] Failed to save draft recovery snapshot:', err);
+    }
+  }
+
+  public clearDraftRecovery(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('tok_draft_recovery');
+      }
+    } catch {}
+  }
+
+  private checkDraftRecoveryOnStartup(): void {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const raw = localStorage.getItem('tok_draft_recovery');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.document && parsed.savedAt) {
+        const savedTime = new Date(parsed.savedAt).toLocaleTimeString();
+        if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !(window as any).__TOK_TEST_ENV__) {
+          if (window.confirm(tf('draftRecoveryFound', { time: savedTime }))) {
+            this.loadDocumentRoot(parsed.document, '', parsed.title || 'טיוטה משוחזרת');
+            this.showToast(t('draftRecoveredToast'));
+            return;
+          } else {
+            this.clearDraftRecovery();
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[TOK] Error checking draft recovery:', err);
     }
   }
 

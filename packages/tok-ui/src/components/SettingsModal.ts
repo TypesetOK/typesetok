@@ -332,6 +332,16 @@ export class SettingsModal {
     if (pageViewSection.children.length > 0) {
       container.appendChild(group(t('appearancePageView'), pageViewSection));
     }
+
+    const autosaveBox = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px' });
+    const isAutosave = typeof localStorage !== 'undefined' ? localStorage.getItem('tok_autosave_enabled') !== 'false' : true;
+    autosaveBox.appendChild(switchRow(t('settingsDocAutosave'), isAutosave, (val) => {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tok_autosave_enabled', String(val));
+      }
+      this.callbacks.showToast(`${t('settingsDocAutosave')}: ${onOff(val)}`);
+    }, { description: t('settingsDocAutosaveHelp'), focusKey: 'doc-autosave' }));
+    container.appendChild(group(t('settingsDocAutosave'), autosaveBox));
   }
 
   // --- Accessibility ---

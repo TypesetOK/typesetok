@@ -64,12 +64,33 @@ export class StatusBar {
     return this.preflightStatus;
   }
 
+  private temporaryStatusTimer: ReturnType<typeof setTimeout> | null = null;
+
   public setBusy(busy: boolean, label?: string): void {
     if (!this.busyItem || !this.busyText) return;
+    if (this.temporaryStatusTimer) {
+      clearTimeout(this.temporaryStatusTimer);
+      this.temporaryStatusTimer = null;
+    }
     this.busyItem.style.display = busy ? 'inline-flex' : 'none';
     if (label) {
       this.busyText.textContent = label;
     }
+  }
+
+  public setTemporaryStatus(label: string, durationMs = 2000): void {
+    if (!this.busyItem || !this.busyText) return;
+    if (this.temporaryStatusTimer) {
+      clearTimeout(this.temporaryStatusTimer);
+    }
+    this.busyText.textContent = label;
+    this.busyItem.style.display = 'inline-flex';
+    this.temporaryStatusTimer = setTimeout(() => {
+      if (this.busyItem) {
+        this.busyItem.style.display = 'none';
+      }
+      this.temporaryStatusTimer = null;
+    }, durationMs);
   }
 
   /** Writes the current state into the existing nodes. All values go in as text, never HTML. */
