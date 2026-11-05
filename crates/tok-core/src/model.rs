@@ -91,6 +91,23 @@ impl ParagraphNode {
         })
     }
 
+    pub fn with_optical_margin(self, config: crate::styles::OpticalMarginConfig) -> Self {
+        self.with_patch(StylePatch {
+            optical_margin: Some(config),
+            ..Default::default()
+        })
+    }
+
+    pub fn with_last_line_constraint(
+        self,
+        config: crate::styles::LastLineConstraintConfig,
+    ) -> Self {
+        self.with_patch(StylePatch {
+            last_line_constraint: Some(config),
+            ..Default::default()
+        })
+    }
+
     pub fn with_overrides(mut self, overrides: crate::overrides::LayoutLockOverrides) -> Self {
         self.overrides = Some(overrides);
         self

@@ -76,6 +76,53 @@ fn default_drop_cap_margin() -> f32 {
     6.0
 }
 
+fn default_optical_factor() -> f32 {
+    1.0
+}
+
+/// Optical Margin Alignment (Hanging Punctuation and Glyph Overhang Protrusion) configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpticalMarginConfig {
+    pub enabled: bool,
+    /// Scaling factor for optical overhang protrusion (1.0 = 100% nominal overhang).
+    #[serde(default = "default_optical_factor")]
+    pub factor: f32,
+    /// Whether punctuation marks (hyphens, maqaf, geresh, gershayim, periods, commas, quotes) protrude.
+    #[serde(default = "default_true")]
+    pub protrude_punctuation: bool,
+    /// Whether overhanging letterforms (e.g. curved/diagonal Hebrew and Latin glyphs) protrude.
+    #[serde(default = "default_true")]
+    pub protrude_glyphs: bool,
+}
+
+impl Default for OpticalMarginConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            factor: 1.0,
+            protrude_punctuation: true,
+            protrude_glyphs: true,
+        }
+    }
+}
+
+/// Constrained last-line balancing configuration for Knuth-Plass paragraph breaking.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct LastLineConstraintConfig {
+    /// Minimum required width (in pt) for the final line of a multi-line paragraph.
+    #[serde(default)]
+    pub min_width_pt: f32,
+    /// Minimum required width as a ratio `[0.0, 1.0)` of the line's target measure.
+    #[serde(default)]
+    pub min_width_ratio: f32,
+    /// Minimum number of words on the final line of a multi-line paragraph (0 or 1 = unrestricted, 2 = prevent single-word runts).
+    #[serde(default)]
+    pub min_words: usize,
+    /// Whether to penalize large slack disparities between the penultimate and final lines.
+    #[serde(default)]
+    pub balance_slack: bool,
+}
+
 /// Hebrew Opening Word / Drop Cap configuration ("חלון במילת פתיחה").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DropCapConfig {
@@ -157,6 +204,12 @@ pub struct ParagraphStyle {
     /// Optional drop cap or Hebrew opening word window.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_cap: Option<DropCapConfig>,
+    /// Optional optical margin alignment (hanging punctuation & glyph overhangs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optical_margin: Option<OpticalMarginConfig>,
+    /// Optional constrained last-line balancing rules for Knuth-Plass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_line_constraint: Option<LastLineConstraintConfig>,
 }
 
 impl Default for ParagraphStyle {
@@ -181,6 +234,8 @@ impl Default for ParagraphStyle {
             orphan_control: 2,
             widow_control: 2,
             drop_cap: None,
+            optical_margin: None,
+            last_line_constraint: None,
         }
     }
 }
@@ -228,6 +283,12 @@ impl ParagraphStyle {
         if let Some(v) = &patch.drop_cap {
             self.drop_cap = Some(v.clone());
         }
+        if let Some(v) = &patch.optical_margin {
+            self.optical_margin = Some(v.clone());
+        }
+        if let Some(v) = &patch.last_line_constraint {
+            self.last_line_constraint = Some(v.clone());
+        }
     }
 }
 
@@ -269,6 +330,10 @@ pub struct StylePatch {
     pub direction: Option<Progression>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_cap: Option<DropCapConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optical_margin: Option<OpticalMarginConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_line_constraint: Option<LastLineConstraintConfig>,
 }
 
 impl StylePatch {
