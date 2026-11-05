@@ -113,6 +113,55 @@ impl MultiColumnPolygonFlowSynthesizer {
         }
     }
 
+    /// Synthesizes a multi-stepped `PolygonFrame` where an absorbing column progressively
+    /// expands across multiple adjacent terminating columns ordered by their termination Y.
+    pub fn synthesize_multi_step_frame(
+        absorbing_rect: PhysicalRect,
+        terminating_rects: &[PhysicalRect],
+        gutter_pt: f32,
+        content_bottom_pt: f32,
+    ) -> PolygonFrame {
+        if terminating_rects.is_empty() {
+            return PolygonFrame::from_rect(absorbing_rect);
+        }
+
+        let mut sorted: Vec<PhysicalRect> = terminating_rects.to_vec();
+        sorted.sort_by(|a, b| (a.y + a.height).total_cmp(&(b.y + b.height)));
+
+        let mut bands = Vec::with_capacity(sorted.len() + 1);
+        let mut current_top = absorbing_rect.y;
+        let mut current_left = absorbing_rect.x;
+        let mut current_right = absorbing_rect.x + absorbing_rect.width;
+
+        for term in &sorted {
+            let step_y = (term.y + term.height + gutter_pt).clamp(current_top, content_bottom_pt);
+            let band_h = step_y - current_top;
+            if band_h > 1e-3 {
+                bands.push(PhysicalRect::new(
+                    current_left,
+                    current_top,
+                    (current_right - current_left).max(0.0),
+                    band_h,
+                ));
+                current_top = step_y;
+            }
+            current_left = current_left.min(term.x);
+            current_right = current_right.max(term.x + term.width);
+        }
+
+        let final_h = (content_bottom_pt - current_top).max(0.0);
+        if final_h > 1e-3 {
+            bands.push(PhysicalRect::new(
+                current_left,
+                current_top,
+                (current_right - current_left).max(0.0),
+                final_h,
+            ));
+        }
+
+        PolygonFrame::stepped(bands)
+    }
+
     /// Typesets a series of paragraphs into a `PolygonFrame`, calculating exact Knuth-Plass
     /// line breaking across variable column widths and stepped absorption transitions.
     #[allow(clippy::too_many_arguments)]

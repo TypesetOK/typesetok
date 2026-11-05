@@ -187,16 +187,48 @@ impl GeometricPolygon {
         PhysicalRect::new(min_x, min_y, max_x - min_x, max_y - min_y)
     }
 
-    /// Slices the polygon with a horizontal line or narrow band at `y` (sampled at mid-height `y + height/2.0`).
-    /// Returns the continuous horizontal spans inside the polygon.
-    pub fn scanline_spans(&self, y: f32, height: f32) -> Vec<ScanlineSpan> {
+    /// Alias for [`Self::bounds`].
+    #[inline]
+    pub fn bounding_box(&self) -> PhysicalRect {
+        self.bounds()
+    }
+
+    /// Creates a trapezoid polygon with top horizontal edge `[top_x, top_x + top_width]` at `y`
+    /// and bottom horizontal edge `[bottom_x, bottom_x + bottom_width]` at `y + height`.
+    pub fn trapezoid(
+        top_x: f32,
+        top_width: f32,
+        bottom_x: f32,
+        bottom_width: f32,
+        y: f32,
+        height: f32,
+    ) -> Self {
+        Self {
+            vertices: vec![
+                PhysicalPoint { x: top_x, y },
+                PhysicalPoint {
+                    x: top_x + top_width,
+                    y,
+                },
+                PhysicalPoint {
+                    x: bottom_x + bottom_width,
+                    y: y + height,
+                },
+                PhysicalPoint {
+                    x: bottom_x,
+                    y: y + height,
+                },
+            ],
+        }
+    }
+
+    /// Computes 1D horizontal scanline spans at a single vertical coordinate `sample_y`.
+    pub fn scanline_spans_at_y(&self, sample_y: f32) -> Vec<ScanlineSpan> {
         let n = self.vertices.len();
         if n < 3 {
             return Vec::new();
         }
-        let sample_y = y + height * 0.5;
 
-        // Find intersections with all polygon segments
         let mut x_inters = Vec::new();
         for i in 0..n {
             let p1 = self.vertices[i];
@@ -224,6 +256,68 @@ impl GeometricPolygon {
             }
         }
         spans
+    }
+
+    /// Intersects two sets of sorted horizontal spans, returning the spans contained in both.
+    fn intersect_span_sets(a: &[ScanlineSpan], b: &[ScanlineSpan]) -> Vec<ScanlineSpan> {
+        let mut out = Vec::new();
+        for sa in a {
+            let a_left = sa.x;
+            let a_right = sa.right();
+            for sb in b {
+                let left = a_left.max(sb.x);
+                let right = a_right.min(sb.right());
+                if right > left + 1e-3 {
+                    out.push(ScanlineSpan::new(left, right - left));
+                }
+            }
+        }
+        out
+    }
+
+    /// Slices the polygon across the horizontal band `[y, y + height]`.
+    ///
+    /// Performs conservative band intersection across the top, midpoint, bottom, and any
+    /// intermediate polygon vertex Y-levels inside `(y, y + height)` so sloped edges and
+    /// stepped corners never overestimate usable line width.
+    pub fn scanline_spans(&self, y: f32, height: f32) -> Vec<ScanlineSpan> {
+        let n = self.vertices.len();
+        if n < 3 {
+            return Vec::new();
+        }
+        if height <= 1e-3 {
+            return self.scanline_spans_at_y(y);
+        }
+
+        let eps = (height * 0.02).clamp(1e-3, 0.25);
+        let y_top = y + eps;
+        let y_mid = y + height * 0.5;
+        let y_bot = (y + height - eps).max(y_top);
+
+        let mut sample_ys = vec![y_top, y_mid, y_bot];
+        for v in &self.vertices {
+            if v.y > y_top + eps && v.y < y_bot - eps {
+                sample_ys.push(v.y - eps * 0.5);
+                sample_ys.push(v.y + eps * 0.5);
+            }
+        }
+
+        let mut current: Option<Vec<ScanlineSpan>> = None;
+        for sy in sample_ys {
+            let spans = self.scanline_spans_at_y(sy);
+            if spans.is_empty() {
+                return Vec::new();
+            }
+            current = Some(match current {
+                None => spans,
+                Some(prev) => Self::intersect_span_sets(&prev, &spans),
+            });
+            if current.as_ref().is_some_and(|c| c.is_empty()) {
+                return Vec::new();
+            }
+        }
+
+        current.unwrap_or_default()
     }
 
     /// Slices the polygon with a horizontal band at `y`, subtracting all overlapping exclusion zones.
@@ -336,5 +430,32 @@ mod tests {
             poly.scanline_spans_with_exclusions(60.0, 15.0, std::slice::from_ref(&ex));
         assert_eq!(line4_spans.len(), 1);
         assert!((line4_spans[0].width - 400.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn test_trapezoid_and_stepped_band_intersection_never_overestimates() {
+        // Trapezoid narrowing from width 200 at y=0 to width 100 at y=100 (left x=0, right x(y) = 200 - y)
+        let trap = GeometricPolygon::trapezoid(0.0, 200.0, 0.0, 100.0, 0.0, 100.0);
+
+        // Band [0, 20]: at y=0 width is 200, at y=10 (midpoint) width is 190, at y=20 width is 180.
+        // Conservative band intersection must return width <= 180.5 so the bottom of the line does not overflow!
+        let spans = trap.scanline_spans(0.0, 20.0);
+        assert_eq!(spans.len(), 1);
+        assert!(
+            spans[0].width <= 180.5 && spans[0].width >= 179.5,
+            "Trapezoid band [0, 20] width should be bounded by narrower bottom edge (~180pt), got {}",
+            spans[0].width
+        );
+
+        // L-shape with step at y=50: band [40, 60] straddles the step (y=40..50 has width 100, y=50..60 has width 300).
+        // Conservative band intersection must restrict straddling line [40, 60] to 100pt so top half does not collide!
+        let l_poly = GeometricPolygon::l_shape(0.0, 0.0, 100.0, 50.0, 300.0, 50.0);
+        let straddle_spans = l_poly.scanline_spans(40.0, 20.0);
+        assert_eq!(straddle_spans.len(), 1);
+        assert!(
+            (straddle_spans[0].width - 100.0).abs() < 1e-2,
+            "Line straddling L-shape step must be restricted to narrow width (100pt), got {}",
+            straddle_spans[0].width
+        );
     }
 }

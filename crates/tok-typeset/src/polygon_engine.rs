@@ -63,6 +63,15 @@ impl PolygonFrame {
         }
     }
 
+    /// Creates a stepped polygon frame from an ordered sequence of vertical bands.
+    pub fn stepped(bands: Vec<PhysicalRect>) -> Self {
+        Self {
+            bands,
+            polygon: None,
+            exclusions: Vec::new(),
+        }
+    }
+
     /// Adds an exclusion zone to the frame.
     pub fn with_exclusion(mut self, exclusion: ExclusionZone) -> Self {
         self.exclusions.push(exclusion);
@@ -106,15 +115,37 @@ impl PolygonFrame {
 
     /// Computes the usable horizontal span at physical vertical coordinate `y` with given `height`.
     pub fn span_at_y(&self, y: f32, height: f32) -> Option<ScanlineSpan> {
-        // 1. If bands are explicitly defined, find the band containing the midpoint of [y, y + height]
-        let sample_y = y + height * 0.5;
+        let eps = (height * 0.02).clamp(1e-3, 0.25);
+        let band_top = y + eps;
+        let band_bot = (y + height - eps).max(band_top);
 
         let mut base_span: Option<ScanlineSpan> = None;
 
-        for b in &self.bands {
-            if sample_y >= b.y && sample_y < b.y + b.height {
-                base_span = Some(ScanlineSpan::new(b.x, b.width));
-                break;
+        // 1. If bands are explicitly defined, intersect all bands overlapping [band_top, band_bot]
+        // so that a line straddling a step transition never overflows the narrower band.
+        if !self.bands.is_empty() {
+            let mut inter_left = f32::NEG_INFINITY;
+            let mut inter_right = f32::INFINITY;
+            let mut covered_top = false;
+            let mut covered_bot = false;
+
+            for b in &self.bands {
+                let b_top = b.y;
+                let b_bot = b.y + b.height;
+                if band_bot > b_top && band_top < b_bot {
+                    inter_left = inter_left.max(b.x);
+                    inter_right = inter_right.min(b.x + b.width);
+                    if b_top <= band_top + eps {
+                        covered_top = true;
+                    }
+                    if b_bot >= band_bot - eps {
+                        covered_bot = true;
+                    }
+                }
+            }
+
+            if covered_top && covered_bot && inter_right > inter_left + 1e-3 {
+                base_span = Some(ScanlineSpan::new(inter_left, inter_right - inter_left));
             }
         }
 
@@ -182,17 +213,17 @@ impl PolygonFrame {
             if let Some(span) = self.span_at_y(y, line_height) {
                 measures.push((span.x, span.width));
             } else {
-                // Beyond frame capacity: repeat last or use narrow minimal width
+                // Beyond frame capacity: repeat last valid span or use the frame's actual bounding width
                 if let Some(&last) = measures.last() {
                     measures.push(last);
-                } else {
-                    measures.push((bounds.x, bounds.width.max(100.0)));
+                } else if bounds.width > 0.0 {
+                    measures.push((bounds.x, bounds.width));
                 }
             }
         }
 
         if measures.is_empty() {
-            MeasureProfile::uniform(bounds.width.max(100.0))
+            MeasureProfile::uniform(bounds.width)
         } else {
             MeasureProfile::from_measures(&measures, true)
         }
