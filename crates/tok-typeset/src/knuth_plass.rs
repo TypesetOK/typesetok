@@ -68,6 +68,106 @@ pub struct BrokenLine {
     pub adjustment_ratio: f32,
 }
 
+/// Constraints governing the final line of a multi-line paragraph in Knuth-Plass breaking.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LastLineConstraint {
+    /// Minimum natural width (in points) required for the last line of a multi-line paragraph.
+    pub min_width_pt: f32,
+    /// Minimum natural width as a ratio `[0.0, 1.0]` of the last line's target measure.
+    pub min_width_ratio: f32,
+    /// Minimum number of words (boxes) required on the last line of a multi-line paragraph.
+    pub min_words: usize,
+    /// Whether to penalize excessive slack on the last line to balance line lengths.
+    pub balance_slack: bool,
+    /// Maximum natural width as a ratio `(0.0, 1.0]` of the last line's target measure.
+    pub max_width_ratio: f32,
+}
+
+impl Default for LastLineConstraint {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl LastLineConstraint {
+    /// Unconstrained last line (classic TeX `\parfillskip = 0pt plus 1fil`).
+    pub const fn none() -> Self {
+        Self {
+            min_width_pt: 0.0,
+            min_width_ratio: 0.0,
+            min_words: 1,
+            balance_slack: false,
+            max_width_ratio: 1.0,
+        }
+    }
+
+    /// Requires the final line of a multi-line paragraph to have at least `min_width_pt` points.
+    pub const fn min_width(min_width_pt: f32) -> Self {
+        Self {
+            min_width_pt,
+            min_width_ratio: 0.0,
+            min_words: 1,
+            balance_slack: false,
+            max_width_ratio: 1.0,
+        }
+    }
+
+    /// Requires the final line of a multi-line paragraph to fill at least `min_width_ratio` of its measure.
+    pub const fn min_ratio(min_width_ratio: f32) -> Self {
+        Self {
+            min_width_pt: 0.0,
+            min_width_ratio,
+            min_words: 1,
+            balance_slack: false,
+            max_width_ratio: 1.0,
+        }
+    }
+
+    /// Prevents single-word runts and enforces a minimum width ratio on the final line.
+    pub const fn no_runt(min_words: usize, min_width_ratio: f32) -> Self {
+        Self {
+            min_width_pt: 0.0,
+            min_width_ratio,
+            min_words,
+            balance_slack: false,
+            max_width_ratio: 1.0,
+        }
+    }
+
+    /// Enforces balanced last-line placement with minimum fill ratio, multi-word ending, and slack balancing.
+    pub const fn balanced(min_width_ratio: f32) -> Self {
+        Self {
+            min_width_pt: 0.0,
+            min_width_ratio,
+            min_words: 2,
+            balance_slack: true,
+            max_width_ratio: 1.0,
+        }
+    }
+
+    /// Returns true if any last-line constraint or balancing objective is active.
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.min_width_pt > 0.0
+            || self.min_width_ratio > 0.0
+            || self.min_words > 1
+            || self.balance_slack
+            || self.max_width_ratio < 1.0
+    }
+}
+
+impl From<&tok_core::styles::LastLineConstraintConfig> for LastLineConstraint {
+    fn from(cfg: &tok_core::styles::LastLineConstraintConfig) -> Self {
+        Self {
+            min_width_pt: cfg.min_width_pt,
+            min_width_ratio: cfg.min_width_ratio,
+            min_words: cfg.min_words.max(1),
+            balance_slack: cfg.balance_slack,
+            max_width_ratio: 1.0,
+        }
+    }
+}
+
 /// Specification of target line widths and horizontal offsets for a paragraph, following TeX's `\parshape`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeasureProfile {
@@ -77,6 +177,8 @@ pub struct MeasureProfile {
     pub offsets: Vec<f32>,
     /// If true, lines beyond `widths.len() - 1` repeat the last width and offset.
     pub repeat_last: bool,
+    /// Optional constraints for the final line of the paragraph.
+    pub last_line_constraint: LastLineConstraint,
 }
 
 impl MeasureProfile {
@@ -86,6 +188,7 @@ impl MeasureProfile {
             widths: vec![width],
             offsets: vec![0.0],
             repeat_last: true,
+            last_line_constraint: LastLineConstraint::default(),
         }
     }
 
@@ -96,6 +199,7 @@ impl MeasureProfile {
             widths,
             offsets,
             repeat_last,
+            last_line_constraint: LastLineConstraint::default(),
         }
     }
 
@@ -116,12 +220,19 @@ impl MeasureProfile {
             widths,
             offsets,
             repeat_last,
+            last_line_constraint: LastLineConstraint::default(),
         }
     }
 
     /// Overrides horizontal start offsets for the profile.
     pub fn with_offsets(mut self, offsets: Vec<f32>) -> Self {
         self.offsets = offsets;
+        self
+    }
+
+    /// Attaches a [`LastLineConstraint`] to this measure profile.
+    pub fn with_last_line_constraint(mut self, constraint: LastLineConstraint) -> Self {
+        self.last_line_constraint = constraint;
         self
     }
 
@@ -138,6 +249,7 @@ impl MeasureProfile {
             widths,
             offsets,
             repeat_last: true,
+            last_line_constraint: LastLineConstraint::default(),
         }
     }
 
@@ -161,6 +273,7 @@ impl MeasureProfile {
             widths,
             offsets,
             repeat_last: true,
+            last_line_constraint: LastLineConstraint::default(),
         }
     }
 
@@ -203,10 +316,11 @@ impl MeasureProfile {
     ) -> Self {
         let mut widths = Vec::with_capacity(max_lines);
         let mut offsets = Vec::with_capacity(max_lines);
+        let safe_lh = line_height.max(1.0);
 
         for i in 0..max_lines {
-            let y = start_y + (i as f32) * line_height;
-            let spans = polygon.scanline_spans(y, line_height);
+            let y = start_y + (i as f32) * safe_lh;
+            let spans = polygon.scanline_spans(y, safe_lh);
             if let Some(span) = spans.iter().max_by(|a, b| a.width.total_cmp(&b.width)) {
                 offsets.push(span.x);
                 widths.push(span.width);
@@ -215,14 +329,34 @@ impl MeasureProfile {
             }
         }
 
-        if widths.is_empty() {
-            Self::uniform(200.0)
-        } else {
-            Self {
-                widths,
-                offsets,
-                repeat_last: true,
+        // If `start_y` fell outside the polygon's vertical range, sample from the polygon's
+        // actual bounding box rather than falling back to a hardcoded constant width.
+        if widths.is_empty() && max_lines > 0 {
+            let bbox = polygon.bounding_box();
+            if bbox.width > 0.0 && bbox.height > 0.0 {
+                let sample_lines = ((bbox.height / safe_lh).ceil() as usize)
+                    .max(1)
+                    .min(max_lines);
+                for i in 0..sample_lines {
+                    let y = bbox.y + (i as f32) * safe_lh;
+                    let spans = polygon.scanline_spans(y, safe_lh);
+                    if let Some(span) = spans.iter().max_by(|a, b| a.width.total_cmp(&b.width)) {
+                        offsets.push(span.x);
+                        widths.push(span.width);
+                    }
+                }
+                if widths.is_empty() {
+                    offsets.push(bbox.x);
+                    widths.push(bbox.width);
+                }
             }
+        }
+
+        Self {
+            widths,
+            offsets,
+            repeat_last: true,
+            last_line_constraint: LastLineConstraint::default(),
         }
     }
 
@@ -265,6 +399,7 @@ impl MeasureProfile {
             widths: new_widths,
             offsets: new_offsets,
             repeat_last: self.repeat_last,
+            last_line_constraint: self.last_line_constraint,
         }
     }
 
@@ -303,6 +438,7 @@ struct PrefixMetrics {
     width: Vec<f64>,
     stretch: Vec<f64>,
     shrink: Vec<f64>,
+    boxes: Vec<usize>,
 }
 
 impl PrefixMetrics {
@@ -311,14 +447,19 @@ impl PrefixMetrics {
             width: Vec::with_capacity(items.len() + 1),
             stretch: Vec::with_capacity(items.len() + 1),
             shrink: Vec::with_capacity(items.len() + 1),
+            boxes: Vec::with_capacity(items.len() + 1),
         };
-        let (mut w, mut st, mut sh) = (0.0f64, 0.0f64, 0.0f64);
+        let (mut w, mut st, mut sh, mut bx) = (0.0f64, 0.0f64, 0.0f64, 0usize);
         sums.width.push(w);
         sums.stretch.push(st);
         sums.shrink.push(sh);
+        sums.boxes.push(bx);
         for item in items {
             match item {
-                LayoutItem::Box { width, .. } => w += f64::from(*width),
+                LayoutItem::Box { width, .. } => {
+                    w += f64::from(*width);
+                    bx += 1;
+                }
                 LayoutItem::Glue {
                     width,
                     stretch,
@@ -333,6 +474,7 @@ impl PrefixMetrics {
             sums.width.push(w);
             sums.stretch.push(st);
             sums.shrink.push(sh);
+            sums.boxes.push(bx);
         }
         sums
     }
@@ -344,6 +486,12 @@ impl PrefixMetrics {
             self.stretch[end] - self.stretch[start],
             self.shrink[end] - self.shrink[start],
         )
+    }
+
+    /// Number of `LayoutItem::Box` items in `items[start..end]`.
+    fn box_count(&self, start: usize, end: usize) -> usize {
+        self.boxes[end.min(self.boxes.len() - 1)]
+            .saturating_sub(self.boxes[start.min(self.boxes.len() - 1)])
     }
 }
 
@@ -361,6 +509,8 @@ struct Node {
     target_width: f64,
     ratio: f64,
     flagged: bool,
+    fitness: u8,
+    last_line_violated: bool,
 }
 
 pub struct KnuthPlassBreaker;
@@ -373,6 +523,14 @@ impl KnuthPlassBreaker {
     const INF_BAD: f64 = 10000.0;
     /// Extra demerits for two consecutive flagged (hyphen) breaks.
     const DOUBLE_HYPHEN_DEMERITS: f64 = 3000.0;
+    /// Extra demerits when the penultimate line ends with a hyphen.
+    const FINAL_HYPHEN_DEMERITS: f64 = 5000.0;
+    /// Extra demerits for adjacent lines with incompatible fitness classes (e.g. tight next to loose).
+    const ADJACENT_LOOSE_TIGHT_DEMERITS: f64 = 100.0;
+    /// Demerits applied when the final line of a multi-line paragraph is narrower than the minimum width constraint.
+    const LAST_LINE_SHORT_DEMERITS: f64 = 5.0e6;
+    /// Demerits applied when the final line of a multi-line paragraph has fewer words than `min_words`.
+    const LAST_LINE_RUNT_DEMERITS: f64 = 5.0e6;
     /// Demerits per point of unavoidable overflow in the emergency pass.
     const OVERFLOW_DEMERITS_PER_PT: f64 = 1.0e8;
 
@@ -450,10 +608,36 @@ impl KnuthPlassBreaker {
         }
 
         let ctx = BreakContext::new(items, profile);
-        match ctx
-            .run(Some(f64::from(tolerance)))
-            .or_else(|| ctx.run(None))
-        {
+        let primary = ctx.run(Some(f64::from(tolerance)));
+        let chosen = match primary {
+            Some(nodes) => {
+                if profile.last_line_constraint.is_active() && ctx.best_final_violated(&nodes) {
+                    let relaxed_tol = (f64::from(tolerance) * 2.5).max(5.0);
+                    if let Some(relaxed_nodes) = ctx.run(Some(relaxed_tol)) {
+                        if ctx.best_final_demerits(&relaxed_nodes) < ctx.best_final_demerits(&nodes)
+                        {
+                            Some(relaxed_nodes)
+                        } else {
+                            Some(nodes)
+                        }
+                    } else {
+                        Some(nodes)
+                    }
+                } else {
+                    Some(nodes)
+                }
+            }
+            None => {
+                if profile.last_line_constraint.is_active() {
+                    let relaxed_tol = (f64::from(tolerance) * 2.5).max(5.0);
+                    ctx.run(Some(relaxed_tol)).or_else(|| ctx.run(None))
+                } else {
+                    ctx.run(None)
+                }
+            }
+        };
+
+        match chosen {
             Some(nodes) => ctx.spans(&nodes),
             None => {
                 debug_assert!(false, "emergency pass failed to reach the paragraph end");
@@ -572,6 +756,112 @@ impl<'a> BreakContext<'a> {
         }
     }
 
+    #[inline]
+    fn fitness_class(r: f64) -> u8 {
+        if r < -0.5 {
+            0 // tight
+        } else if r <= 0.5 {
+            1 // normal
+        } else if r <= 1.0 {
+            2 // loose
+        } else {
+            3 // very loose
+        }
+    }
+
+    /// Evaluates last-line constraint demerits and returns `(extra_demerits, violated)`.
+    fn evaluate_last_line(
+        &self,
+        node: &Node,
+        natural: f64,
+        target: f64,
+        delta: f64,
+        j: usize,
+        is_uniform: bool,
+    ) -> (f64, bool) {
+        // Single-line paragraphs (`node.line_count == 0`) do not have a runt last line.
+        if node.line_count == 0 {
+            return (0.0, false);
+        }
+
+        let mut extra = 0.0;
+        let mut violated = false;
+
+        if node.flagged {
+            extra += KnuthPlassBreaker::FINAL_HYPHEN_DEMERITS;
+        }
+
+        let llc = &self.profile.last_line_constraint;
+        let line_end_idx = self.line_end(j).max(node.line_start);
+        let words_on_last = self.metrics.box_count(node.line_start, line_end_idx);
+        let total_words = self.metrics.box_count(0, self.items.len());
+
+        // 1. Minimum word count (runt prevention)
+        if llc.min_words > 1 && words_on_last < llc.min_words && total_words >= llc.min_words {
+            let missing = (llc.min_words - words_on_last) as f64;
+            extra += KnuthPlassBreaker::LAST_LINE_RUNT_DEMERITS * missing * missing;
+            violated = true;
+        }
+
+        // 2. Minimum line-width constraint (in pt and/or ratio of target measure)
+        let req_min_width = f64::from(llc.min_width_pt)
+            .max(target * f64::from(llc.min_width_ratio.clamp(0.0, 1.0)));
+        if req_min_width > 0.0 && natural + 1e-4 < req_min_width {
+            let shortfall = req_min_width - natural;
+            let shortfall_ratio = shortfall / req_min_width.max(1.0);
+            extra += KnuthPlassBreaker::LAST_LINE_SHORT_DEMERITS
+                * (1.0 + shortfall_ratio * 10.0).powi(2)
+                + shortfall * 5000.0;
+            violated = true;
+        }
+
+        // 3. Maximum line-width ratio constraint (when a visible paragraph-end indent is required)
+        if llc.max_width_ratio < 1.0 && llc.max_width_ratio > 0.0 {
+            let max_w = target * f64::from(llc.max_width_ratio);
+            if natural > max_w + 1e-4 {
+                let excess = natural - max_w;
+                extra += 1.0e5 * (1.0 + excess);
+                violated = true;
+            }
+        }
+
+        // 4. Slack balancing and optimal final-line placement
+        if llc.balance_slack && delta > 0.0 && target > 0.0 {
+            let slack_ratio = (delta / target).clamp(0.0, 1.0);
+            let slack_badness = 100.0 * slack_ratio.powi(3);
+            extra += (1.0 + slack_badness).powi(2) * 0.5;
+            // Penalize abrupt jump between a very stretched penultimate line and an empty final line
+            if node.ratio > 0.5 && slack_ratio > 0.5 {
+                extra += node.ratio * slack_ratio * 500.0;
+            }
+        } else if !is_uniform && delta > 0.0 && target > 0.0 {
+            // In variable-width profiles (L-shapes, polygons), gently prefer final-line placements
+            // whose natural width matches the target measure at that line index.
+            let slack_ratio = (delta / target).clamp(0.0, 1.0);
+            extra += slack_ratio.powi(3) * 20.0;
+        }
+
+        (extra, violated)
+    }
+
+    fn best_final_node<'b>(&self, nodes: &'b [Node]) -> Option<&'b Node> {
+        let final_break = *self.candidates.last()?;
+        nodes
+            .iter()
+            .filter(|n| n.position == final_break)
+            .min_by(|a, b| a.total_demerits.total_cmp(&b.total_demerits))
+    }
+
+    fn best_final_violated(&self, nodes: &[Node]) -> bool {
+        self.best_final_node(nodes)
+            .is_some_and(|n| n.last_line_violated)
+    }
+
+    fn best_final_demerits(&self, nodes: &[Node]) -> f64 {
+        self.best_final_node(nodes)
+            .map_or(f64::INFINITY, |n| n.total_demerits)
+    }
+
     /// Runs one pass. `tolerance == None` is the emergency pass, which accepts
     /// every line and therefore always succeeds.
     fn run(&self, tolerance: Option<f64>) -> Option<Vec<Node>> {
@@ -589,9 +879,12 @@ impl<'a> BreakContext<'a> {
             target_width: f64::from(self.profile.width_for_line(0)),
             ratio: 0.0,
             flagged: false,
+            fitness: 1,
+            last_line_violated: false,
         }];
         let mut window_start = 0;
         let is_uniform = self.profile.is_uniform();
+        let track_by_line = !is_uniform || self.profile.last_line_constraint.is_active();
 
         for &j in &self.candidates {
             let forced = self.is_forced(j);
@@ -654,6 +947,17 @@ impl<'a> BreakContext<'a> {
                 if flagged && node.flagged {
                     demerits += KnuthPlassBreaker::DOUBLE_HYPHEN_DEMERITS;
                 }
+                let fitness = Self::fitness_class(r);
+                if !is_last && node.line_count > 0 && fitness.abs_diff(node.fitness) > 1 {
+                    demerits += KnuthPlassBreaker::ADJACENT_LOOSE_TIGHT_DEMERITS;
+                }
+                let mut last_line_violated = false;
+                if is_last {
+                    let (extra_last, violated) =
+                        self.evaluate_last_line(node, natural, target, delta, j, is_uniform);
+                    demerits += extra_last;
+                    last_line_violated = violated;
+                }
                 if overfull {
                     let overflow = (natural - shrink - target).max(0.0);
                     demerits += KnuthPlassBreaker::OVERFLOW_DEMERITS_PER_PT * (1.0 + overflow);
@@ -674,9 +978,11 @@ impl<'a> BreakContext<'a> {
                     target_width: target,
                     ratio: if r.is_finite() { r } else { 0.0 },
                     flagged,
+                    fitness,
+                    last_line_violated,
                 };
 
-                if is_uniform {
+                if !track_by_line {
                     if best_single
                         .as_ref()
                         .is_none_or(|b| total < b.total_demerits)
@@ -709,7 +1015,7 @@ impl<'a> BreakContext<'a> {
                 window_start = overfull_prefix_end;
             }
 
-            let nodes_to_add: Vec<Node> = if is_uniform {
+            let nodes_to_add: Vec<Node> = if !track_by_line {
                 best_single.into_iter().collect()
             } else {
                 best_by_line.into_values().collect()
@@ -735,10 +1041,7 @@ impl<'a> BreakContext<'a> {
             }
         }
 
-        let best_final = nodes
-            .iter()
-            .filter(|n| n.position == final_break)
-            .min_by(|a, b| a.total_demerits.total_cmp(&b.total_demerits));
+        let best_final = self.best_final_node(&nodes);
 
         if best_final.is_some() && nodes.len() > 1 {
             Some(nodes)
@@ -1391,5 +1694,146 @@ mod tests {
         assert!(lines.len() >= 3);
         assert_eq!(lines[0].target_width, 210.0);
         assert_eq!(lines[1].target_width, 210.0);
+    }
+
+    #[test]
+    fn test_last_line_minimum_width_and_runt_prevention() {
+        // 7 words: [40, 40, 40, 40, 40, 40, 25], space width 10 (stretch 15, shrink 2)
+        // Target measure: 140pt.
+        // Without last-line constraint:
+        //   Line 1: 3 words (40*3 + 20 = 140pt, r = 0)
+        //   Line 2: 3 words (40*3 + 20 = 140pt, r = 0)
+        //   Line 3: 1 word (25pt -> single-word runt, natural width 25pt < 60pt!)
+        // With LastLineConstraint { min_width_pt: 60.0, min_words: 2, .. }:
+        //   Breaker rebalances preceding lines (e.g. [3, 2, 2] or [2, 3, 2]) so the final line
+        //   has 2 words and natural width 40 + 10 + 25 = 75pt >= 60pt.
+        let widths = [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 25.0];
+        let mut items = Vec::new();
+        for (i, &w) in widths.iter().enumerate() {
+            if i > 0 {
+                items.push(LayoutItem::Glue {
+                    width: 10.0,
+                    stretch: 15.0,
+                    shrink: 2.0,
+                });
+            }
+            items.push(word(w));
+        }
+        items.push(forced());
+
+        let unconstrained_spans = KnuthPlassBreaker::break_paragraph_spans(&items, 140.0, 2.0);
+        assert_eq!(
+            boxes_per_line(&items, &unconstrained_spans),
+            vec![3, 3, 1],
+            "Unconstrained break leaves a 1-word 25pt runt on the last line"
+        );
+        assert!((unconstrained_spans.last().unwrap().natural_width - 25.0).abs() < 1e-3);
+
+        let constrained_profile = MeasureProfile::uniform(140.0).with_last_line_constraint(
+            LastLineConstraint {
+                min_width_pt: 60.0,
+                min_width_ratio: 0.4,
+                min_words: 2,
+                balance_slack: true,
+                max_width_ratio: 1.0,
+            },
+        );
+        let constrained_spans =
+            KnuthPlassBreaker::break_paragraph_spans_with_profile(&items, &constrained_profile, 2.0);
+        let word_counts = boxes_per_line(&items, &constrained_spans);
+        let total_words: usize = word_counts.iter().sum();
+        assert_eq!(total_words, 7);
+
+        let last_span = constrained_spans.last().unwrap();
+        let last_words = *word_counts.last().unwrap();
+        assert!(
+            last_words >= 2,
+            "Constrained last line must have >= 2 words, got {}",
+            last_words
+        );
+        assert!(
+            last_span.natural_width >= 60.0,
+            "Constrained last line natural width ({}) must be >= 60.0pt",
+            last_span.natural_width
+        );
+    }
+
+    #[test]
+    fn test_last_line_constraint_relaxes_tolerance_when_needed() {
+        // At strict tolerance = 1.0, a 2-word line (40 + 10 + 40 = 90pt on 140pt measure, delta = 50pt)
+        // with stretch = 15pt has r = 50 / 15 = 3.33 > 1.0.
+        // Verify that when last_line_constraint is active, the breaker automatically relaxes tolerance
+        // to eliminate the 1-word runt without producing overfull lines.
+        let widths = [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 25.0];
+        let mut items = Vec::new();
+        for (i, &w) in widths.iter().enumerate() {
+            if i > 0 {
+                items.push(LayoutItem::Glue {
+                    width: 10.0,
+                    stretch: 15.0,
+                    shrink: 2.0,
+                });
+            }
+            items.push(word(w));
+        }
+        items.push(forced());
+
+        let profile = MeasureProfile::uniform(140.0)
+            .with_last_line_constraint(LastLineConstraint::balanced(0.45));
+        let spans = KnuthPlassBreaker::break_paragraph_spans_with_profile(&items, &profile, 1.0);
+        let counts = boxes_per_line(&items, &spans);
+        assert_eq!(counts.iter().sum::<usize>(), 7);
+        assert!(
+            *counts.last().unwrap() >= 2,
+            "Relaxed pass must eliminate single-word runt: {:?}",
+            counts
+        );
+        assert!(spans.last().unwrap().natural_width >= 140.0 * 0.45);
+    }
+
+    #[test]
+    fn test_final_hyphen_demerits_avoids_penultimate_hyphenation() {
+        // Construct a paragraph on a 100pt measure where the penultimate line can either:
+        // - Break cleanly at a word space (index 3 -> end = 4):
+        //   Line 1 = 42 + 10 + 40 = 92pt (stretch = 16 -> r = 0.5, badness ~ 12.5, demerits ~ 183)
+        //   Line 2 = 3 + 0 + 30 + 10 + 35 = 78pt (final line, r = 0, demerits = 1)
+        // - Break at a flagged hyphen penalty (index 5 -> end = 6):
+        //   Line 1 = 42 + 10 + 40 + 3 + 3 + 2 = 100pt (r = 0, flagged = true -> +FINAL_HYPHEN_DEMERITS = 5036)
+        //   Line 2 = 30 + 10 + 35 = 75pt (final line, r = 0, demerits = 1)
+        let items = vec![
+            word(42.0),
+            LayoutItem::Glue {
+                width: 10.0,
+                stretch: 16.0,
+                shrink: 2.0,
+            },
+            word(40.0),
+            LayoutItem::Glue {
+                width: 3.0,
+                stretch: 4.0,
+                shrink: 1.0,
+            },
+            word(3.0),
+            LayoutItem::Penalty {
+                width: 2.0,
+                penalty: 5.0,
+                flagged: true,
+            },
+            word(30.0),
+            LayoutItem::Glue {
+                width: 10.0,
+                stretch: 16.0,
+                shrink: 2.0,
+            },
+            word(35.0),
+            forced(),
+        ];
+        let spans = KnuthPlassBreaker::break_paragraph_spans(&items, 100.0, 2.5);
+        assert_eq!(spans.len(), 2);
+        // Line 1 should break at the word space (glue index 3 -> span end = 3), NOT at the flagged hyphen (end = 6)
+        assert_eq!(
+            spans[0].end, 3,
+            "Penultimate line should avoid breaking at a hyphen when a clean word space break is feasible"
+        );
     }
 }
