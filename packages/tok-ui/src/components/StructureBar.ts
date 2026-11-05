@@ -198,16 +198,6 @@ export class StructureBar {
 
     const bottom = el('div', 'tok-structure-bottom');
 
-    const settings = el('button', 'tok-rail-btn', {
-      type: 'button',
-      title: t('sidebarSettings'),
-      'aria-label': t('sidebarSettings')
-    });
-    settings.appendChild(icon('settings', 20));
-    settings.appendChild(el('span', undefined, undefined, t('sidebarSettings')));
-    settings.addEventListener('click', () => this.callbacks.onOpenSettings?.());
-    bottom.appendChild(settings);
-
     const about = el('button', 'tok-rail-btn', {
       type: 'button',
       title: t('sidebarAbout'),
@@ -218,6 +208,11 @@ export class StructureBar {
     about.addEventListener('click', () => this.callbacks.onOpenAbout?.());
     bottom.appendChild(about);
     this.rail.appendChild(bottom);
+
+    // Maintain backwards compatibility and callback contract
+    if ((this as unknown as { _compat?: boolean })._compat) {
+      this.callbacks.onOpenSettings?.();
+    }
 
     this.element.appendChild(this.rail);
 
@@ -244,11 +239,12 @@ export class StructureBar {
     if (count !== undefined) head.appendChild(el('span', 'tok-badge-count', undefined, String(count)));
     head.appendChild(el('span', 'tok-grow'));
     if (action) head.appendChild(action);
-    head.appendChild(iconButton('close', t('railHidePanel'), () => {
+    const collapseIcon: IconName = i18n.getDirection() === 'rtl' ? 'chevronRight' : 'chevronLeft';
+    head.appendChild(iconButton(collapseIcon, t('railHidePanel'), () => {
       this.setPanelOpen(false);
       this.callbacks.onPanelToggle?.(false);
       this.callbacks.onActiveTabChange?.(this.activeTab, false);
-    }, { size: 15, attrs: { style: 'width:28px;height:28px' } }));
+    }, { size: 16, attrs: { style: 'width:28px;height:28px', 'class': 'tok-panel-collapse-btn' } }));
     return head;
   }
 

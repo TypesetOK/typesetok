@@ -417,6 +417,15 @@
     [dir="rtl"] .tok-panel-head { padding: 0 16px 0 12px; }
     .tok-panel-head h2 { font-size: 13px; font-weight: 600; }
     .tok-panel-head .tok-grow { flex: 1; }
+    .tok-panel-collapse-btn {
+      color: var(--tok-text-muted);
+      border-radius: var(--tok-radius-sm);
+      transition: background 0.12s, color 0.12s;
+    }
+    .tok-panel-collapse-btn:hover {
+      background: var(--tok-bg-surface-hover);
+      color: var(--tok-text-primary);
+    }
     .tok-structure-body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
     .tok-panel-note { margin: 4px 4px 12px; font-size: 12px; line-height: 1.5; color: var(--tok-text-secondary); }
 
