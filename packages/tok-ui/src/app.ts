@@ -397,6 +397,11 @@ export class TypesetOkApp {
     this.inspector = new ContextualInspector({
       onDocumentChange: (settings) => {
         this.documentState.settings = { ...(this.documentState.settings || this.inspector.getDocumentSettings()), ...settings };
+        if (settings.baselineGridPt || settings.baselineOffsetPt !== undefined) {
+          const pt = settings.baselineGridPt || this.documentState.settings.baselineGridPt || 13;
+          const offset = settings.baselineOffsetPt !== undefined ? settings.baselineOffsetPt : this.documentState.settings.baselineOffsetPt;
+          this.canvas?.setBaselineGrid(pt, offset);
+        }
         this.setDirty(true);
         this.scheduleRepaginate();
       },
@@ -2063,6 +2068,9 @@ export class TypesetOkApp {
       }
 
       this.pages = newPages;
+      if (this.documentState?.settings?.baselineGridPt) {
+        this.canvas.setBaselineGrid(this.documentState.settings.baselineGridPt, this.documentState.settings.baselineOffsetPt);
+      }
       this.canvas.setPages(newPages, this.activePageIndex);
       this.refreshThumbnails();
       if (forceReset || this.activePageIndex >= newPages.length) {
@@ -2649,6 +2657,9 @@ export class TypesetOkApp {
       case 'open-about':
         this.aboutModal.show();
         break;
+      case 'open-whats-new':
+        this.openWhatsNew();
+        break;
       case 'open-file-at-path':
         if (typeof data === 'string' && data) {
           if (!this.confirmDiscardUnsaved()) return;
@@ -2845,8 +2856,7 @@ export class TypesetOkApp {
     toast.appendChild(el('span', undefined, undefined, msg));
     document.body.appendChild(toast);
     setTimeout(() => {
-      toast.style.transition = 'opacity 0.25s ease';
-      toast.style.opacity = '0';
+      toast.classList.add('tok-toast-out');
       setTimeout(() => toast.remove(), 250);
     }, 3200);
   }

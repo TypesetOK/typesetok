@@ -324,20 +324,51 @@ impl MultiFlowSolver {
         }
 
         let gutter = Self::gutter_for(content_width);
-        let num_cols = flows.len();
+
+        // Separate column flows from bottom-band apparatus flows (e.g. footnotes/Ein Mishpat).
+        // Bottom bands span full content width across the page and must not steal horizontal column measure.
+        let col_flows: Vec<FlowGeometrySpec> = flows
+            .iter()
+            .filter(|f| f.role != FlowPlacementRole::BottomBand)
+            .cloned()
+            .collect();
+        let bottom_flows: Vec<FlowGeometrySpec> = flows
+            .iter()
+            .filter(|f| f.role == FlowPlacementRole::BottomBand)
+            .cloned()
+            .collect();
+
+        let mut bottom_allocs: Vec<SolvedFlowAllocation> = bottom_flows
+            .into_iter()
+            .map(|f| SolvedFlowAllocation {
+                flow_id: f.flow_id,
+                allocated_x_pt: margin_left,
+                allocated_y_pt: margin_y_pt + content_height,
+                allocated_width_pt: content_width,
+                allocated_height_pt: 0.0,
+            })
+            .collect();
+
+        if col_flows.is_empty() {
+            return bottom_allocs;
+        }
+
+        let num_cols = col_flows.len();
 
         if num_cols == 1 {
-            return vec![SolvedFlowAllocation {
-                flow_id: flows[0].flow_id.clone(),
+            let mut res = vec![SolvedFlowAllocation {
+                flow_id: col_flows[0].flow_id.clone(),
                 allocated_x_pt: margin_left,
                 allocated_y_pt: margin_y_pt,
                 allocated_width_pt: content_width,
                 allocated_height_pt: content_height,
             }];
+            res.append(&mut bottom_allocs);
+            return res;
         }
 
         let (ordered_flows, proportions) =
-            Self::order_flows_and_proportions(flows, side, content_width);
+            Self::order_flows_and_proportions(&col_flows, side, content_width);
 
         let mut solver = GeometricConstraintSolver::new();
         let page_model = PageConstraintModel::new();
@@ -409,19 +440,22 @@ impl MultiFlowSolver {
             })
             .collect();
 
-        if num_cols == 2 {
-            let mut matched = vec![allocations[0].clone(), allocations[1].clone()];
-            for a in allocations {
+        let mut final_allocations = allocations;
+        final_allocations.append(&mut bottom_allocs);
+
+        if flows.len() == 2 {
+            let mut matched = vec![final_allocations[0].clone(), final_allocations[1].clone()];
+            for a in &final_allocations {
                 if a.flow_id == flows[0].flow_id {
-                    matched[0] = a;
+                    matched[0] = a.clone();
                 } else if a.flow_id == flows[1].flow_id {
-                    matched[1] = a;
+                    matched[1] = a.clone();
                 }
             }
             return matched;
         }
 
-        allocations
+        final_allocations
     }
 
     /// Solves dynamic Talmud layout with L-shaped commentary expansion below Gemara

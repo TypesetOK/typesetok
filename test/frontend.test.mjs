@@ -3700,3 +3700,92 @@ describe('Switching book layout template on an open document (without re-importi
   });
 });
 
+describe('Home screen, dialogs and About screen', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('home screen no longer offers demo templates', () => {
+    const welcome = read('packages/tok-ui/src/components/WelcomeModal.ts');
+    assert.ok(!welcome.includes('tok-template-demo-card'), 'demo cards must be gone');
+    assert.ok(!welcome.includes('welcomeDemoSection'), 'demo section title must be gone');
+    assert.ok(welcome.includes('tok-template-import') && welcome.includes('tok-template-blank'), 'blank and import cards stay');
+  });
+
+  test('the import card is styled like the blank card (text no longer sticks to the edges)', () => {
+    const html = read('packages/tok-ui/src/index.html');
+    assert.ok(/\.tok-template-blank,\s*\.tok-template-import\s*\{/.test(html));
+  });
+
+  test('every dialog fades and rises in and out through CSS (open class drives both directions)', () => {
+    const html = read('packages/tok-ui/src/index.html');
+    assert.ok(html.includes('@starting-style'), 'enter animation');
+    assert.ok(html.includes('display 0.22s allow-discrete'), 'exit animation keeps the overlay visible while it fades');
+  });
+
+  test('About screen shows the main developer and contributors from generated data, with safe links only', () => {
+    const about = read('packages/tok-ui/src/components/AboutModal.ts');
+    assert.ok(about.includes('aboutMainDevBio') && about.includes('aboutThanksTitle'));
+    assert.ok(about.includes("u.hostname === 'github.com'") && about.includes("u.protocol === 'https:'"), 'only https GitHub links');
+    assert.ok(!about.includes('Knuth-Plass') && !about.includes('Hardened Lean Electron'), 'technical engine text was removed');
+    const data = read('packages/tok-ui/src/contributors.generated.ts');
+    // The build rewrites this file as JSON (double quotes), so accept both quote styles.
+    assert.ok(/login['"]?:\s*['"]Amlaach['"]/.test(data) && data.includes('https://github.com/Amlaach'));
+    const script = read('scripts/update-contributors.mjs');
+    assert.ok(script.includes("c.type === 'User'"), 'bots are excluded');
+  });
+});
+
+describe('User guide content', () => {
+  const guide = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/UserGuideModal.ts'), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('every section exists in both Hebrew and English with the same number of blocks', () => {
+    const count = (re) => (guide.match(re) || []).length;
+    assert.equal(count(/titleHe:/g), count(/titleEn:/g));
+    assert.equal(count(/contentHe: \[/g), count(/contentEn: \[/g));
+    assert.equal(count(/\n {8}title: /g) > 0, true);
+    const heBlocks = count(/\n {8}title: '[^'\n]*[\u0590-\u05FF]/g);
+    const enBlocks = count(/\n {8}title: '[^\u0590-\u05FF'\n]+'/g);
+    assert.equal(heBlocks, enBlocks, 'each Hebrew block needs an English twin');
+  });
+
+  test('the guide no longer describes the removed built-in demo templates', () => {
+    assert.ok(!guide.includes('תבניות מובנות') && !guide.includes('Built-in Templates'));
+  });
+});
+
+describe('Home screen keeps its place until a file is chosen; What\u2019s New opens from everywhere', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('import and open buttons do not hide the home screen before the file dialog finishes', () => {
+    const welcome = read('packages/tok-ui/src/components/WelcomeModal.ts');
+    assert.ok(!/this\.hide\(\);\s*this\.callbacks\.onImportDocument/.test(welcome), 'import must not hide first');
+    assert.ok(!/this\.hide\(\);\s*this\.callbacks\.onOpenProject\(\);/.test(welcome), 'open-file dialog must not hide first');
+  });
+
+  test('the command palette action open-whats-new is handled', () => {
+    assert.ok(read('packages/tok-ui/src/app.ts').includes("case 'open-whats-new':"));
+  });
+
+  test('the What\u2019s New drawer stacks above the home screen', () => {
+    const html = read('packages/tok-ui/src/index.html');
+    const z = (selector) => Number(new RegExp(selector.replace(/\./g, '\\.') + '\\s*\\{[^}]*?z-index:\\s*(\\d+)').exec(html)?.[1]);
+    assert.ok(z('.tok-updates-overlay') > z('.tok-welcome-overlay'), 'drawer must be above the welcome overlay');
+  });
+
+  test('every build refreshes the contributors list first', () => {
+    const pkg = JSON.parse(read('package.json'));
+    assert.ok(pkg.scripts.build.startsWith('npm run contributors'));
+  });
+});
+
+describe('Baseline guides follow the real text lines', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('guides are drawn per rendered line and measured, not from a fixed step', () => {
+    const guides = read('packages/tok-ui/src/components/baselineGuides.ts');
+    assert.ok(guides.includes('getBoundingClientRect'), 'positions are measured from the rendered lines');
+    assert.ok(guides.includes('.tok-line[data-baseline-y]'), 'one rule per engine line');
+    const canvas = read('packages/tok-ui/src/components/SpreadCanvas.ts');
+    assert.ok(canvas.includes('drawLineGuides(g, sheet, line)'), 'SpreadCanvas uses the per-line guides');
+    assert.ok(!canvas.includes('syncedTopPt'), 'the old single-grid sync is gone');
+  });
+});

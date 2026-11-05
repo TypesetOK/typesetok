@@ -1,3 +1,4 @@
+import { drawLineGuides } from './baselineGuides';
 import { PageDescriptor, PageDomVirtualizer, computeActiveWindow } from 'tok-viewer';
 import { SelectionMode, TextFrameData } from '../types';
 import { t, tf, i18n } from '../i18n';
@@ -116,6 +117,7 @@ export class SpreadCanvas {
   private programmaticScroll = false;
   private scrollSettleTimer = 0;
   private baselineGridPt = 13;
+  private baselineOffsetPt = 48;
 
   constructor(callbacks: SpreadCanvasCallbacks) {
     this.callbacks = callbacks;
@@ -282,9 +284,9 @@ export class SpreadCanvas {
     requestAnimationFrame(() => this.revealPage(this.activePageIndex, false, true));
   }
 
-  public setBaselineGrid(pt: number): void {
-    if (!(pt > 0)) return;
-    this.baselineGridPt = pt;
+  public setBaselineGrid(pt: number, offsetPt?: number): void {
+    if (pt > 0) this.baselineGridPt = pt;
+    if (typeof offsetPt === 'number' && offsetPt >= 0) this.baselineOffsetPt = offsetPt;
     this.updateGuides();
   }
 
@@ -1001,11 +1003,26 @@ export class SpreadCanvas {
     });
 
     const stepPx = (this.baselineGridPt * 96) / 72;
+    const offsetPx = (this.baselineOffsetPt * 96) / 72;
     const line = 'var(--tok-guide-baseline)';
     this.innerContainer.querySelectorAll<HTMLElement>('.tok-guide-baseline').forEach((g) => {
       g.style.display = this.showBaseline ? 'block' : 'none';
+      if (!this.showBaseline) return;
+
+      const sheet = g.closest<HTMLElement>('.tok-page-sheet');
+      // With engine lines on the page, draw one rule per real line (exact alignment with the text).
+      if (drawLineGuides(g, sheet, line)) {
+        g.style.inset = '0';
+        g.style.backgroundImage = 'none';
+        return;
+      }
+      // Blank page: show a plain fixed grid inside the margins.
+      g.style.top = `${Math.max(0, offsetPx)}px`;
+      g.style.bottom = '40px';
+      g.style.left = '38px';
+      g.style.right = '36px';
       g.style.backgroundImage =
-        `repeating-linear-gradient(to bottom, transparent 0, transparent ${stepPx - 1}px, ${line} ${stepPx - 1}px, ${line} ${stepPx}px)`;
+        `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
     });
   }
 

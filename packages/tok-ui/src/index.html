@@ -605,23 +605,29 @@
        ========================================================================== */
     .tok-overlay {
       position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center;
-      background: var(--tok-scrim); animation: tokFade 0.15s ease-out;
+      background: var(--tok-scrim); backdrop-filter: blur(3px);
+      opacity: 0; transition: opacity 0.22s ease, display 0.22s allow-discrete;
     }
-    .tok-overlay.tok-open { display: flex; }
+    .tok-overlay.tok-open { display: flex; opacity: 1; }
+    @starting-style { .tok-overlay.tok-open { opacity: 0; } }
     .tok-dialog {
       max-width: calc(100vw - 48px); max-height: calc(100vh - 48px);
       display: flex; flex-direction: column; overflow: hidden;
       background: var(--tok-bg-surface-1); color: var(--tok-text-primary);
-      border: 1px solid var(--tok-border-subtle); border-radius: 14px; box-shadow: var(--tok-shadow-modal);
-      animation: tokRise 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      border: 1px solid var(--tok-border-subtle); border-top: 3px solid var(--tok-accent-primary);
+      border-radius: 16px; box-shadow: var(--tok-shadow-modal);
     }
-    .tok-dialog-head { height: 60px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--tok-border-subtle); }
-    [dir="rtl"] .tok-dialog-head { padding: 0 24px 0 16px; }
+    /* Enter and exit: the overlay fades while the dialog rises in and sinks out (also plays when the dialog closes). */
+    .tok-overlay .tok-dialog { opacity: 0; transform: translateY(14px) scale(0.96); transition: opacity 0.22s ease, transform 0.26s cubic-bezier(0.16, 1, 0.3, 1); }
+    .tok-overlay.tok-open .tok-dialog { opacity: 1; transform: none; }
+    @starting-style { .tok-overlay.tok-open .tok-dialog { opacity: 0; transform: translateY(14px) scale(0.96); } }
+    .tok-dialog-head { height: 68px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 28px; border-bottom: 1px solid var(--tok-border-subtle); background: color-mix(in srgb, var(--tok-accent-soft) 55%, transparent); }
+    [dir="rtl"] .tok-dialog-head { padding: 0 28px 0 16px; }
     .tok-dialog-head-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .tok-dialog-head h2 { font-size: 15px; font-weight: 600; }
-    .tok-dialog-head p { font-size: 12px; color: var(--tok-text-secondary); }
+    .tok-dialog-head h2 { font-size: 17px; font-weight: 600; }
+    .tok-dialog-head p { font-size: 13px; color: var(--tok-text-secondary); }
     .tok-dialog-body { flex: 1; min-height: 0; display: flex; }
-    .tok-dialog-foot { height: 64px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 24px; border-top: 1px solid var(--tok-border-subtle); }
+    .tok-dialog-foot { height: 72px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 28px; border-top: 1px solid var(--tok-border-subtle); }
     .tok-dialog-foot .tok-grow { flex: 1; }
     .tok-dialog-note { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tok-text-muted); }
     .tok-dialog-note .tok-icon-wrap { color: var(--tok-status-success); }
@@ -725,8 +731,9 @@
     .tok-template-title { font-size: 15px; font-weight: 600; }
     .tok-template-desc { font-size: 12px; line-height: 1.5; color: var(--tok-text-secondary); }
     .tok-template-meta { font-size: 12px; color: var(--tok-text-muted); margin-top: 4px; }
-    .tok-template-blank { align-items: center; justify-content: center; gap: 10px; min-height: 230px; border: 1.5px dashed var(--tok-border-strong); background: transparent; text-align: center; }
-    .tok-template-blank .tok-plus { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--tok-accent-soft); color: var(--tok-accent-text); }
+    .tok-template-blank, .tok-template-import { align-items: center; justify-content: center; gap: 10px; min-height: 230px; border: 1.5px dashed var(--tok-border-strong); background: transparent; text-align: center; }
+    .tok-template-import { border-style: solid; padding: 16px; }
+    .tok-template-blank .tok-plus, .tok-template-import .tok-plus { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--tok-accent-soft); color: var(--tok-accent-text); }
     .tok-page-art { position: relative; background: var(--tok-paper); box-shadow: 0 1px 2px rgba(27,26,23,.12), 0 6px 16px rgba(40,32,16,.14); }
     .tok-page-art i { position: absolute; display: block; }
     .tok-page-art .tl { background: repeating-linear-gradient(to bottom, #C9C4B8 0 1px, transparent 1px 3.5px); }
@@ -778,7 +785,7 @@
     .tok-toast {
       position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%); z-index: 99999; pointer-events: none;
       display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 48px));
-      padding: 9px 16px 9px 12px; border-radius: var(--tok-radius-lg); font-size: 13px; line-height: 1.4;
+      padding: 12px 20px 12px 14px; border-radius: var(--tok-radius-lg); font-size: 14px; line-height: 1.45;
       background: var(--tok-bg-elevated); color: var(--tok-text-primary);
       border: 1px solid var(--tok-border-subtle); border-inline-start: 3px solid var(--tok-accent-primary);
       box-shadow: var(--tok-shadow-float);
@@ -788,6 +795,7 @@
       flex: none; box-sizing: content-box; padding: 4px; border-radius: 50%;
       color: var(--tok-accent-text); background: var(--tok-accent-soft);
     }
+    .tok-toast.tok-toast-out { opacity: 0; transform: translate(-50%, 10px); transition: opacity 0.25s ease, transform 0.25s ease; }
     .tok-toast.tok-toast-error { background: var(--tok-error-soft); border-color: var(--tok-status-error); }
     .tok-toast.tok-toast-error > svg { color: var(--tok-status-error); background: transparent; }
 
@@ -828,7 +836,7 @@
     .tok-updates-overlay {
       position: fixed;
       inset: 0;
-      z-index: 1000;
+      z-index: 9100;
       background: rgba(0, 0, 0, 0.45);
       backdrop-filter: blur(2px);
       display: flex;

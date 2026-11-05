@@ -2,6 +2,7 @@ import { t, tf, i18n } from '../i18n';
 import { el, icon, iconButton, button } from '../ui';
 import { ModalController } from './ModalController';
 import { fillAppVersion } from '../appInfo';
+import { MAIN_DEVELOPER, CONTRIBUTORS, Contributor } from '../contributors.generated';
 
 export interface AboutModalCallbacks {
   onClose: () => void;
@@ -10,6 +11,39 @@ export interface AboutModalCallbacks {
 }
 
 const REPO_URL = 'https://github.com/TypesetOK/typesetok';
+
+/** Only https GitHub profile links are ever opened from this screen. */
+function safeProfileUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname === 'github.com' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function openExternalUrl(url: string): void {
+  const win = window as any;
+  if (win.tokIpc && win.tokIpc.openExternal) {
+    Promise.resolve(win.tokIpc.openExternal(url)).catch((e: any) => {
+      console.warn('[ABOUT] openExternal failed:', e?.message ?? e);
+    });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+/** Profile picture (embedded data: URI) or, when there is none, a round badge with the first letter. */
+function avatarEl(c: Contributor, size: number): HTMLElement {
+  const round = `width:${size}px;height:${size}px;border-radius:50%;flex:none;`;
+  if (c.avatar.startsWith('data:image/')) {
+    return el('img', undefined, { src: c.avatar, alt: '', width: String(size), height: String(size), style: `${round}object-fit:cover;background:var(--tok-bg-surface-2);` });
+  }
+  return el('span', undefined, {
+    'aria-hidden': 'true',
+    style: `${round}display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(size * 0.42)}px;background:var(--tok-accent-soft);color:var(--tok-accent-text);`
+  }, (c.name || c.login).charAt(0).toUpperCase());
+}
 
 export class AboutModal {
   public element: HTMLElement;
@@ -70,11 +104,10 @@ export class AboutModal {
       style: 'flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:20px;'
     });
 
-    // 1. Hero Brand Banner
+    // 1. Hero brand banner
     const hero = el('div', 'tok-card', {
-      style: 'display:flex;align-items:center;gap:18px;padding:18px 20px;background:var(--tok-bg-surface-2);border-radius:12px;'
+      style: 'align-self:stretch;display:flex;align-items:center;gap:18px;padding:18px 20px;background:var(--tok-bg-surface-2);border-radius:12px;'
     });
-
     const brandMark = el('span', 'tok-brand-mark', {
       'aria-hidden': 'true',
       style: 'width:56px;height:56px;border-radius:14px;box-shadow:0 3px 10px rgba(30,74,158,0.25);flex-shrink:0;'
@@ -85,109 +118,62 @@ export class AboutModal {
     const heroDetails = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px;flex:1;' });
     const titleRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' });
     titleRow.appendChild(el('h1', undefined, { style: 'font-size:20px;font-weight:800;letter-spacing:-0.02em;' }, 'TypesetOK (TOK)'));
-
     const verBadge = el('span', 'tok-badge tok-badge-success', { dir: 'ltr' }, 'Stable');
     verBadge.setAttribute('data-app-version', '');
     fillAppVersion(verBadge, (v) => `v${v} Stable`);
     titleRow.appendChild(verBadge);
     heroDetails.appendChild(titleRow);
-
     heroDetails.appendChild(el('p', undefined, {
-      style: 'font-size:13px;color:var(--tok-text-secondary);line-height:1.45;'
-    }, 'מערכת שולחנית מקצועית לסדר ועימוד דפוס עברי, ספרי קודש וספרות עברית.'));
-
-    const tagsRow = el('div', undefined, { style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;' });
-    const makeTag = (label: string) => el('span', 'tok-badge-count', { style: 'font-size:11px;' }, label);
-    tagsRow.appendChild(makeTag('Rust Core'));
-    tagsRow.appendChild(makeTag('Knuth-Plass'));
-    tagsRow.appendChild(makeTag('PDF/X-1a & X-4'));
-    tagsRow.appendChild(makeTag('נרמול יוניקוד קנוני'));
-    tagsRow.appendChild(makeTag('Windows x64 Native'));
-    heroDetails.appendChild(tagsRow);
-
+      style: 'font-size:14px;color:var(--tok-text-secondary);line-height:1.5;'
+    }, t('aboutAppDesc')));
     hero.appendChild(heroDetails);
     body.appendChild(hero);
 
-    // Section Helper
-    const createSection = (title: string, iconName: any, items: { title: string; desc: string }[]) => {
-      const sec = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;padding:16px 18px;' });
-      const secHead = el('div', undefined, { style: 'display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;color:var(--tok-text-primary);' });
-      secHead.appendChild(icon(iconName, 17));
-      secHead.appendChild(el('span', undefined, undefined, title));
-      sec.appendChild(secHead);
+    // 2. Main developer
+    const dev = el('div', 'tok-card', { style: 'align-self:stretch;display:flex;align-items:center;gap:18px;padding:20px 22px;' });
+    dev.appendChild(avatarEl(MAIN_DEVELOPER, 76));
+    const devText = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;text-align:start;' });
+    devText.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted);' }, t('aboutDevelopedBy')));
+    devText.appendChild(el('h2', undefined, { style: 'font-size:20px;font-weight:700;' }, t('aboutMainDevName')));
+    devText.appendChild(el('p', undefined, { style: 'font-size:14px;color:var(--tok-text-secondary);line-height:1.5;' }, t('aboutMainDevBio')));
+    const devUrl = safeProfileUrl(MAIN_DEVELOPER.url);
+    if (devUrl) {
+      const link = button(t('aboutProfileLink'), {
+        className: 'tok-btn tok-btn-sm',
+        icon: 'brand',
+        attrs: { 'data-focus-key': 'main-dev' },
+        onClick: () => openExternalUrl(devUrl)
+      });
+      link.style.alignSelf = 'flex-start';
+      link.style.marginTop = '6px';
+      devText.appendChild(link);
+    }
+    dev.appendChild(devText);
+    body.appendChild(dev);
 
-      const itemsList = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:10px;' });
-      for (const item of items) {
-        const row = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px;' });
-        const itemTitle = el('span', undefined, { style: 'font-size:12.5px;font-weight:600;color:var(--tok-text-primary);' }, item.title);
-        const itemDesc = el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary);line-height:1.5;' }, item.desc);
-        row.appendChild(itemTitle);
-        row.appendChild(itemDesc);
-        itemsList.appendChild(row);
+    // 3. Other contributors (smaller)
+    const people = CONTRIBUTORS.filter((c) => safeProfileUrl(c.url));
+    if (people.length > 0) {
+      const thanks = el('div', undefined, { style: 'align-self:stretch;display:flex;flex-direction:column;gap:10px;padding:2px 4px;text-align:start;' });
+      thanks.appendChild(el('span', undefined, { style: 'font-size:13px;font-weight:700;color:var(--tok-text-primary);' }, t('aboutThanksTitle')));
+      thanks.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-muted);margin-top:-6px;' }, t('aboutThanksSub')));
+      const grid = el('div', undefined, { style: 'display:flex;flex-wrap:wrap;gap:8px;' });
+      for (const c of people) {
+        const url = safeProfileUrl(c.url)!;
+        const chip = el('button', 'tok-btn tok-btn-sm', {
+          type: 'button',
+          title: `${c.name} (@${c.login})`,
+          'data-focus-key': `contrib-${c.login}`,
+          style: 'height:36px;padding:0 12px 0 6px;gap:8px;border-radius:18px;'
+        });
+        chip.appendChild(avatarEl(c, 24));
+        chip.appendChild(el('span', undefined, { style: 'font-size:12px;' }, c.name || c.login));
+        chip.addEventListener('click', () => openExternalUrl(url));
+        grid.appendChild(chip);
       }
-      sec.appendChild(itemsList);
-      return sec;
-    };
-
-    // 2. Typesetting & Core Algorithms
-    body.appendChild(createSection('ליבת מנוע העימוד והאלגוריתמיקה (Typesetting Engine)', 'sparkle', [
-      {
-        title: 'מנוע Rust Native (tok-typeset / tok-cli)',
-        desc: 'ליבת עימוד מהירה ודטרמיניסטית הכתובה כולה ב-Rust לבטיחות זיכרון מרבית, עיבוד עשרות אלפי מילים בשניות ספורות ופלט ביט-לביט זהה לחלוטין.'
-      },
-      {
-        title: 'אלגוריתם שבירת שורות אופטימלי Knuth-Plass',
-        desc: 'שבירת שורות מבוססת תכנות דינמי (Dynamic Programming) על פני הפסקה כולה למינימום Total Badness, מניעת רווחים לא אחידים והימנעות מוחלטת מיתומים ואלמנות (Orphans & Widows).'
-      },
-      {
-        title: 'יישור עברי מסורתי תלת-שכבתי (3-Tier Hebrew Justifier)',
-        desc: 'שילוב מתמטי עדין של שלושת רבדי היישור המסורתיים בדפוס העברי: רווחי מילים גמישים (85%–125%), מתיחת אותיות עבריות רפויות / אהלתר"ם עד 120%, וריווח בין-אותי מיקרומטרי עדין.'
-      },
-      {
-        title: 'תזרימים מקבילים לצורת הדף ומקראות גדולות',
-        desc: 'מנוע אילוצים הידראולי רציף לסינכרון טקסט מרכזי (גמרא/מקרא) עם מפרשים בטורים מקבילים (רש"י, תוספות, תרגום, הערות) בדיוק של עשירית המילימטר.'
-      },
-      {
-        title: 'דיוק טיפוגרפי וקדושת הטקסט',
-        desc: 'נרמול סדר הניקוד והטעמים (יוניקוד קנוני), מגן שמות קדושים (No-Break איסור שבירה בשמות הויה ואדנות), וסנכרון מספור עמודים עברי בגימטריה כולל כללי טו/טז וגרשיים.'
-      }
-    ]));
-
-    // 3. Pre-Press & Standards
-    body.appendChild(createSection('תקני דפוס ואיכות קדם-דפוס (Pre-Press & Print Standards)', 'export', [
-      {
-        title: 'ייצוא תקני ISO PDF/X-1a ו-PDF/X-4',
-        desc: 'הפקת קובצי PDF תקניים להדפסה מקצועית בבתי דפוס מסחריים (אופסט ודיגיטלי) עם פרופילי צבע Fogra 39, Fogra 51 ו-ISO Coated v2.'
-      },
-      {
-        title: 'הפרדת צבעים מלאה עם 100% K (שחור נקי)',
-        desc: 'טקסט עברי מודפס ב-100% שחור נקי בערוץ ה-K ללא ערבוב ערוצי CMY, למניעת עכירות, טשטוש ופסיפס בדפוס.'
-      },
-      {
-        title: 'רשת שורות בסיס (Baseline Grid) ושולי גלישה (Bleed)',
-        desc: 'יישור שורות קפדני בין טורים סמוכים ובשני צדי הדף (Back-to-back Register), שולי גלישה של 3 מ"מ, סימני חיתוך וסרגלי צבע.'
-      }
-    ]));
-
-    // 4. Runtime & System Environment
-    body.appendChild(createSection('סביבת ריצה ואבטחה (Runtime & Security)', 'settings', [
-      {
-        title: 'מעטפת שולחן עבודה מוקשחת (Hardened Lean Electron)',
-        desc: 'סביבת ריצה מודרנית המבוססת על Electron 29, מנוע Chromium 122, Node.js 20 ומנוע V8, ללא תקורות מיותרות ועם אבטחת זיכרון מחמירה.'
-      },
-      {
-        title: 'תמיכה בסינוני אינטרנט בישראל (נטפרי, רימון, אתרוג)',
-        desc: 'מודול סינון מאובטח ייעודי (Filter-SSL) המטפל בתעודות אבטחה מקומיות של כלל הסינונים, למניעת שגיאות תעודה בבדיקת עדכונים.'
-      },
-      {
-        title: 'מערכת תוספים מודולרית (Plugins System)',
-        desc: 'תמיכה מלאה בהרחבות קוד מותאמות אישית ב-TypeScript (.ts) ו-JavaScript (.js), עם הידור חי ב-esbuild ובידוד ביצועים.'
-      },
-      {
-        title: 'גופנים עבריים מובנים ברישיון חופשי (SIL OFL)',
-        desc: 'Frank Ruhl Libre (טקסט ראשי), IBM Plex Sans Hebrew (ממשק), Noto Rashi Hebrew (רש"י), Noto Serif Hebrew ו-David Libre.'
-      }
-    ]));
+      thanks.appendChild(grid);
+      body.appendChild(thanks);
+    }
 
     card.appendChild(body);
 
@@ -198,31 +184,7 @@ export class AboutModal {
       className: 'tok-btn',
       icon: 'brand',
       attrs: { 'data-focus-key': 'github' },
-      onClick: () => {
-        const win = window as any;
-        if (win.tokIpc && win.tokIpc.openExternal) {
-          Promise.resolve(win.tokIpc.openExternal(REPO_URL)).catch((e: any) => {
-            console.warn('[ABOUT] openExternal failed:', e?.message ?? e);
-          });
-        } else {
-          window.open(REPO_URL, '_blank', 'noopener,noreferrer');
-        }
-      }
-    }));
-
-    foot.appendChild(button(t('updatesCheckNow'), {
-      className: 'tok-btn',
-      icon: 'refresh',
-      attrs: { 'data-focus-key': 'updates' },
-      onClick: () => {
-        this.hide();
-        if (this.callbacks.onCheckUpdates) {
-          this.callbacks.onCheckUpdates();
-        } else {
-          // Open settings on updates tab
-          (window as any).tokApp?.openSettings();
-        }
-      }
+      onClick: () => openExternalUrl(REPO_URL)
     }));
 
     foot.appendChild(button(t('whatsNewTitle'), {

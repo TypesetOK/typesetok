@@ -196,7 +196,9 @@ impl GeometricConstraintSolver {
     pub fn get_value(&self, var: ConstraintVariable) -> f32 {
         let val = self.solver.get_value(var.raw);
         if val.is_finite() {
-            val as f32
+            // Quantize to 4 decimal places (0.0001 pt ~ 35 nm) to prevent floating-point
+            // jitter across variable orderings and compilation targets from polluting downstream layout.
+            ((val * 10_000.0).round() / 10_000.0) as f32
         } else {
             0.0
         }

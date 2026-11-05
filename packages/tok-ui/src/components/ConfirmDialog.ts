@@ -42,7 +42,10 @@ function onKeyDown(e: KeyboardEvent): void {
 function finish(result: boolean): void {
   if (!overlay) return;
   document.removeEventListener('keydown', onKeyDown, true);
-  overlay.remove();
+  // Let the exit transition play, then drop the element.
+  const closing = overlay;
+  closing.classList.remove('tok-open');
+  setTimeout(() => closing.remove(), 260);
   overlay = null;
   cancelButton = null;
   confirmButton = null;
@@ -73,7 +76,7 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
     if (e.target === overlay) finish(false);
   });
 
-  const dialog = el('div', 'tok-dialog', { style: 'width:420px;max-width:calc(100vw - 48px);' });
+  const dialog = el('div', 'tok-dialog', { style: 'width:460px;max-width:calc(100vw - 48px);' });
 
   const head = el('div', 'tok-dialog-head');
   const headText = el('div', 'tok-dialog-head-text');
@@ -81,10 +84,10 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   head.appendChild(headText);
   dialog.appendChild(head);
 
-  const body = el('div', 'tok-dialog-body', { style: 'flex-direction:column;gap:8px;padding:20px 24px;' });
-  body.appendChild(el('p', undefined, { id: messageId, style: 'font-size:13px;line-height:1.5;' }, options.message));
+  const body = el('div', 'tok-dialog-body', { style: 'flex-direction:column;gap:8px;padding:24px 28px;' });
+  body.appendChild(el('p', undefined, { id: messageId, style: 'font-size:14px;line-height:1.55;' }, options.message));
   if (options.detail) {
-    body.appendChild(el('p', undefined, { style: 'font-size:12px;line-height:1.5;color:var(--tok-text-secondary);' }, options.detail));
+    body.appendChild(el('p', undefined, { style: 'font-size:13px;line-height:1.5;color:var(--tok-text-secondary);' }, options.detail));
   }
   dialog.appendChild(body);
 
