@@ -210,25 +210,59 @@ impl GlobalPageBreaker {
 
             // Position lines vertically within this page slice with top-of-page margin collapsing
             let mut page_lines = Vec::with_capacity(page_lines_input.len());
-            let mut curr_y = 0.0;
+            let mut curr_y = 0.0f32;
             let mut prev_sec = None;
+            let mut active_drop_cap_bottom = 0.0f32;
+            let mut prev_was_drop_cap_for_para: Option<usize> = None;
 
             for (l_idx, item) in page_lines_input.iter().enumerate() {
                 if prev_sec != Some(item.section_idx) {
                     prev_sec = Some(item.section_idx);
                 }
 
-                let margin = if item.line_in_paragraph == 0 && l_idx > 0 {
+                if item.line.is_drop_cap {
+                    let margin = if l_idx > 0 { item.space_before } else { 0.0 };
+                    curr_y = curr_y.max(active_drop_cap_bottom) + margin;
+                    let mut line = item.line.clone();
+                    line.line_index = l_idx;
+                    let rel_baseline =
+                        if line.baseline_y > 0.0 && line.baseline_y <= line.height {
+                            line.baseline_y
+                        } else {
+                            line.height * 0.78
+                        };
+                    line.baseline_y = curr_y + rel_baseline;
+                    active_drop_cap_bottom = active_drop_cap_bottom.max(curr_y + line.height);
+                    prev_was_drop_cap_for_para = Some(item.paragraph_idx);
+                    page_lines.push(line);
+                    continue;
+                }
+
+                let is_first_after_dc =
+                    prev_was_drop_cap_for_para == Some(item.paragraph_idx);
+                prev_was_drop_cap_for_para = None;
+
+                let margin = if item.line_in_paragraph == 0 && l_idx > 0 && !is_first_after_dc {
                     item.space_before
                 } else {
                     0.0
                 };
+
+                if item.line_in_paragraph == 0 && !is_first_after_dc {
+                    curr_y = curr_y.max(active_drop_cap_bottom);
+                }
 
                 curr_y += margin;
                 let mut line = item.line.clone();
                 line.line_index = l_idx;
                 line.baseline_y = curr_y + line.height;
                 curr_y += line.height;
+
+                if item.line_in_paragraph + 1 == item.total_lines_in_paragraph {
+                    curr_y = curr_y.max(active_drop_cap_bottom);
+                    active_drop_cap_bottom = 0.0;
+                }
+
                 page_lines.push(line);
             }
 
@@ -272,8 +306,10 @@ impl GlobalPageBreaker {
         }
 
         let mut candidates = Vec::new();
-        let mut curr_h = 0.0;
+        let mut curr_h = 0.0f32;
         let mut prev_sec = None;
+        let mut active_drop_cap_bottom = 0.0f32;
+        let mut prev_was_drop_cap_for_para: Option<usize> = None;
 
         for (idx, item) in remaining.iter().enumerate() {
             if idx > 0 && item.line_in_paragraph == 0 && item.force_page_break_before {
@@ -285,20 +321,59 @@ impl GlobalPageBreaker {
                 prev_sec = Some(item.section_idx);
             }
 
-            let margin = if item.line_in_paragraph == 0 && idx > 0 {
+            if item.line.is_drop_cap {
+                let margin = if idx > 0 { item.space_before } else { 0.0 };
+                let dc_top = curr_h.max(active_drop_cap_bottom) + margin;
+                let dc_bottom = dc_top + item.line.height;
+                if dc_bottom > self.target_height && idx > 0 {
+                    break;
+                }
+                curr_h = dc_top;
+                active_drop_cap_bottom = active_drop_cap_bottom.max(dc_bottom);
+                prev_was_drop_cap_for_para = Some(item.paragraph_idx);
+                // Breaking immediately after a drop cap before its adjacent body lines is forbidden.
+                candidates.push(Candidate {
+                    count: idx + 1,
+                    height: dc_bottom,
+                    score: PageBreakPenalty::INFINITE * 10.0,
+                    penalty: PageBreakPenalty::INFINITE * 10.0,
+                });
+                continue;
+            }
+
+            let is_first_after_dc = prev_was_drop_cap_for_para == Some(item.paragraph_idx);
+            prev_was_drop_cap_for_para = None;
+
+            let margin = if item.line_in_paragraph == 0 && idx > 0 && !is_first_after_dc {
                 item.space_before
             } else {
                 0.0
             };
 
-            let next_h = curr_h + margin + item.line.height;
+            let base_h = if item.line_in_paragraph == 0 && !is_first_after_dc {
+                curr_h.max(active_drop_cap_bottom)
+            } else {
+                curr_h
+            };
 
-            if next_h > self.target_height && idx > 0 {
+            let mut next_h = base_h + margin + item.line.height;
+            if item.line_in_paragraph + 1 == item.total_lines_in_paragraph {
+                next_h = next_h.max(active_drop_cap_bottom);
+            }
+
+            if next_h.max(active_drop_cap_bottom) > self.target_height && idx > 0 {
                 // We reached physical capacity. Stop collecting candidates.
                 break;
             }
 
             curr_h = next_h;
+            let effective_h = curr_h.max(active_drop_cap_bottom);
+            let inside_drop_cap_window = curr_h + 1e-3 < active_drop_cap_bottom
+                && item.line_in_paragraph + 1 < item.total_lines_in_paragraph;
+            if item.line_in_paragraph + 1 == item.total_lines_in_paragraph {
+                active_drop_cap_bottom = 0.0;
+            }
+
             let margin_after = if item.line_in_paragraph + 1 == item.total_lines_in_paragraph {
                 item.space_after
             } else {
@@ -306,12 +381,16 @@ impl GlobalPageBreaker {
             };
 
             let opp = item.to_opportunity(margin_after);
-            let penalty = opp.calculate_penalty();
-            let score = score_page_break(curr_h, self.target_height, &opp);
+            let mut penalty = opp.calculate_penalty();
+            let mut score = score_page_break(effective_h, self.target_height, &opp);
+            if inside_drop_cap_window {
+                penalty += PageBreakPenalty::INFINITE * 5.0;
+                score += PageBreakPenalty::INFINITE * 5.0;
+            }
 
             candidates.push(Candidate {
                 count: idx + 1,
-                height: curr_h,
+                height: effective_h,
                 score,
                 penalty,
             });
