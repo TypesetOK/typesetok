@@ -145,11 +145,13 @@ impl ParagraphLayoutCache {
         s: &ParagraphStyle,
         column_width_pt: f32,
     ) -> ParagraphCacheKey {
+        // Quantize column width to 0.001pt (1/1000th pt) to eliminate float LSB jitter across solver runs
+        let quantized = (column_width_pt * 1000.0).round() as i64;
         ParagraphCacheKey {
             node_id: p.id,
             content_hash: Self::compute_content_hash(p),
             style_hash: Self::compute_style_hash(s),
-            measure_bits: column_width_pt.to_bits(),
+            measure_bits: quantized as u32,
         }
     }
 
