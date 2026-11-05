@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +25,9 @@ function fail(msg) {
 }
 
 console.log('[BUNDLE] Packaging TypesetOK Standalone Windows Desktop App...');
+
+// Ensure UI bundle is always fresh and correctly packaged with esbuild
+execSync('node scripts/bundle-ui.mjs', { cwd: rootDir, stdio: 'inherit' });
 
 const electronDistSrc = path.join(rootDir, 'packages/tok-electron/dist');
 const uiDistSrc = path.join(rootDir, 'packages/tok-ui/dist');

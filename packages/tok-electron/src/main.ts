@@ -420,6 +420,10 @@ function createWindow(): void {
   });
 
   // If the UI cannot load at all, don't leave the user staring at the splash.
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    logger.info(`[RENDERER-CONSOLE] [lvl=${level}] ${message} (${sourceId}:${line})`);
+  });
+
   win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3 /* ERR_ABORTED: superseded navigation */) return;
     logger.error(`[MAIN] UI failed to load (${code} ${desc}): ${url}`);
