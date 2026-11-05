@@ -210,12 +210,18 @@ impl CoPaginationEngine {
             let mut tentative_gemara_anchors: HashMap<AnchorKey, (usize, f32)> = HashMap::new();
             let mut current_g_y = 0.0;
 
-            // Rough commentary demand accumulator (characters)
+            // Commentary capacity estimation derived from actual column widths and font metrics
             let mut page_rashi_chars = 0;
             let mut page_tosafot_chars = 0;
             let mut page_addl_chars: HashMap<FlowId, usize> = HashMap::new();
-            let max_rashi_chars_approx = max_commentary_lines * 45;
-            let max_tosafot_chars_approx = max_commentary_lines * 50;
+            let rashi_chars_per_line = (math.inner_column_width_pt
+                / (config.commentary_font_size * 0.52))
+                .max(20.0) as usize;
+            let tosafot_chars_per_line = (math.outer_column_width_pt
+                / (config.commentary_font_size * 0.52))
+                .max(20.0) as usize;
+            let max_rashi_chars_approx = max_commentary_lines * rashi_chars_per_line;
+            let max_tosafot_chars_approx = max_commentary_lines * tosafot_chars_per_line;
 
             while let Some(chunk) = remaining_chunks.pop_front() {
                 let p_node = ParagraphNode::new(
@@ -244,7 +250,7 @@ impl CoPaginationEngine {
                     if let Some(take) =
                         calculate_typographic_split(chunk_lines.len(), available_lines, 2, 2)
                     {
-                        let this_lines = &chunk_lines[..take];
+                        let mut this_lines = chunk_lines[..take].to_vec();
                         let remainder_lines = &chunk_lines[take..];
 
                         let mut this_anchors = Vec::new();
@@ -274,7 +280,12 @@ impl CoPaginationEngine {
                             tentative_gemara_anchors.insert(a_key.clone(), (abs_l, abs_y));
                         }
 
-                        tentative_gemara_lines.extend_from_slice(this_lines);
+                        let base_idx = tentative_gemara_lines.len();
+                        for (idx, line) in this_lines.iter_mut().enumerate() {
+                            line.line_index = base_idx + idx;
+                            line.baseline_y += current_g_y;
+                        }
+                        tentative_gemara_lines.extend(this_lines.iter().cloned());
                         page_chunks.push(CoPaginatedChunk {
                             text: this_lines
                                 .iter()
@@ -367,8 +378,14 @@ impl CoPaginationEngine {
                     tentative_gemara_anchors.insert(a_key.clone(), (abs_l, abs_y));
                 }
 
-                current_g_y += chunk_lines.len() as f32 * config.main_line_height;
-                tentative_gemara_lines.extend(chunk_lines);
+                let mut positioned_chunk_lines = chunk_lines;
+                let base_idx = tentative_gemara_lines.len();
+                for (idx, line) in positioned_chunk_lines.iter_mut().enumerate() {
+                    line.line_index = base_idx + idx;
+                    line.baseline_y += current_g_y;
+                }
+                current_g_y += positioned_chunk_lines.len() as f32 * config.main_line_height;
+                tentative_gemara_lines.extend(positioned_chunk_lines);
                 page_rashi_chars += chunk_rashi_demand;
                 page_tosafot_chars += chunk_tosafot_demand;
                 for (fid, dem) in chunk_addl_demand {
@@ -421,9 +438,10 @@ impl CoPaginationEngine {
             remaining_rashi = unplaced_rashi;
 
             // Typeset each Rashi paragraph with profile & active synchronization
+            let mut current_rashi_y = 0.0f32;
             for (p_idx, item) in this_page_rashi.into_iter().enumerate() {
                 let start_line = rashi_line_counter;
-                let natural_y = start_line as f32 * config.commentary_line_height;
+                let natural_y = current_rashi_y.max(start_line as f32 * config.commentary_line_height);
 
                 // Create paragraph-offset profile
                 let p_profile = if !rashi_profile.is_uniform() {
@@ -481,6 +499,12 @@ impl CoPaginationEngine {
                     }
                 }
 
+                // Offset paragraph-local baselines by current_rashi_y
+                for (idx, line) in p_lines.iter_mut().enumerate() {
+                    line.line_index = start_line + idx;
+                    line.baseline_y += natural_y;
+                }
+
                 // Evaluate active synchronization
                 let mut spring_pt = 0.0;
                 if let Some(&(_, g_y)) = tentative_gemara_anchors.get(&item.target_anchor) {
@@ -492,7 +516,11 @@ impl CoPaginationEngine {
                         natural_y,
                     );
                     if let SyncRemedy::VerticalSpringApplied { spring_pt: s } = sync.remedy {
-                        spring_pt = s;
+                        let full_align_spring = (g_y - natural_y).max(s);
+                        let max_room = (math.content_height_pt
+                            - (natural_y + p_lines.len() as f32 * config.commentary_line_height))
+                            .max(0.0);
+                        spring_pt = full_align_spring.min(max_room);
                         ActiveSynchronizer::apply_spring_offset(&mut p_lines, spring_pt);
                     }
                     if matches!(
@@ -505,6 +533,10 @@ impl CoPaginationEngine {
                 }
 
                 rashi_anchor_positions.insert(item.target_anchor.clone(), natural_y + spring_pt);
+                current_rashi_y = p_lines
+                    .last()
+                    .map(|l| l.baseline_y)
+                    .unwrap_or(natural_y + spring_pt);
                 rashi_line_counter += p_lines.len();
                 page_rashi_lines.extend(p_lines);
             }
@@ -529,9 +561,41 @@ impl CoPaginationEngine {
             }
             remaining_tosafot = unplaced_tosafot;
 
+            let effective_max_tosafot_lines = if gemara_h > 0.0
+                && gemara_h < math.content_height_pt * 0.5
+                && !page_rashi_lines.is_empty()
+            {
+                ((gemara_h / config.commentary_line_height).floor() as usize)
+                    .max(rashi_line_counter)
+                    .min(max_commentary_lines)
+            } else {
+                max_commentary_lines
+            };
+            let tosafot_narrow_lines = if current_rashi_y > 0.0
+                && current_rashi_y < math.content_height_pt * 0.5
+            {
+                (current_rashi_y / config.commentary_line_height).ceil() as usize
+            } else {
+                effective_max_tosafot_lines
+            };
+
+            let mut current_tosafot_y = 0.0f32;
             for (p_idx, item) in this_page_tosafot.into_iter().enumerate() {
                 let start_line = tosafot_line_counter;
-                let natural_y = start_line as f32 * config.commentary_line_height;
+                let natural_y =
+                    current_tosafot_y.max(start_line as f32 * config.commentary_line_height);
+
+                let t_profile = if start_line < tosafot_narrow_lines
+                    && tosafot_narrow_lines < effective_max_tosafot_lines
+                {
+                    crate::knuth_plass::MeasureProfile::l_shape(
+                        tosafot_narrow_lines - start_line,
+                        math.outer_column_width_pt,
+                        math.content_width_pt,
+                    )
+                } else {
+                    tosafot_profile.clone()
+                };
 
                 let p_node = ParagraphNode::new(
                     FractionalIndex::new(format!("t_{}_{}", page_number, p_idx)),
@@ -541,13 +605,14 @@ impl CoPaginationEngine {
                 let mut p_lines = engine.typeset_paragraph_shaped(
                     &p_node,
                     &config.commentary_font_family,
-                    &tosafot_profile,
+                    &t_profile,
                     config.commentary_font_size,
                     config.commentary_line_height,
                 );
 
-                if tosafot_line_counter + p_lines.len() > max_commentary_lines {
-                    let available_lines = max_commentary_lines.saturating_sub(tosafot_line_counter);
+                if tosafot_line_counter + p_lines.len() > effective_max_tosafot_lines {
+                    let available_lines =
+                        effective_max_tosafot_lines.saturating_sub(tosafot_line_counter);
                     if let Some(take) =
                         calculate_typographic_split(p_lines.len(), available_lines, 2, 2)
                     {
@@ -569,6 +634,11 @@ impl CoPaginationEngine {
                     }
                 }
 
+                for (idx, line) in p_lines.iter_mut().enumerate() {
+                    line.line_index = start_line + idx;
+                    line.baseline_y += natural_y;
+                }
+
                 if let Some(&(_, g_y)) = tentative_gemara_anchors.get(&item.target_anchor) {
                     let sync = ActiveSynchronizer::evaluate_and_remedy(
                         sync_config,
@@ -578,11 +648,18 @@ impl CoPaginationEngine {
                         natural_y,
                     );
                     if let SyncRemedy::VerticalSpringApplied { spring_pt } = sync.remedy {
-                        ActiveSynchronizer::apply_spring_offset(&mut p_lines, spring_pt);
+                        let max_room = (math.content_height_pt
+                            - (natural_y + p_lines.len() as f32 * config.commentary_line_height))
+                            .max(0.0);
+                        ActiveSynchronizer::apply_spring_offset(
+                            &mut p_lines,
+                            spring_pt.min(max_room),
+                        );
                     }
                     sync_results.push(sync);
                 }
 
+                current_tosafot_y = p_lines.last().map(|l| l.baseline_y).unwrap_or(natural_y);
                 tosafot_line_counter += p_lines.len();
                 page_tosafot_lines.extend(p_lines);
             }
@@ -616,10 +693,12 @@ impl CoPaginationEngine {
                 let stream_profile = math.create_measure_profile(config, &col.stream_id, None);
                 let mut col_lines: Vec<LineBox> = Vec::new();
                 let mut stream_line_counter = 0;
+                let mut current_stream_y = 0.0f32;
 
                 for (p_idx, item) in this_page_items.into_iter().enumerate() {
                     let start_line = stream_line_counter;
-                    let natural_y = start_line as f32 * config.commentary_line_height;
+                    let natural_y =
+                        current_stream_y.max(start_line as f32 * config.commentary_line_height);
 
                     let p_node = ParagraphNode::new(
                         FractionalIndex::new(format!(
@@ -661,6 +740,11 @@ impl CoPaginationEngine {
                         }
                     }
 
+                    for (idx, line) in p_lines.iter_mut().enumerate() {
+                        line.line_index = start_line + idx;
+                        line.baseline_y += natural_y;
+                    }
+
                     if let Some(&(_, g_y)) = tentative_gemara_anchors.get(&item.target_anchor) {
                         let sync = ActiveSynchronizer::evaluate_and_remedy(
                             sync_config,
@@ -670,11 +754,19 @@ impl CoPaginationEngine {
                             natural_y,
                         );
                         if let SyncRemedy::VerticalSpringApplied { spring_pt } = sync.remedy {
-                            ActiveSynchronizer::apply_spring_offset(&mut p_lines, spring_pt);
+                            let max_room = (math.content_height_pt
+                                - (natural_y
+                                    + p_lines.len() as f32 * config.commentary_line_height))
+                                .max(0.0);
+                            ActiveSynchronizer::apply_spring_offset(
+                                &mut p_lines,
+                                spring_pt.min(max_room),
+                            );
                         }
                         sync_results.push(sync);
                     }
 
+                    current_stream_y = p_lines.last().map(|l| l.baseline_y).unwrap_or(natural_y);
                     stream_line_counter += p_lines.len();
                     col_lines.extend(p_lines);
                 }
@@ -711,6 +803,12 @@ impl CoPaginationEngine {
                     lines,
                 });
             }
+
+            // 6. Balance shared column heights across active parallel frames on this page
+            super::height_balance::SharedColumnHeightBalancer::balance_page_frames(
+                &mut frames,
+                &super::height_balance::HeightBalanceConfig::default(),
+            );
 
             let page_layout = PageLayoutBox {
                 page_index: page_number - 1,

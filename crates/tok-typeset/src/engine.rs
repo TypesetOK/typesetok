@@ -199,6 +199,28 @@ impl TypesettingEngine {
         font_size_pt: f32,
         line_height_pt: f32,
     ) -> Vec<LineBox> {
+        if !column_width_pt.is_finite() || column_width_pt <= 0.0 {
+            return Vec::new();
+        }
+        let has_special_patch = paragraph.style_patches.iter().any(|p| {
+            p.drop_cap.as_ref().is_some_and(|dc| dc.enabled)
+                || p.optical_margin.as_ref().is_some_and(|om| om.enabled)
+                || p.last_line_constraint.is_some()
+                || p.alignment.is_some()
+                || p.first_line_indent_pt.is_some()
+                || p.indent_start_pt.is_some()
+                || p.indent_end_pt.is_some()
+        });
+        if has_special_patch {
+            let profile = MeasureProfile::uniform(column_width_pt);
+            return self.typeset_paragraph_shaped(
+                paragraph,
+                font_family,
+                &profile,
+                font_size_pt,
+                line_height_pt,
+            );
+        }
         let session = self.font_manager.session(font_family);
         Self::typeset_with_session(
             &session,
@@ -218,12 +240,49 @@ impl TypesettingEngine {
         font_size_pt: f32,
         line_height_pt: f32,
     ) -> Vec<LineBox> {
+        self.typeset_paragraph_shaped_with_style(
+            paragraph,
+            None,
+            font_family,
+            profile,
+            font_size_pt,
+            line_height_pt,
+        )
+    }
+
+    /// Typesets a single paragraph with an optional base [`tok_core::styles::ParagraphStyle`] and a [`MeasureProfile`].
+    pub fn typeset_paragraph_shaped_with_style(
+        &self,
+        paragraph: &ParagraphNode,
+        base_style: Option<&tok_core::styles::ParagraphStyle>,
+        font_family: &str,
+        profile: &MeasureProfile,
+        font_size_pt: f32,
+        line_height_pt: f32,
+    ) -> Vec<LineBox> {
         let dc_opt = paragraph
             .style_patches
             .iter()
             .filter_map(|p| p.drop_cap.as_ref())
             .next_back()
-            .cloned();
+            .cloned()
+            .or_else(|| base_style.and_then(|s| s.drop_cap.clone()));
+
+        let llc_opt = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.last_line_constraint.as_ref())
+            .next_back()
+            .cloned()
+            .or_else(|| base_style.and_then(|s| s.last_line_constraint.clone()));
+
+        let mut effective_profile = profile.clone();
+        if !effective_profile.last_line_constraint.is_active() {
+            if let Some(ref llc_cfg) = llc_opt {
+                effective_profile.last_line_constraint =
+                    crate::knuth_plass::LastLineConstraint::from(llc_cfg);
+            }
+        }
 
         let line_height = if line_height_pt.is_finite() && line_height_pt > 0.0 {
             line_height_pt
@@ -240,16 +299,20 @@ impl TypesettingEngine {
 
         if let Some(ref dc) = dc_opt {
             if dc.enabled {
-                let col_w = profile.width_for_line(0);
+                let col_w = effective_profile.width_for_line(0);
+                let mut dc_resolved = dc.clone();
+                if dc_resolved.font_family.is_none() {
+                    dc_resolved.font_family = Some(font_family.to_string());
+                }
                 if let Some(drop_layout) = crate::drop_cap::HebrewDropCapShaper::shape_drop_cap(
                     &paragraph.text,
-                    dc,
+                    &dc_resolved,
                     &self.font_manager,
                     col_w,
                     line_height,
                     is_rtl,
                 ) {
-                    let notched_profile = profile.with_drop_cap_exclusion(
+                    let notched_profile = effective_profile.with_drop_cap_exclusion(
                         line_height,
                         &drop_layout.exclusion,
                         is_rtl,
@@ -257,32 +320,33 @@ impl TypesettingEngine {
                     let mut rem_node = paragraph.clone();
                     rem_node.text = drop_layout.remaining_text;
                     rem_node.style_patches.retain(|p| p.drop_cap.is_none());
+                    let mut base_style_no_dc = base_style.cloned();
+                    if let Some(ref mut s) = base_style_no_dc {
+                        s.drop_cap = None;
+                    }
 
                     let session = self.font_manager.session(font_family);
-                    let body_lines = Self::typeset_with_session_shaped(
+                    let body_lines = Self::typeset_with_session_shaped_opts(
                         &session,
                         &rem_node,
+                        base_style_no_dc.as_ref(),
                         &notched_profile,
                         font_size_pt,
                         line_height_pt,
                     );
 
-                    let drop_cap_face = self.font_manager.face_for(
-                        dc.font_family.as_deref().unwrap_or(font_family),
-                        dc.font_weight.max(tok_core::styles::FONT_WEIGHT_BOLD),
-                    );
-
+                    let rem_byte_offset = drop_layout.remaining_byte_offset as u32;
                     let mut all_lines = Vec::with_capacity(body_lines.len() + 1);
                     all_lines.push(LineBox {
                         line_index: 0,
                         paragraph_id: Some(paragraph.id),
-                        baseline_y: drop_layout.window_rect.height - (line_height * 0.22),
+                        baseline_y: drop_layout.baseline_y,
                         height: drop_layout.window_rect.height,
                         width: drop_layout.window_rect.width,
                         glyphs: drop_layout.glyphs,
                         text: drop_layout.text,
                         is_rtl,
-                        fonts: vec![drop_cap_face],
+                        fonts: vec![drop_layout.font_family],
                         is_drop_cap: true,
                         x_offset: drop_layout.window_rect.x,
                     });
@@ -290,6 +354,9 @@ impl TypesettingEngine {
                     for (i, mut bl) in body_lines.into_iter().enumerate() {
                         bl.line_index = i + 1;
                         bl.paragraph_id = Some(paragraph.id);
+                        for g in &mut bl.glyphs {
+                            g.cluster += rem_byte_offset;
+                        }
                         all_lines.push(bl);
                     }
 
@@ -299,10 +366,11 @@ impl TypesettingEngine {
         }
 
         let session = self.font_manager.session(font_family);
-        Self::typeset_with_session_shaped(
+        Self::typeset_with_session_shaped_opts(
             &session,
             paragraph,
-            profile,
+            base_style,
+            &effective_profile,
             font_size_pt,
             line_height_pt,
         )
@@ -335,6 +403,24 @@ impl TypesettingEngine {
         font_size_pt: f32,
         line_height_pt: f32,
     ) -> Vec<LineBox> {
+        Self::typeset_with_session_shaped_opts(
+            session,
+            paragraph,
+            None,
+            profile,
+            font_size_pt,
+            line_height_pt,
+        )
+    }
+
+    fn typeset_with_session_shaped_opts(
+        session: &ShapingSession<'_>,
+        paragraph: &ParagraphNode,
+        base_style: Option<&tok_core::styles::ParagraphStyle>,
+        profile: &MeasureProfile,
+        font_size_pt: f32,
+        line_height_pt: f32,
+    ) -> Vec<LineBox> {
         let text = paragraph.text.as_str();
         if text.trim().is_empty() || !profile.is_valid() {
             return Vec::new();
@@ -349,6 +435,38 @@ impl TypesettingEngine {
         } else {
             font_size * 1.3
         };
+
+        let om_opt = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.optical_margin.as_ref())
+            .next_back()
+            .cloned()
+            .or_else(|| base_style.and_then(|s| s.optical_margin.clone()));
+
+        let align = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.alignment)
+            .next_back()
+            .or_else(|| base_style.map(|s| s.alignment))
+            .unwrap_or(tok_core::styles::TextAlignment::Justified);
+
+        let llc_opt = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.last_line_constraint.as_ref())
+            .next_back()
+            .cloned()
+            .or_else(|| base_style.and_then(|s| s.last_line_constraint.clone()));
+
+        let mut effective_profile = profile.clone();
+        if !effective_profile.last_line_constraint.is_active() {
+            if let Some(ref llc_cfg) = llc_opt {
+                effective_profile.last_line_constraint =
+                    crate::knuth_plass::LastLineConstraint::from(llc_cfg);
+            }
+        }
 
         // 1. Resolve bidi levels once for the whole paragraph.
         let bidi = BidiInfo::new(text, None);
@@ -444,7 +562,7 @@ impl TypesettingEngine {
         // 3. Run Knuth-Plass global line breaker matching the profile
         let spans = KnuthPlassBreaker::break_paragraph_spans_with_profile(
             &items,
-            profile,
+            &effective_profile,
             LINE_BREAK_TOLERANCE,
         );
 
@@ -493,16 +611,61 @@ impl TypesettingEngine {
             }
 
             let target_w = span.target_width;
-            let justified =
-                HebrewJustifier::justify_line(line_glyphs, target_w, font_size, is_last);
+            let is_justified_line =
+                !is_last && align == tok_core::styles::TextAlignment::Justified;
+
+            // Compute optical margin protrusion for the line's visual edge glyphs when enabled
+            let protrusion = om_opt
+                .as_ref()
+                .filter(|cfg| cfg.enabled)
+                .map(|cfg| {
+                    crate::optical_margin::OpticalMarginAligner::compute_line_protrusion(
+                        &line_glyphs,
+                        font_size,
+                        cfg,
+                    )
+                })
+                .unwrap_or_default();
+
+            let (justified_target, line_x_shift, _) =
+                crate::optical_margin::OpticalMarginAligner::adjust_line_geometry(
+                    target_w,
+                    span.x_offset,
+                    is_rtl,
+                    is_last,
+                    align,
+                    protrusion,
+                );
+
+            let justified = if is_justified_line {
+                HebrewJustifier::justify_line(line_glyphs, justified_target, font_size, false)
+            } else {
+                HebrewJustifier::justify_line(line_glyphs, target_w, font_size, true)
+            };
 
             let line_width: f32 = justified.glyphs.iter().map(|g| g.x_advance).sum();
-            let mut current_x = HebrewJustifier::calculate_line_start_x(
-                line_width,
-                target_w,
-                span.x_offset,
-                is_rtl,
-            );
+            let base_start_x = match align {
+                tok_core::styles::TextAlignment::Center => {
+                    span.x_offset + (target_w - line_width) * 0.5
+                }
+                tok_core::styles::TextAlignment::Left => span.x_offset,
+                tok_core::styles::TextAlignment::Right => {
+                    span.x_offset + (target_w - line_width).max(0.0)
+                }
+                tok_core::styles::TextAlignment::Justified => {
+                    if is_justified_line {
+                        span.x_offset
+                    } else {
+                        HebrewJustifier::calculate_line_start_x(
+                            line_width,
+                            target_w,
+                            span.x_offset,
+                            is_rtl,
+                        )
+                    }
+                }
+            };
+            let mut current_x = base_start_x + (line_x_shift - span.x_offset);
             let glyph_boxes: Vec<GlyphBox> = justified
                 .glyphs
                 .into_iter()
@@ -724,33 +887,53 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
-                    let (font_family, font_size, line_height) = doc
+                    let base_style = doc
                         .paragraph_styles
                         .iter()
-                        .find(|s| s.id == p.style_id)
-                        .map(|style| {
-                            (
-                                self.font_manager
-                                    .face_for(&style.font_family, style.font_weight),
-                                style.font_size_pt,
-                                style.line_height_pt,
-                            )
-                        })
-                        .unwrap_or((
+                        .find(|s| s.id == p.style_id);
+                    let resolved_style = p.effective_style(&doc.paragraph_styles);
+                    let (font_family, font_size, line_height) = if base_style.is_some()
+                        || !p.style_patches.is_empty()
+                    {
+                        (
+                            self.font_manager.face_for(
+                                &resolved_style.font_family,
+                                resolved_style.font_weight,
+                            ),
+                            resolved_style.font_size_pt,
+                            resolved_style.line_height_pt,
+                        )
+                    } else {
+                        (
                             DEFAULT_FONT_FAMILY.to_string(),
                             DEFAULT_FONT_SIZE_PT,
                             DEFAULT_LINE_HEIGHT_PT,
-                        ));
-                    let session = sessions
-                        .entry(font_family)
-                        .or_insert_with_key(|family| self.font_manager.session(family));
-                    let lines = Self::typeset_with_session(
-                        session,
-                        p,
-                        content_width,
-                        font_size,
-                        line_height,
-                    );
+                        )
+                    };
+                    let lines = if resolved_style.drop_cap.as_ref().is_some_and(|dc| dc.enabled) {
+                        let profile = MeasureProfile::uniform(content_width);
+                        self.typeset_paragraph_shaped_with_style(
+                            p,
+                            Some(&resolved_style),
+                            &font_family,
+                            &profile,
+                            font_size,
+                            line_height,
+                        )
+                    } else {
+                        let session = sessions
+                            .entry(font_family.clone())
+                            .or_insert_with(|| self.font_manager.session(&font_family));
+                        let profile = MeasureProfile::uniform(content_width);
+                        Self::typeset_with_session_shaped_opts(
+                            session,
+                            p,
+                            Some(&resolved_style),
+                            &profile,
+                            font_size,
+                            line_height,
+                        )
+                    };
                     (idx, key.clone(), lines)
                 },
             )
@@ -981,33 +1164,53 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
-                    let (font_family, font_size, line_height) = doc
+                    let base_style = doc
                         .paragraph_styles
                         .iter()
-                        .find(|s| s.id == p.style_id)
-                        .map(|style| {
-                            (
-                                self.font_manager
-                                    .face_for(&style.font_family, style.font_weight),
-                                style.font_size_pt,
-                                style.line_height_pt,
-                            )
-                        })
-                        .unwrap_or((
+                        .find(|s| s.id == p.style_id);
+                    let resolved_style = p.effective_style(&doc.paragraph_styles);
+                    let (font_family, font_size, line_height) = if base_style.is_some()
+                        || !p.style_patches.is_empty()
+                    {
+                        (
+                            self.font_manager.face_for(
+                                &resolved_style.font_family,
+                                resolved_style.font_weight,
+                            ),
+                            resolved_style.font_size_pt,
+                            resolved_style.line_height_pt,
+                        )
+                    } else {
+                        (
                             DEFAULT_FONT_FAMILY.to_string(),
                             DEFAULT_FONT_SIZE_PT,
                             DEFAULT_LINE_HEIGHT_PT,
-                        ));
-                    let session = sessions
-                        .entry(font_family)
-                        .or_insert_with_key(|family| self.font_manager.session(family));
-                    let lines = Self::typeset_with_session(
-                        session,
-                        p,
-                        content_width,
-                        font_size,
-                        line_height,
-                    );
+                        )
+                    };
+                    let lines = if resolved_style.drop_cap.as_ref().is_some_and(|dc| dc.enabled) {
+                        let profile = MeasureProfile::uniform(content_width);
+                        self.typeset_paragraph_shaped_with_style(
+                            p,
+                            Some(&resolved_style),
+                            &font_family,
+                            &profile,
+                            font_size,
+                            line_height,
+                        )
+                    } else {
+                        let session = sessions
+                            .entry(font_family.clone())
+                            .or_insert_with(|| self.font_manager.session(&font_family));
+                        let profile = MeasureProfile::uniform(content_width);
+                        Self::typeset_with_session_shaped_opts(
+                            session,
+                            p,
+                            Some(&resolved_style),
+                            &profile,
+                            font_size,
+                            line_height,
+                        )
+                    };
                     (idx, key.clone(), lines)
                 },
             )
@@ -1354,6 +1557,27 @@ impl TypesettingEngine {
         let margin_x = self.config.margin_inner_pt + self.config.margin_outer_pt;
         let margin_y = self.config.margin_top_pt + self.config.margin_bottom_pt;
 
+        // Merge flows and section-level anchors across all sections in the document
+        let mut merged_sec = first_sec.clone();
+        for sec in doc.sections.iter().skip(1) {
+            for flow in &sec.flows {
+                if let Some(existing) = merged_sec.flows.iter_mut().find(|f| f.id == flow.id) {
+                    existing.paragraphs.extend(flow.paragraphs.iter().cloned());
+                } else {
+                    merged_sec.flows.push(flow.clone());
+                }
+            }
+            for (_, anchor_def) in &sec.anchors.anchors {
+                merged_sec.anchors.register_anchor(anchor_def.clone());
+            }
+            for links in sec.anchors.anchor_to_commentaries.values() {
+                for link in links {
+                    merged_sec.anchors.link_commentary(link.clone());
+                }
+            }
+        }
+        let first_sec = &merged_sec;
+
         // 1. Synthesize concrete LayoutTemplate via DocumentClassifier and TemplateSynthesizer
         let features = DocumentLayoutFeatures::from_section(first_sec);
         let classification = DocumentClassifier::classify(&features);
@@ -1406,9 +1630,21 @@ impl TypesettingEngine {
             SpreadSide::Recto,
         );
 
-        // Layout lines for each flow
+        // Layout lines for each flow and retain paragraph metadata for dynamic width re-breaking
         let mut flow_lines_map: std::collections::BTreeMap<String, Vec<LineBox>> =
             std::collections::BTreeMap::new();
+        let mut flow_nominal_width: std::collections::BTreeMap<String, f32> =
+            std::collections::BTreeMap::new();
+        let mut para_lookup: std::collections::BTreeMap<
+            tok_core::id::NodeId,
+            (
+                ParagraphNode,
+                tok_core::styles::ParagraphStyle,
+                String,
+                f32,
+                f32,
+            ),
+        > = std::collections::BTreeMap::new();
         let mut sessions: std::collections::BTreeMap<String, ShapingSession<'_>> =
             std::collections::BTreeMap::new();
 
@@ -1418,6 +1654,7 @@ impl TypesettingEngine {
                 .find(|a| a.flow_id == flow.id)
                 .map(|a| a.allocated_width_pt)
                 .unwrap_or(content_width);
+            flow_nominal_width.insert(flow.id.0.clone(), flow_width);
 
             let is_primary = flow_specs
                 .iter()
@@ -1426,13 +1663,8 @@ impl TypesettingEngine {
                 .unwrap_or(false);
 
             let mut lines = Vec::new();
-            let default_style = tok_core::styles::ParagraphStyle::default();
             for p in &flow.paragraphs {
-                let style = doc
-                    .paragraph_styles
-                    .iter()
-                    .find(|s| s.id == p.style_id)
-                    .unwrap_or(&default_style);
+                let style = p.effective_style(&doc.paragraph_styles);
 
                 let (font_family, font_size, line_height) = {
                     let (font, sz, lh) = (
@@ -1441,7 +1673,9 @@ impl TypesettingEngine {
                         style.font_size_pt,
                         style.line_height_pt,
                     );
-                    if doc.paragraph_styles.iter().any(|s| s.id == p.style_id) {
+                    if doc.paragraph_styles.iter().any(|s| s.id == p.style_id)
+                        || !p.style_patches.is_empty()
+                    {
                         (font, sz, lh)
                     } else {
                         let font = if is_primary {
@@ -1454,7 +1688,19 @@ impl TypesettingEngine {
                     }
                 };
 
-                let key = crate::layout_cache::ParagraphLayoutCache::make_key(p, style, flow_width);
+                para_lookup.insert(
+                    p.id,
+                    (
+                        p.clone(),
+                        style.clone(),
+                        font_family.clone(),
+                        font_size,
+                        line_height,
+                    ),
+                );
+
+                let key =
+                    crate::layout_cache::ParagraphLayoutCache::make_key(p, &style, flow_width);
                 let cached_lines = {
                     let cache = self.paragraph_cache.read().unwrap();
                     cache.get(&key).map(|c| c.lines.clone())
@@ -1462,12 +1708,32 @@ impl TypesettingEngine {
 
                 let p_lines = if let Some(hit) = cached_lines {
                     hit
+                } else if style.drop_cap.as_ref().is_some_and(|dc| dc.enabled) {
+                    let profile = MeasureProfile::uniform(flow_width);
+                    let computed = self.typeset_paragraph_shaped_with_style(
+                        p,
+                        Some(&style),
+                        &font_family,
+                        &profile,
+                        font_size,
+                        line_height,
+                    );
+                    let mut cache = self.paragraph_cache.write().unwrap();
+                    cache.insert(key, computed.clone());
+                    computed
                 } else {
                     let session = sessions
                         .entry(font_family.clone())
                         .or_insert_with(|| self.font_manager.session(&font_family));
-                    let computed =
-                        Self::typeset_with_session(session, p, flow_width, font_size, line_height);
+                    let profile = MeasureProfile::uniform(flow_width);
+                    let computed = Self::typeset_with_session_shaped_opts(
+                        session,
+                        p,
+                        Some(&style),
+                        &profile,
+                        font_size,
+                        line_height,
+                    );
                     let mut cache = self.paragraph_cache.write().unwrap();
                     cache.insert(key, computed.clone());
                     computed
@@ -1495,29 +1761,38 @@ impl TypesettingEngine {
             })
             .unwrap_or_else(|| FlowId::new("gemara"));
 
-        let anchor_map = if let Some(ref map) = doc.multi_flow_anchors {
-            if !map.anchors.is_empty() {
-                map.clone()
-            } else if let Some(pf) = first_sec.flows.iter().find(|f| f.id == primary_flow_id) {
+        let mut anchor_map = tok_core::multi_flow_anchor::MultiFlowAnchorMap::default();
+        if let Some(ref map) = doc.multi_flow_anchors {
+            for (_, a) in &map.anchors {
+                anchor_map.register_anchor(a.clone());
+            }
+            for links in map.anchor_to_commentaries.values() {
+                for link in links {
+                    anchor_map.link_commentary(link.clone());
+                }
+            }
+        }
+        for (_, a) in &first_sec.anchors.anchors {
+            anchor_map.register_anchor(a.clone());
+        }
+        for links in first_sec.anchors.anchor_to_commentaries.values() {
+            for link in links {
+                anchor_map.link_commentary(link.clone());
+            }
+        }
+        if anchor_map.anchors.is_empty() {
+            if let Some(pf) = first_sec.flows.iter().find(|f| f.id == primary_flow_id) {
                 let comms: Vec<&Flow> = first_sec
                     .flows
                     .iter()
                     .filter(|f| f.id != primary_flow_id)
                     .collect();
-                tok_core::multi_flow_anchor::MultiFlowAnchorMap::synthesize_or_default(pf, &comms)
-            } else {
-                map.clone()
+                anchor_map =
+                    tok_core::multi_flow_anchor::MultiFlowAnchorMap::synthesize_or_default(
+                        pf, &comms,
+                    );
             }
-        } else if let Some(pf) = first_sec.flows.iter().find(|f| f.id == primary_flow_id) {
-            let comms: Vec<&Flow> = first_sec
-                .flows
-                .iter()
-                .filter(|f| f.id != primary_flow_id)
-                .collect();
-            tok_core::multi_flow_anchor::MultiFlowAnchorMap::synthesize_or_default(pf, &comms)
-        } else {
-            tok_core::multi_flow_anchor::MultiFlowAnchorMap::default()
-        };
+        }
 
         let mut cumulative_placed_primary_paragraphs: std::collections::BTreeSet<
             tok_core::id::NodeId,
@@ -1587,7 +1862,11 @@ impl TypesettingEngine {
                 let p_cursor = flow_cursors.get(&p_spec.flow_id.0).copied().unwrap_or(0);
                 if let Some(lines) = flow_lines_map.get(&p_spec.flow_id.0) {
                     let remaining_lines = &lines[p_cursor..];
-                    let rem_h: f32 = remaining_lines.iter().map(|l| l.height).sum();
+                    let rem_h: f32 = remaining_lines
+                        .iter()
+                        .filter(|l| !l.is_drop_cap)
+                        .map(|l| l.height)
+                        .sum();
                     let max_h = self.config.page_height_pt - 2.0 * self.config.margin_top_pt;
                     if rem_h > 0.0 && rem_h < max_h - MultiFlowSolver::L_SHAPE_MIN_GAP_PT {
                         Some(rem_h)
@@ -1612,7 +1891,11 @@ impl TypesettingEngine {
                         let cur = flow_cursors.get(&s.flow_id.0).copied().unwrap_or(0);
                         if let Some(lines) = flow_lines_map.get(&s.flow_id.0) {
                             let rem_lines = &lines[cur..];
-                            let rem_h: f32 = rem_lines.iter().map(|l| l.height).sum();
+                            let rem_h: f32 = rem_lines
+                                .iter()
+                                .filter(|l| !l.is_drop_cap)
+                                .map(|l| l.height)
+                                .sum();
                             let max_h =
                                 self.config.page_height_pt - 2.0 * self.config.margin_top_pt;
                             if rem_h > 0.0 && rem_h < max_h - MultiFlowSolver::L_SHAPE_MIN_GAP_PT {
@@ -1656,6 +1939,8 @@ impl TypesettingEngine {
 
             let mut page_frames = Vec::new();
             let mut any_lines_placed = false;
+            let mut page_primary_para_top_y: std::collections::BTreeMap<tok_core::id::NodeId, f32> =
+                std::collections::BTreeMap::new();
 
             // Place primary column first, then primary expansion, then commentary columns, then commentary expansions
             let mut sorted_allocations = dynamic_result.allocations.clone();
@@ -1684,13 +1969,139 @@ impl TypesettingEngine {
 
                 let is_primary_flow = source_id == primary_flow_id.0.as_str();
                 let cursor = flow_cursors.get(source_id).copied().unwrap_or(0);
+                let nominal_w = flow_nominal_width
+                    .get(source_id)
+                    .copied()
+                    .unwrap_or(alloc.allocated_width_pt);
 
                 let mut frame_lines: Vec<LineBox> = Vec::new();
-                let mut current_h = 0.0;
+                let mut current_h = 0.0_f32;
+                let mut active_drop_cap_bottom = 0.0_f32;
 
-                if let Some(pool) = flow_lines_map.get(source_id) {
+                // Snapshot commentary pools for primary overflow holdback checks
+                let comm_heights_snapshot: std::collections::BTreeMap<
+                    String,
+                    Vec<(Option<tok_core::id::NodeId>, f32)>,
+                > = if is_primary_flow {
+                    flow_lines_map
+                        .iter()
+                        .filter(|(k, _)| k.as_str() != source_id)
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                v.iter()
+                                    .map(|l| {
+                                        (
+                                            l.paragraph_id,
+                                            if l.is_drop_cap { 0.0 } else { l.height },
+                                        )
+                                    })
+                                    .collect(),
+                            )
+                        })
+                        .collect()
+                } else {
+                    std::collections::BTreeMap::new()
+                };
+
+                if let Some(pool) = flow_lines_map.get_mut(source_id) {
                     let mut idx = cursor;
                     while idx < pool.len() {
+                        let prev_pid = if idx > cursor {
+                            pool[idx - 1].paragraph_id
+                        } else {
+                            None
+                        };
+                        let curr_pid = pool[idx].paragraph_id;
+                        let is_para_start = curr_pid.is_some() && prev_pid != curr_pid;
+
+                        // If we are in a wider expansion frame at the start of a paragraph (or continuation slice),
+                        // dynamically re-break the paragraph's remaining text for alloc.allocated_width_pt using Knuth-Plass.
+                        if is_expansion && alloc.allocated_width_pt > nominal_w + 5.0 {
+                            if let Some(pid) = curr_pid {
+                                let para_end = idx
+                                    + pool[idx..]
+                                        .iter()
+                                        .take_while(|line| line.paragraph_id == Some(pid))
+                                        .count();
+                                let needs_rebreak = pool[idx..para_end]
+                                    .iter()
+                                    .any(|line| !line.is_drop_cap && line.width <= nominal_w + 2.0);
+                                if needs_rebreak {
+                                    if let Some((p_node, p_style, font_fam, font_sz, line_h)) =
+                                        para_lookup.get(&pid)
+                                    {
+                                        let is_full_para =
+                                            idx == 0 || pool[idx - 1].paragraph_id != Some(pid);
+                                        let full_text = p_node.text.as_str();
+                                        let min_cluster = if is_full_para {
+                                            0usize
+                                        } else {
+                                            pool[idx..para_end]
+                                                .iter()
+                                                .flat_map(|l| l.glyphs.iter())
+                                                .map(|g| g.cluster as usize)
+                                                .min()
+                                                .unwrap_or(0)
+                                        };
+                                        if min_cluster < full_text.len()
+                                            && full_text.is_char_boundary(min_cluster)
+                                        {
+                                            let sub_text = &full_text[min_cluster..];
+                                            let mut sub_para = ParagraphNode::new(
+                                                p_node.index.clone(),
+                                                p_node.style_id.clone(),
+                                                sub_text,
+                                            );
+                                            sub_para.id = pid;
+                                            sub_para.style_patches = p_node.style_patches.clone();
+                                            let profile =
+                                                MeasureProfile::uniform(alloc.allocated_width_pt);
+                                            let mut rebroken = if is_full_para
+                                                && p_style
+                                                    .drop_cap
+                                                    .as_ref()
+                                                    .is_some_and(|dc| dc.enabled)
+                                            {
+                                                self.typeset_paragraph_shaped_with_style(
+                                                    &sub_para,
+                                                    Some(p_style),
+                                                    font_fam,
+                                                    &profile,
+                                                    *font_sz,
+                                                    *line_h,
+                                                )
+                                            } else {
+                                                let session = sessions
+                                                    .entry(font_fam.clone())
+                                                    .or_insert_with(|| {
+                                                        self.font_manager.session(font_fam)
+                                                    });
+                                                Self::typeset_with_session_shaped_opts(
+                                                    session,
+                                                    &sub_para,
+                                                    Some(p_style),
+                                                    &profile,
+                                                    *font_sz,
+                                                    *line_h,
+                                                )
+                                            };
+                                            if min_cluster > 0 {
+                                                for rb_line in &mut rebroken {
+                                                    for g in &mut rb_line.glyphs {
+                                                        g.cluster += min_cluster as u32;
+                                                    }
+                                                }
+                                            }
+                                            if !rebroken.is_empty() {
+                                                pool.splice(idx..para_end, rebroken);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let l = &pool[idx];
 
                         // Invariant 1 (Living Tzurat HaDaf): Commentary paragraph cannot appear before its primary anchor paragraph
@@ -1707,16 +2118,121 @@ impl TypesettingEngine {
                             }
                         }
 
+                        // Cross-page commentary overflow holdback: if at least one primary paragraph is already placed on
+                        // this page and placing a new primary paragraph `pid` would cause its anchored commentary to overflow
+                        // an already-full commentary column on this page, hold `pid` back to the next page.
+                        if is_primary_flow
+                            && !is_expansion
+                            && is_para_start
+                            && !frame_lines.is_empty()
+                        {
+                            if let Some(pid) = l.paragraph_id {
+                                let linked_anchors =
+                                    anchor_map.get_commentaries_for_primary_node(pid);
+                                let mut should_hold_back = false;
+                                for anchor in linked_anchors {
+                                    for (comm_fid, comm_lines) in &comm_heights_snapshot {
+                                        let comm_cur =
+                                            flow_cursors.get(comm_fid).copied().unwrap_or(0);
+                                        if let Some(rel_pos) = comm_lines[comm_cur..]
+                                            .iter()
+                                            .position(|(cid, _)| {
+                                                *cid == Some(anchor.commentary_node_id)
+                                            })
+                                        {
+                                            let target_start = comm_cur + rel_pos;
+                                            let prior_comm_h: f32 = comm_lines
+                                                [comm_cur..target_start]
+                                                .iter()
+                                                .map(|(_, h)| *h)
+                                                .sum();
+                                            let target_comm_h: f32 = comm_lines[target_start..]
+                                                .iter()
+                                                .take_while(|(cid, _)| {
+                                                    *cid == Some(anchor.commentary_node_id)
+                                                })
+                                                .take(2)
+                                                .map(|(_, h)| *h)
+                                                .sum();
+                                            let comm_avail_h = sorted_allocations
+                                                .iter()
+                                                .filter(|a| {
+                                                    a.flow_id.0 == *comm_fid
+                                                        || a.flow_id.0
+                                                            == format!("{}_expansion", comm_fid)
+                                                })
+                                                .map(|a| a.allocated_height_pt)
+                                                .sum::<f32>()
+                                                .max(alloc.allocated_height_pt);
+                                            if prior_comm_h > 0.0
+                                                && prior_comm_h + target_comm_h > comm_avail_h
+                                            {
+                                                should_hold_back = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if should_hold_back {
+                                        break;
+                                    }
+                                }
+                                if should_hold_back {
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Intra-page vertical spring alignment: advance commentary paragraph start toward its anchored
+                        // primary paragraph's top Y on the same page within available column slack.
+                        if !is_primary_flow && !is_expansion && is_para_start {
+                            if let Some(cid) = l.paragraph_id {
+                                if let Some(anchor_def) = anchor_map.get_anchor_for_commentary(cid)
+                                {
+                                    if let Some(&primary_top_y) =
+                                        page_primary_para_top_y.get(&anchor_def.primary_node_id)
+                                    {
+                                        if primary_top_y > current_h {
+                                            let rem_eligible_h: f32 = pool[idx..]
+                                                .iter()
+                                                .take_while(|line| {
+                                                    line.paragraph_id
+                                                        .and_then(|id| {
+                                                            anchor_map.get_anchor_for_commentary(id)
+                                                        })
+                                                        .is_none_or(|a| {
+                                                            cumulative_placed_primary_paragraphs
+                                                                .contains(&a.primary_node_id)
+                                                        })
+                                                })
+                                                .filter(|line| !line.is_drop_cap)
+                                                .map(|line| line.height)
+                                                .sum();
+                                            let slack = (alloc.allocated_height_pt
+                                                - current_h
+                                                - rem_eligible_h)
+                                                .max(0.0);
+                                            let shift = (primary_top_y - current_h).min(slack);
+                                            current_h += shift;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Capacity check and widow protection
-                        if current_h + l.height > alloc.allocated_height_pt
+                        if current_h + l.height > alloc.allocated_height_pt + 0.05
                             && !frame_lines.is_empty()
                         {
                             if let Some(pid) = l.paragraph_id {
                                 let para_lines_rem = pool[idx..]
                                     .iter()
                                     .take_while(|line| line.paragraph_id == Some(pid))
+                                    .filter(|line| !line.is_drop_cap)
                                     .count();
-                                if para_lines_rem == 1 && frame_lines.len() >= 2 {
+                                if para_lines_rem == 1
+                                    && frame_lines.len() >= 2
+                                    && current_h > active_drop_cap_bottom
+                                {
                                     let _ = frame_lines.pop().unwrap();
                                     idx -= 1;
                                 }
@@ -1726,25 +2242,21 @@ impl TypesettingEngine {
 
                         // Orphan protection at paragraph start
                         if let Some(pid) = l.paragraph_id {
-                            let prev_pid = if idx > cursor {
-                                pool[idx - 1].paragraph_id
-                            } else {
-                                None
-                            };
-                            let is_para_start = prev_pid != Some(pid);
                             if is_para_start && !frame_lines.is_empty() {
                                 let avail_h = alloc.allocated_height_pt - current_h;
-                                let para_total = pool[idx..]
+                                let para_slice: Vec<&LineBox> = pool[idx..]
                                     .iter()
                                     .take_while(|line| line.paragraph_id == Some(pid))
-                                    .count();
-                                let fit_count = pool[idx..idx + para_total]
+                                    .filter(|line| !line.is_drop_cap)
+                                    .collect();
+                                let para_total = para_slice.len();
+                                let fit_count = para_slice
                                     .iter()
                                     .scan(0.0_f32, |acc, line| {
                                         *acc += line.height;
                                         Some(*acc)
                                     })
-                                    .take_while(|&h| h <= avail_h)
+                                    .take_while(|&h| h <= avail_h + 0.05)
                                     .count();
                                 if para_total >= 2 && fit_count < 2 {
                                     break;
@@ -1753,9 +2265,14 @@ impl TypesettingEngine {
                         }
 
                         let mut positioned_line = l.clone();
-                        // In expansion frames, if the allocated width is wider than the original line width,
-                        // re-justify the line to fill the wider expansion measure.
-                        if is_expansion && alloc.allocated_width_pt > positioned_line.width + 5.0 {
+                        // Fallback single-line re-justification if para_lookup was unavailable
+                        if is_expansion
+                            && !positioned_line.is_drop_cap
+                            && alloc.allocated_width_pt > positioned_line.width + 5.0
+                            && positioned_line
+                                .paragraph_id
+                                .is_none_or(|pid| !para_lookup.contains_key(&pid))
+                        {
                             let font_sz = positioned_line
                                 .glyphs
                                 .first()
@@ -1808,18 +2325,103 @@ impl TypesettingEngine {
                                 })
                                 .collect();
                         }
-                        positioned_line.baseline_y = current_h + positioned_line.height;
-                        positioned_line.line_index = frame_lines.len();
-                        current_h += positioned_line.height;
 
                         if is_primary_flow {
                             if let Some(pid) = positioned_line.paragraph_id {
+                                page_primary_para_top_y.entry(pid).or_insert(current_h);
                                 cumulative_placed_primary_paragraphs.insert(pid);
+                            }
+                        }
+
+                        if positioned_line.is_drop_cap {
+                            let local_base = if positioned_line.baseline_y > 0.0 {
+                                positioned_line.baseline_y
+                            } else {
+                                positioned_line.height * 0.82
+                            };
+                            positioned_line.baseline_y = current_h + local_base;
+                            positioned_line.line_index = frame_lines.len();
+                            active_drop_cap_bottom =
+                                active_drop_cap_bottom.max(current_h + positioned_line.height);
+                        } else {
+                            positioned_line.baseline_y = current_h + positioned_line.height;
+                            positioned_line.line_index = frame_lines.len();
+                            current_h += positioned_line.height;
+                            let next_same_para = pool
+                                .get(idx + 1)
+                                .is_some_and(|nl| nl.paragraph_id == positioned_line.paragraph_id);
+                            if !next_same_para && current_h < active_drop_cap_bottom {
+                                current_h = active_drop_cap_bottom;
                             }
                         }
 
                         frame_lines.push(positioned_line);
                         idx += 1;
+                    }
+
+                    // If we re-broke a paragraph for a wider expansion frame and it partially overflowed the
+                    // expansion frame onto the next page, re-break the unplaced remainder back to nominal_w.
+                    if is_expansion
+                        && alloc.allocated_width_pt > nominal_w + 5.0
+                        && idx < pool.len()
+                    {
+                        if let Some(pid) = pool[idx].paragraph_id {
+                            let para_end = idx
+                                + pool[idx..]
+                                    .iter()
+                                    .take_while(|line| line.paragraph_id == Some(pid))
+                                    .count();
+                            let has_wide_lines = pool[idx..para_end]
+                                .iter()
+                                .any(|line| line.width > nominal_w + 2.0);
+                            if has_wide_lines {
+                                if let Some((p_node, p_style, font_fam, font_sz, line_h)) =
+                                    para_lookup.get(&pid)
+                                {
+                                    let full_text = p_node.text.as_str();
+                                    let min_cluster = pool[idx..para_end]
+                                        .iter()
+                                        .flat_map(|l| l.glyphs.iter())
+                                        .map(|g| g.cluster as usize)
+                                        .min()
+                                        .unwrap_or(0);
+                                    if min_cluster < full_text.len()
+                                        && full_text.is_char_boundary(min_cluster)
+                                    {
+                                        let sub_text = &full_text[min_cluster..];
+                                        let mut sub_para = ParagraphNode::new(
+                                            p_node.index.clone(),
+                                            p_node.style_id.clone(),
+                                            sub_text,
+                                        );
+                                        sub_para.id = pid;
+                                        sub_para.style_patches = p_node.style_patches.clone();
+                                        let session = sessions
+                                            .entry(font_fam.clone())
+                                            .or_insert_with(|| self.font_manager.session(font_fam));
+                                        let profile = MeasureProfile::uniform(nominal_w);
+                                        let mut rebroken = Self::typeset_with_session_shaped_opts(
+                                            session,
+                                            &sub_para,
+                                            Some(p_style),
+                                            &profile,
+                                            *font_sz,
+                                            *line_h,
+                                        );
+                                        if min_cluster > 0 {
+                                            for rb_line in &mut rebroken {
+                                                for g in &mut rb_line.glyphs {
+                                                    g.cluster += min_cluster as u32;
+                                                }
+                                            }
+                                        }
+                                        if !rebroken.is_empty() {
+                                            pool.splice(idx..para_end, rebroken);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     let lines_placed = idx - cursor;
@@ -1903,7 +2505,7 @@ impl TypesettingEngine {
                     .unwrap_or(999)
             });
 
-            // Apply Shared Column Height Balancing across parallel column frames
+            // Apply Shared Column Height Balancing across parallel column and expansion frames
             let height_balance_config = crate::co_pagination::HeightBalanceConfig {
                 max_line_expansion_pt: 3.5,
                 max_paragraph_expansion_pt: 16.0,
@@ -1916,7 +2518,6 @@ impl TypesettingEngine {
                 .enumerate()
                 .filter(|(_, f)| {
                     !f.flow_id.contains("note")
-                        && !f.flow_id.contains("expansion")
                         && f.lines.len() >= height_balance_config.min_lines_for_balance
                 })
                 .map(|(i, _)| i)

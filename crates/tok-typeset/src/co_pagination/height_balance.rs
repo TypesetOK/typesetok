@@ -66,12 +66,31 @@ impl SharedColumnHeightBalancer {
     ) -> Vec<ColumnBalanceReport> {
         let mut reports = Vec::new();
 
-        // 1. Identify active participating frames and their current bottom baselines
-        let mut column_bottoms: Vec<(usize, f32)> = Vec::new();
+        // 1. Identify active participating frames and their current bottom baselines.
+        // Detect whether frames share a common vertical origin `rect.y` or span stepped origins
+        // (such as an L-shape `_expansion` frame below an upper column).
+        let min_rect_y = frames
+            .iter()
+            .map(|f| f.rect.y)
+            .fold(f32::INFINITY, |a, b| a.min(b));
+        let max_rect_y = frames
+            .iter()
+            .map(|f| f.rect.y)
+            .fold(f32::NEG_INFINITY, |a, b| a.max(b));
+        let has_stepped_origins = (max_rect_y - min_rect_y).abs() > 1.0;
+
+        let mut column_bottoms: Vec<(usize, f32, f32)> = Vec::new();
         for (idx, frame) in frames.iter().enumerate() {
-            if frame.lines.len() >= config.min_lines_for_balance {
+            let non_dc_lines = frame.lines.iter().filter(|l| !l.is_drop_cap).count();
+            if non_dc_lines >= config.min_lines_for_balance {
                 if let Some(last_line) = frame.lines.last() {
-                    column_bottoms.push((idx, last_line.baseline_y));
+                    let local_bottom = last_line.baseline_y;
+                    let page_bottom = if has_stepped_origins {
+                        frame.rect.y + local_bottom
+                    } else {
+                        local_bottom
+                    };
+                    column_bottoms.push((idx, local_bottom, page_bottom));
                 }
             }
         }
@@ -80,26 +99,35 @@ impl SharedColumnHeightBalancer {
             return reports;
         }
 
-        // 2. Determine target bottom baseline Y_target
-        let target_y = match config.target_mode {
+        // 2. Determine target bottom baseline Y_target (in page space when stepped, local space when uniform)
+        let target_page_y = match config.target_mode {
             BalanceTargetMode::TallestColumn => column_bottoms
                 .iter()
-                .map(|(_, y)| *y)
+                .map(|(_, _, page_y)| *page_y)
                 .fold(0.0_f32, |acc, y| acc.max(y)),
             BalanceTargetMode::FixedPageBottom(y) => y,
             BalanceTargetMode::AverageHeight => {
-                let sum: f32 = column_bottoms.iter().map(|(_, y)| *y).sum();
+                let sum: f32 = column_bottoms.iter().map(|(_, _, page_y)| *page_y).sum();
                 sum / column_bottoms.len() as f32
             }
         };
 
         // 3. For each participating frame, distribute elastic springs to bridge the height deficit
-        for (frame_idx, orig_bottom_y) in column_bottoms {
-            let deficit_pt = target_y - orig_bottom_y;
+        for (frame_idx, orig_bottom_y, orig_page_y) in column_bottoms {
+            let raw_deficit_pt = target_page_y - orig_page_y;
             let frame = &mut frames[frame_idx];
 
+            // Bound expansion so lines never overflow their own frame's physical height
+            // (crucial when an upper column terminates above an L-shape expansion frame).
+            let max_frame_room = if frame.rect.height > 0.0 {
+                (frame.rect.height - orig_bottom_y).max(0.0)
+            } else {
+                raw_deficit_pt.max(0.0)
+            };
+            let deficit_pt = raw_deficit_pt.min(max_frame_room);
+
             if deficit_pt <= 0.5 {
-                // Already at or exceeding target
+                // Already at or exceeding target (or bounded by frame ceiling)
                 reports.push(ColumnBalanceReport {
                     flow_id: frame.flow_id.clone(),
                     original_bottom_y: orig_bottom_y,
@@ -115,11 +143,28 @@ impl SharedColumnHeightBalancer {
                 continue;
             }
 
+            // Determine if a drop cap window occupies the top of the frame so we don't
+            // separate the drop cap from its adjacent body lines.
+            let drop_cap_bottom = frame
+                .lines
+                .iter()
+                .find(|l| l.is_drop_cap)
+                .map(|l| l.height)
+                .unwrap_or(0.0);
+
             // Identify gaps: inter-line and paragraph boundaries
             let mut gap_weights = Vec::with_capacity(num_lines - 1);
             let mut total_weight = 0.0;
 
             for i in 0..(num_lines - 1) {
+                if frame.lines[i].is_drop_cap
+                    || (drop_cap_bottom > 0.0
+                        && frame.lines[i].paragraph_id == frame.lines[0].paragraph_id
+                        && frame.lines[i + 1].baseline_y <= drop_cap_bottom + 0.5)
+                {
+                    gap_weights.push((0.0, false));
+                    continue;
+                }
                 let is_para_boundary =
                     frame.lines[i].paragraph_id != frame.lines[i + 1].paragraph_id;
                 let weight = if is_para_boundary {
@@ -134,6 +179,13 @@ impl SharedColumnHeightBalancer {
             }
 
             if total_weight <= 0.0 {
+                reports.push(ColumnBalanceReport {
+                    flow_id: frame.flow_id.clone(),
+                    original_bottom_y: orig_bottom_y,
+                    balanced_bottom_y: orig_bottom_y,
+                    spring_injected_pt: 0.0,
+                    gaps_expanded: 0,
+                });
                 continue;
             }
 
@@ -142,9 +194,13 @@ impl SharedColumnHeightBalancer {
 
             // Apply cumulative vertical spring to each subsequent line
             let mut accumulated_spring = 0.0;
-            let gaps_count = gap_weights.len();
+            let gaps_count = gap_weights.iter().filter(|(w, _)| *w > 0.0).count();
 
             for (i, (weight, is_para_boundary)) in gap_weights.into_iter().enumerate() {
+                if weight <= 0.0 {
+                    frame.lines[i + 1].baseline_y += accumulated_spring;
+                    continue;
+                }
                 let gap_expansion = if is_para_boundary {
                     (allowable_expansion * (weight / total_weight))
                         .min(config.max_paragraph_expansion_pt)
