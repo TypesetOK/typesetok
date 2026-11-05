@@ -367,6 +367,7 @@ function createWindow(): void {
     title: 'TypesetOK (TOK) - תוכנת עימוד מקצועית',
     backgroundColor: '#0B132B',
     icon: appIcon,
+    frame: false,
     show: false, // Hidden until ready, preventing any white flicker
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -905,6 +906,29 @@ handle('tok:close-window', () => {
     mainWindow.close();
   }
   return { success: true };
+});
+
+handle('tok:minimize-window', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.minimize();
+  }
+  return { success: true };
+});
+
+handle('tok:maximize-window', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+    return { success: true, isMaximized: mainWindow.isMaximized() };
+  }
+  return { success: false, isMaximized: false };
+});
+
+handle('tok:is-maximized', () => {
+  return { isMaximized: mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false };
 });
 
 handle('tok:quit-app', () => {

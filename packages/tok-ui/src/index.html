@@ -110,6 +110,7 @@
 
       /* Layout */
       --tok-top-bar-height:   52px;
+      --tok-titlebar-height:  32px;
       --tok-status-height:    28px;
       --tok-rail-width:       68px;
       --tok-structure-width:  236px;
@@ -276,48 +277,76 @@
     .tok-divider-v { width: 1px; height: 20px; background: var(--tok-border-subtle); flex: none; }
 
     /* ==========================================================================
-       Top bar
+       Top bar (Window title & system controls)
        ========================================================================== */
     .tok-top-bar {
-      height: var(--tok-top-bar-height); min-height: var(--tok-top-bar-height);
-      display: flex; align-items: center; gap: 18px; padding: 0 20px;
+      height: var(--tok-titlebar-height, 32px); min-height: var(--tok-titlebar-height, 32px);
+      display: flex; align-items: center; justify-content: space-between; padding: 0 4px 0 10px;
       background: var(--tok-bg-app); border-bottom: 1px solid var(--tok-border-subtle);
-      position: relative; z-index: 50;
+      position: relative; z-index: 50; user-select: none;
+      -webkit-app-region: drag;
     }
-    .tok-top-side { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
-    .tok-top-side.tok-end { justify-content: flex-end; gap: 8px; }
+    [dir="rtl"] .tok-top-bar { padding: 0 10px 0 4px; }
+    .tok-top-bar * { -webkit-app-region: no-drag; }
+    .tok-top-side { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .tok-top-center {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      display: flex; align-items: center; gap: 6px;
+      max-width: 48%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      pointer-events: auto;
+    }
     .tok-brand-mark {
-      width: 32px; height: 32px; flex: none; border-radius: 8px;
+      width: 22px; height: 22px; flex: none; border-radius: 5px;
       background: var(--tok-accent-primary); color: var(--tok-on-accent);
       display: inline-flex; align-items: center; justify-content: center;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
       transition: transform 0.15s ease, background 0.15s ease;
     }
     .tok-brand-btn {
-      display: inline-flex; align-items: center; gap: 10px; border: none; background: transparent;
-      padding: 4px 8px; border-radius: 8px; cursor: pointer; transition: background 0.15s;
+      display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent;
+      padding: 2px 6px; border-radius: 6px; cursor: pointer; transition: background 0.15s;
     }
     .tok-brand-btn:hover { background: var(--tok-bg-surface-hover); }
     .tok-brand-btn:hover .tok-brand-mark { transform: scale(1.05); }
     .tok-brand-name {
-      font-size: 17px; font-weight: 800; letter-spacing: -0.02em; color: var(--tok-text-primary);
+      font-size: 13px; font-weight: 700; letter-spacing: -0.01em; color: var(--tok-text-primary);
     }
-    .tok-doc-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
-    .tok-doc-title-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tok-doc-title-sep { color: var(--tok-text-muted); }
-    .tok-doc-title-page { color: var(--tok-text-secondary); white-space: nowrap; }
-    .tok-saved { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tok-text-muted); white-space: nowrap; }
-    .tok-saved .tok-dot { color: var(--tok-status-success); }
+    .tok-doc-title { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
+    .tok-doc-title-name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--tok-text-primary); }
+    .tok-doc-title-sep { color: var(--tok-text-muted); opacity: 0.6; font-size: 12px; }
+    .tok-doc-title-page { color: var(--tok-text-secondary); white-space: nowrap; font-size: 11.5px; }
+    .tok-saved { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--tok-text-muted); white-space: nowrap; }
+    .tok-saved .tok-dot { color: var(--tok-status-success); width: 5px; height: 5px; }
     .tok-saved.tok-unsaved { color: var(--tok-status-warning); font-weight: 500; }
     .tok-saved.tok-unsaved .tok-dot { color: var(--tok-status-warning); }
-    .tok-menu-btn { border: none; background: transparent; padding: 0 8px; height: 30px; gap: 6px; color: var(--tok-text-secondary); }
+    .tok-menu-btn { border: none; background: transparent; padding: 0 8px; height: 24px; gap: 4px; font-size: 12px; font-weight: 500; color: var(--tok-text-secondary); border-radius: 5px; }
+    .tok-menu-btn:hover { background: var(--tok-bg-surface-hover); color: var(--tok-text-primary); }
+    .tok-seg-compact { padding: 2px; border-radius: 6px; }
+    .tok-seg-compact .tok-seg-btn { height: 22px; padding: 0 8px; font-size: 11.5px; border-radius: 4px; }
     .tok-search-pill {
-      height: 34px; width: 236px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px;
-      background: var(--tok-bg-surface-2); border: 1px solid var(--tok-border-subtle); border-radius: 8px;
-      color: var(--tok-text-muted); font-size: 13px; transition: border-color 0.12s;
+      height: 24px; width: 140px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px;
+      background: var(--tok-bg-surface-2); border: 1px solid var(--tok-border-subtle); border-radius: 6px;
+      color: var(--tok-text-muted); font-size: 11px; transition: border-color 0.12s;
     }
     .tok-search-pill:hover { border-color: var(--tok-border-strong); color: var(--tok-text-secondary); }
     .tok-search-pill > span:not(.tok-icon-wrap):not(.tok-kbd) { flex: 1; text-align: start; }
+
+    /* Window Controls (Min, Max, Close) */
+    .tok-window-controls {
+      display: flex; align-items: center; height: 100%; margin-inline-start: auto; flex: none;
+    }
+    .tok-win-btn {
+      width: 44px; height: var(--tok-titlebar-height, 32px); display: inline-flex; align-items: center; justify-content: center;
+      border: none; background: transparent; color: var(--tok-text-secondary); cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+    }
+    .tok-win-btn:hover {
+      background: var(--tok-bg-surface-hover); color: var(--tok-text-primary);
+    }
+    .tok-win-btn.tok-win-close:hover {
+      background: #E81123 !important; color: #FFFFFF !important;
+    }
+    .tok-win-btn svg { width: 10px; height: 10px; stroke: currentColor; }
 
     /* Dropdown menu (file menu) */
     .tok-quick-menu {

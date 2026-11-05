@@ -58,6 +58,9 @@ export interface TokIpcBridge {
   }>;
   decompressRaw: (dataBase64: string) => Promise<string>;
   closeWindow: () => Promise<void>;
+  minimizeWindow: () => Promise<void>;
+  maximizeWindow: () => Promise<{ success: boolean; isMaximized: boolean }>;
+  isMaximized: () => Promise<{ isMaximized: boolean }>;
   quitApp: () => Promise<void>;
   onOpenFile: (callback: (filePath: string) => void) => () => void;
 }
@@ -176,6 +179,15 @@ const tokIpc: TokIpcBridge = {
   },
   closeWindow: async () => {
     return await ipcRenderer.invoke('tok:close-window');
+  },
+  minimizeWindow: async () => {
+    return await ipcRenderer.invoke('tok:minimize-window');
+  },
+  maximizeWindow: async () => {
+    return await ipcRenderer.invoke('tok:maximize-window');
+  },
+  isMaximized: async () => {
+    return await ipcRenderer.invoke('tok:is-maximized');
   },
   quitApp: async () => {
     return await ipcRenderer.invoke('tok:quit-app');
