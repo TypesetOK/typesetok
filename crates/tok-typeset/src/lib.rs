@@ -35,6 +35,7 @@ pub mod layout_family;
 pub mod layout_features;
 pub mod layout_template;
 pub mod multi_flow;
+pub mod optical_margin;
 pub mod page_break;
 pub mod polygon;
 pub mod polygon_engine;
@@ -71,7 +72,9 @@ pub use hit_test::{HitTestResult, HitTester};
 pub use incremental::{
     IncrementalBreakDiagnostics, IncrementalPageBreaker, IncrementalTypesetDiagnostics,
 };
-pub use knuth_plass::{BrokenLine, KnuthPlassBreaker, LayoutItem, LineSpan, MeasureProfile};
+pub use knuth_plass::{
+    BrokenLine, KnuthPlassBreaker, LastLineConstraint, LayoutItem, LineSpan, MeasureProfile,
+};
 pub use layout_cache::{
     CacheMetricsSnapshot, CachedParagraphLayout, ParagraphCacheKey, ParagraphLayoutCache,
 };
@@ -83,6 +86,7 @@ pub use multi_flow::{
     DynamicPageResult, DynamicTalmudPageResult, FlowGeometrySpec, FlowPlacementRole,
     MultiFlowSolver, SolvedFlowAllocation, SpreadSide,
 };
+pub use optical_margin::{OpticalMarginAligner, OpticalProtrusion};
 pub use page_break::{
     compute_badness, score_page_break, BreakOpportunity, GlobalPageBreaker, PageBreakPenalty,
     PageSlice, PaginationLineInput,

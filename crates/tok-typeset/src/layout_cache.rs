@@ -101,14 +101,48 @@ impl ParagraphLayoutCache {
         p.style_id.hash(&mut hasher);
         for patch in &p.style_patches {
             patch.font_family.hash(&mut hasher);
+            patch.font_weight.hash(&mut hasher);
             if let Some(sz) = patch.font_size_pt {
                 sz.to_bits().hash(&mut hasher);
             }
             if let Some(lh) = patch.line_height_pt {
                 lh.to_bits().hash(&mut hasher);
             }
+            if let Some(fi) = patch.first_line_indent_pt {
+                fi.to_bits().hash(&mut hasher);
+            }
+            if let Some(is) = patch.indent_start_pt {
+                is.to_bits().hash(&mut hasher);
+            }
+            if let Some(ie) = patch.indent_end_pt {
+                ie.to_bits().hash(&mut hasher);
+            }
             if let Some(al) = patch.alignment {
                 (al as u8).hash(&mut hasher);
+            }
+            if let Some(dc) = &patch.drop_cap {
+                dc.enabled.hash(&mut hasher);
+                dc.lines.hash(&mut hasher);
+                dc.characters_count.hash(&mut hasher);
+                dc.whole_word.hash(&mut hasher);
+                dc.font_family.hash(&mut hasher);
+                dc.font_weight.hash(&mut hasher);
+                dc.margin_pt.to_bits().hash(&mut hasher);
+                if let Some(fs) = dc.font_size_pt {
+                    fs.to_bits().hash(&mut hasher);
+                }
+            }
+            if let Some(om) = &patch.optical_margin {
+                om.enabled.hash(&mut hasher);
+                om.factor.to_bits().hash(&mut hasher);
+                om.protrude_punctuation.hash(&mut hasher);
+                om.protrude_glyphs.hash(&mut hasher);
+            }
+            if let Some(llc) = &patch.last_line_constraint {
+                llc.min_width_pt.to_bits().hash(&mut hasher);
+                llc.min_width_ratio.to_bits().hash(&mut hasher);
+                llc.min_words.hash(&mut hasher);
+                llc.balance_slack.hash(&mut hasher);
             }
         }
         if let Some(overrides) = &p.overrides {
@@ -134,8 +168,34 @@ impl ParagraphLayoutCache {
         s.font_size_pt.to_bits().hash(&mut hasher);
         s.line_height_pt.to_bits().hash(&mut hasher);
         s.first_line_indent_pt.to_bits().hash(&mut hasher);
+        s.indent_start_pt.to_bits().hash(&mut hasher);
+        s.indent_end_pt.to_bits().hash(&mut hasher);
         (s.alignment as u8).hash(&mut hasher);
         (s.ahalterm_stretch as u8).hash(&mut hasher);
+        if let Some(dc) = &s.drop_cap {
+            dc.enabled.hash(&mut hasher);
+            dc.lines.hash(&mut hasher);
+            dc.characters_count.hash(&mut hasher);
+            dc.whole_word.hash(&mut hasher);
+            dc.font_family.hash(&mut hasher);
+            dc.font_weight.hash(&mut hasher);
+            dc.margin_pt.to_bits().hash(&mut hasher);
+            if let Some(fs) = dc.font_size_pt {
+                fs.to_bits().hash(&mut hasher);
+            }
+        }
+        if let Some(om) = &s.optical_margin {
+            om.enabled.hash(&mut hasher);
+            om.factor.to_bits().hash(&mut hasher);
+            om.protrude_punctuation.hash(&mut hasher);
+            om.protrude_glyphs.hash(&mut hasher);
+        }
+        if let Some(llc) = &s.last_line_constraint {
+            llc.min_width_pt.to_bits().hash(&mut hasher);
+            llc.min_width_ratio.to_bits().hash(&mut hasher);
+            llc.min_words.hash(&mut hasher);
+            llc.balance_slack.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
