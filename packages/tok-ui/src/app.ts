@@ -2654,7 +2654,7 @@ export class TypesetOkApp {
    * Single entry point for app-level actions: top bar, command palette, the
    * native menu (via IPC) and `tok-action` DOM events all route through here.
    */
-  public handleSystemAction(action: string, data?: unknown): void {
+  public handleSystemAction(action: string, data?: unknown): Promise<any> | void {
     switch (action) {
       case 'quit-app':
       case 'exit':
@@ -2741,9 +2741,9 @@ export class TypesetOkApp {
       }
       case 'save-document': {
         if (this.currentFilePath && this.currentFilePath.toLowerCase().endsWith('.tok')) {
-          this.saveDocumentToFile(this.currentFilePath);
+          return this.saveDocumentToFile(this.currentFilePath);
         } else {
-          this.handleSystemAction('save-as');
+          return this.handleSystemAction('save-as');
         }
         break;
       }
@@ -2751,19 +2751,19 @@ export class TypesetOkApp {
         const win = window as any;
         const defaultName = (this.documentTitle || 'document').replace(/\.tok$/i, '') + '.tok';
         if (win.tokIpc?.showSaveDialog) {
-          win.tokIpc.showSaveDialog({
+          return win.tokIpc.showSaveDialog({
             defaultPath: defaultName,
             filters: [{ name: 'TypesetOK Document', extensions: ['tok', 'json'] }]
           }).then((filePath: string | null) => {
             if (filePath) {
-              this.saveDocumentToFile(filePath);
+              return this.saveDocumentToFile(filePath);
             }
           }).catch((err: any) => {
             console.error('[TOK] Save dialog error:', err);
             this.showToast(tf('toastSaveError', { error: err?.message || String(err) }), true);
           });
         } else {
-          this.saveDocumentToFile(defaultName);
+          return this.saveDocumentToFile(defaultName);
         }
         break;
       }

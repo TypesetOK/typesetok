@@ -480,9 +480,9 @@ function createWindow(): void {
       if (choice.response === 0) {
         // Save before exit
         const savePromise = win.webContents.executeJavaScript(
-          'Promise.resolve(window.appInstance?.handleSystemAction?.("save-document")).then(() => true).catch(() => false)'
+          'Promise.resolve(window.appInstance?.handleSystemAction?.("save-document")).then((res) => res !== false).catch(() => false)'
         );
-        const saveTimeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000));
+        const saveTimeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30000));
         const saveResult = await Promise.race([savePromise, saveTimeout]).catch(() => false);
 
         if (saveResult === false) {
