@@ -24,6 +24,10 @@
 - [features] עברית: גלישה מסונכרנת במעבר עמודים המונעת הופעת פירוש לפני העוגן המרכזי שלו (No Commentary Lead Invariant) | en: Synchronized multi-stream pagination strictly enforcing the no-commentary-lead invariant
 - [typography] עברית: איזון גובה תחתון פעיל בעמודי תלמוד ומקראות גדולות (Shared Column Height Balancing) | en: Active shared column height balancing aligning column bottom baselines
 - [typography] עברית: בקרת יתומים ואלמנות (Orphan/Widow Control) בחלוקת פירושים ארוכים במיוחד על פני עמודים | en: Strict orphan and widow control for oversized commentary paragraphs spanning page boundaries
+- [typography] עברית: יישור אופטי של שוליים (Optical Margin Alignment) לסימני פיסוק וגליפיים בולטים בעברית ובכיווניות מעורבת | en: Professional Optical Margin Alignment for punctuation and overhanging glyphs with full RTL and Hebrew support
+- [typography] עברית: איזון שורה אחרונה מאולץ באלגוריתם Knuth-Plass כולל אילוצי רוחב מינימלי ומיקום אופטימלי | en: Knuth-Plass constrained last-line balancing with minimum width constraints and optimal final-line placement
+- [typography] עברית: מנוע פוליגונים כללי וטורים ברוחב משתנה (L-Shape & Variable Columns) עם חיתוך רצועות שמרני | en: Arbitrary polygonal text regions, variable column geometry, and conservative band measure-profile generation
+- [typography] עברית: חלון מילת פתיחה עברי (Hebrew Drop Caps) עם מדידת תיבה תוחמת מדויקת של גליפים, ניקוד וטעמים | en: Hebrew Drop Caps with exact glyph outline bounding boxes and multi-line text-exclusion geometry
 - [improvements] עברית: שיפור מנגנון ה-CI ואיחוד בדיקות הדטרמיניזם להבטחת שחרור אוטומטי חלק | en: Streamlined CI determinism verification and automated release pipeline trigger
 
 ---
