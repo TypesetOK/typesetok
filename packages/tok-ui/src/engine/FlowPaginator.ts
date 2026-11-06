@@ -32,6 +32,12 @@ export interface MultiFlowDocumentState {
     notes: StoryParagraph[];
     [key: string]: StoryParagraph[];
   };
+  customFlowMetadata?: Record<string, {
+    name: string;
+    color: string;
+    role: string;
+    placement: 'split-edges' | 'bottom' | 'margin-outer' | 'free';
+  }>;
   settings?: DocumentSettings;
   styles?: Record<string, any>;
   isDirty?: boolean;
@@ -436,6 +442,15 @@ export class FlowPaginator {
       pages = this.paginateTalmud(doc, minPages);
     }
 
+    if (doc.customFlowMetadata && Object.keys(doc.customFlowMetadata).length > 0) {
+      for (const p of pages) {
+        const customHtml = this.renderCustomFlowsHtml(doc, p.pageIndex);
+        if (customHtml) {
+          p.htmlContent = p.htmlContent.replace(/<\/div>\s*$/, `${customHtml}\n</div>`);
+        }
+      }
+    }
+
     if (isExplicitFallback) {
       const banner = `<div class="tok-fallback-warning-badge" data-fallback="true" style="background: rgba(239, 68, 68, 0.08); border: 1px dashed var(--tok-status-warning, #d97706); color: var(--tok-status-warning, #d97706); padding: 4px 8px; font-size: 11px; font-weight: 500; text-align: center; margin-bottom: 8px; border-radius: 4px;">⚠️ תצוגה משוערת בלבד — מנוע העימוד Rust אינו זמין</div>`;
       for (const p of pages) {
@@ -714,5 +729,68 @@ export class FlowPaginator {
         ` : ''}
       </div>
     `;
+  }
+  private static renderCustomFlowsHtml(doc: MultiFlowDocumentState, pageIndex: number): string {
+    if (!doc.customFlowMetadata) return '';
+    const items: string[] = [];
+    for (const [flowId, meta] of Object.entries(doc.customFlowMetadata)) {
+      const paras = doc.flows[flowId] || [];
+      if (paras.length === 0) continue;
+
+      if (meta.placement === 'split-edges') {
+        const half = Math.ceil(paras.length / 2);
+        const rightParas = paras.slice(0, half);
+        const leftParas = paras.slice(half);
+
+        const renderHalf = (halfParas: StoryParagraph[], side: 'right' | 'left') => `
+          <div class="tok-interactive-frame tok-col-split-${side}"
+               data-frame-id="frame-${flowId}-${side}-${pageIndex}"
+               data-flow-id="${flowId}"
+               data-layer-id="text-commentary"
+               style="position: absolute; ${side}: 8pt; top: 40pt; width: 62pt; max-height: 570pt; overflow: hidden; background: rgba(0,0,0,0.015); border-${side === 'right' ? 'left' : 'right'}: 1px dashed ${meta.color}66; padding: 4px 6px;">
+            <div class="tok-frame-label" style="font-size: 9.5px; font-weight: 700; color: ${meta.color}; text-align: center; border-bottom: 0.5px solid var(--tok-ink-rule); margin-bottom: 3px; padding-bottom: 1px;">
+              ${meta.name} (${side === 'right' ? 'טור ימין' : 'טור שמאל'})
+            </div>
+            <div class="tok-frame-text" style="font-size: 9.5px; line-height: 1.42; color: var(--tok-ink);">
+              ${halfParas.map((p) => `<p data-para-id="${p.id}" style="margin: 0 0 0.45em; text-align: justify;">${p.text || '&nbsp;'}</p>`).join('')}
+            </div>
+          </div>
+        `;
+
+        items.push(renderHalf(rightParas, 'right'));
+        items.push(renderHalf(leftParas, 'left'));
+      } else if (meta.placement === 'bottom') {
+        items.push(`
+          <div class="tok-interactive-frame tok-custom-bottom-flow"
+               data-frame-id="frame-${flowId}-bottom-${pageIndex}"
+               data-flow-id="${flowId}"
+               data-layer-id="text-commentary"
+               style="flex: none; border-top: 1px solid ${meta.color}88; padding: 4px 6px; margin-top: 4px; overflow: hidden; max-height: 85pt;">
+            <div class="tok-frame-label" style="font-size: 9.5px; font-weight: 700; color: ${meta.color}; margin-bottom: 2px;">
+              ${meta.name}
+            </div>
+            <div class="tok-frame-text" style="font-size: 9px; line-height: 1.38; color: var(--tok-ink);">
+              ${paras.map((p) => `<span data-para-id="${p.id}" style="margin-inline-end: 10px; display: inline-block;">${p.text}</span>`).join('')}
+            </div>
+          </div>
+        `);
+      } else {
+        items.push(`
+          <div class="tok-interactive-frame tok-custom-margin-flow"
+               data-frame-id="frame-${flowId}-margin-${pageIndex}"
+               data-flow-id="${flowId}"
+               data-layer-id="text-commentary"
+               style="position: absolute; right: 10pt; top: 45pt; width: 65pt; overflow: hidden; padding: 4px; border: 1px dashed ${meta.color}66;">
+            <div class="tok-frame-label" style="font-size: 9.5px; font-weight: 700; color: ${meta.color}; text-align: center; margin-bottom: 2px;">
+              ${meta.name}
+            </div>
+            <div class="tok-frame-text" style="font-size: 9.5px; line-height: 1.4;">
+              ${paras.map((p) => `<p data-para-id="${p.id}" style="margin: 0 0 0.45em;">${p.text}</p>`).join('')}
+            </div>
+          </div>
+        `);
+      }
+    }
+    return items.join('\n');
   }
 }

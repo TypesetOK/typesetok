@@ -109,6 +109,7 @@ export interface MultiFlowItem {
   role: string;
   wordCount: number;
   isActive: boolean;
+  layoutPlacement?: 'split-edges' | 'bottom' | 'margin-outer' | 'free';
 }
 
 export interface MultiFlowAnchorLink {

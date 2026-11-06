@@ -1,7 +1,7 @@
 import { MultiFlowItem, StyleToken, PageThumbnailItem } from '../types';
 import { t, tf, i18n } from '../i18n';
 import { IconName } from '../icons';
-import { el, icon, iconButton } from '../ui';
+import { el, icon, iconButton, button } from '../ui';
 import { groupIntoSpreads, isRectoPage, isRightHandPage } from './SpreadCanvas';
 import { FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR } from '../fonts';
 
@@ -9,6 +9,7 @@ export interface StructureBarCallbacks {
   onSelectPage: (pageIndex: number) => void;
   onAddPage: () => void;
   onSelectFlow: (flowId: string) => void;
+  onAddFlow?: () => void;
   onSelectStyle: (styleId: string) => void;
   onToggleLayer: (layerId: string, visible: boolean) => void;
   onLockLayer?: (layerId: string, locked: boolean) => void;
@@ -123,6 +124,14 @@ export class StructureBar {
     if (!this.styles.some((s) => s.id === style.id)) {
       this.styles.push(style);
       if (this.activeTab === 'styles') this.renderPanel();
+    }
+  }
+
+  public addFlow(flow: MultiFlowItem): void {
+    if (!this.flows.some((f) => f.id === flow.id)) {
+      this.flows.push({ ...flow });
+      this.setActiveFlow(flow.id);
+      if (this.activeTab === 'flows') this.renderPanel();
     }
   }
 
@@ -372,6 +381,17 @@ export class StructureBar {
       container.appendChild(row);
     }
     container.appendChild(el('p', 'tok-panel-note', undefined, t('structureFlowsDesc')));
+    if (this.callbacks.onAddFlow) {
+      const addRow = el('div', undefined, { style: 'padding: 6px 4px 2px; display: flex; justify-content: center;' });
+      const addBtn = button(t('structureAddFlowCompact'), {
+        className: 'tok-btn tok-btn-secondary tok-btn-xs',
+        icon: 'plus',
+        iconSize: 12,
+        onClick: () => this.callbacks.onAddFlow?.()
+      });
+      addRow.appendChild(addBtn);
+      container.appendChild(addRow);
+    }
   }
 
   private renderStylesView(container: HTMLElement): void {

@@ -16,12 +16,13 @@ import { UpdatesStateManager } from './updates/updatesManager';
 import { UserGuideModal } from './components/UserGuideModal';
 import { TextStatsModal } from './components/TextStatsModal';
 import { ImportTemplateModal } from './components/ImportTemplateModal';
+import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
 import { TextCleanupModal } from './components/TextCleanupModal';
 import { CleanupOptions, cleanupParagraphs } from './engine/textCleanup';
 import { PluginEngine } from './plugins/PluginEngine';
 import { StoryEditor, StoryParagraph } from 'tok-story-editor';
 import { PageDescriptor } from 'tok-viewer';
-import { ViewMode } from './types';
+import { ViewMode, MultiFlowItem } from './types';
 import { i18n, t, tf } from './i18n';
 import { themeManager } from './theme';
 import { FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR, getAvailableFonts, DOCUMENT_FONTS, getSafeFontStack } from './fonts';
@@ -147,6 +148,7 @@ export class TypesetOkApp {
   private userGuideModalInstance?: UserGuideModal;
   private textStatsModalInstance?: TextStatsModal;
   private importTemplateModalInstance?: ImportTemplateModal;
+  private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
   private pendingImportResult: { result: ImportResult; filePath?: string } | null = null;
   private isChangingActiveDocumentTemplate = false;
@@ -305,6 +307,7 @@ export class TypesetOkApp {
         this.updatePageStats(idx);
       },
       onAddPage: () => this.addNewPage(),
+      onAddFlow: () => this.customFlowModal.show(),
       onSelectFlow: (flowId) => {
         this.switchActiveFlow(flowId);
         const name = this.flowDisplayName(flowId);
@@ -955,6 +958,64 @@ export class TypesetOkApp {
       this.root.appendChild(this.textStatsModalInstance.element);
     }
     return this.textStatsModalInstance;
+  }
+
+  private get customFlowModal(): CustomFlowModal {
+    if (!this.customFlowModalInstance) {
+      this.customFlowModalInstance = new CustomFlowModal({
+        onSubmit: (data) => this.handleAddCustomFlow(data),
+        onCancel: () => {}
+      });
+      this.root.appendChild(this.customFlowModalInstance.element);
+    }
+    return this.customFlowModalInstance;
+  }
+
+  public handleAddCustomFlow(data: CustomFlowData): void {
+    const flowId = `flow_custom_${Date.now()}`;
+    const initialText = `פסקת פתיחה עבור תזרים ${data.name}...`;
+    this.documentState.flows[flowId] = [
+      {
+        id: 'p-' + Date.now(),
+        styleId: `style-${flowId}`,
+        text: initialText
+      }
+    ];
+
+    if (!this.documentState.customFlowMetadata) {
+      this.documentState.customFlowMetadata = {};
+    }
+    this.documentState.customFlowMetadata[flowId] = {
+      name: data.name,
+      color: data.color,
+      role: data.role,
+      placement: data.placement
+    };
+
+    const newFlowItem: MultiFlowItem = {
+      id: flowId,
+      name: data.name,
+      color: data.color,
+      role: data.role,
+      wordCount: initialText.split(/\s+/).length,
+      isActive: true,
+      layoutPlacement: data.placement
+    };
+
+    this.structureBar.addFlow(newFlowItem);
+    this.structureBar.addStyle({
+      id: `style-${flowId}`,
+      name: data.name,
+      fontFamily: 'Frank Ruhl Libre',
+      fontSizePt: data.placement === 'bottom' ? 10 : 12,
+      fontWeight: 400,
+      flowId: flowId
+    });
+
+    this.switchActiveFlow(flowId);
+    this.setDirty(true);
+    this.repaginateAndSync(true);
+    this.showToast(tf('toastFlowCreated', { name: data.name }));
   }
 
   private get importTemplateModal(): ImportTemplateModal {
