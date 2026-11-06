@@ -243,7 +243,10 @@ mod tests {
         let run = TextShaper::shape_fallback(text, 12.0, true);
         assert_eq!(run.glyphs.len(), 4);
         for g in &run.glyphs {
-            assert!(g.x_advance > 0.0, "Masoretic punctuation must have non-zero advance width");
+            assert!(
+                g.x_advance > 0.0,
+                "Masoretic punctuation must have non-zero advance width"
+            );
         }
     }
 }

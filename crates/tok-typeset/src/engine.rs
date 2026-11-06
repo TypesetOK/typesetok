@@ -1821,7 +1821,8 @@ impl TypesettingEngine {
                 .collect();
 
             // Prepare paginator configs for all apparatuses
-            let mut apparatus_demands: Vec<(&str, &[LineBox], FootnotePaginatorConfig)> = Vec::new();
+            let mut apparatus_demands: Vec<(&str, &[LineBox], FootnotePaginatorConfig)> =
+                Vec::new();
             for fn_s in &fn_flow_specs {
                 let f_id = fn_s.flow_id.0.as_str();
                 let cur = flow_cursors.get(f_id).copied().unwrap_or(0);
@@ -1869,7 +1870,10 @@ impl TypesettingEngine {
 
             // Set each footnote flow's target_height_pt from its budgeted apparatus height
             for s in &mut active_specs {
-                if let Some((_, h)) = budgeted_fn_heights.iter().find(|(id, _)| *id == s.flow_id.0) {
+                if let Some((_, h)) = budgeted_fn_heights
+                    .iter()
+                    .find(|(id, _)| *id == s.flow_id.0)
+                {
                     s.target_height_pt = *h;
                 }
             }

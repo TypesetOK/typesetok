@@ -91,7 +91,9 @@ impl DynamicFootnotePaginator {
         let cols = config.columns.max(1) as f32;
         let vertical_demand = total_line_h / cols;
 
-        let target_h = vertical_demand.max(config.min_band_height_pt).min(max_permitted_h);
+        let target_h = vertical_demand
+            .max(config.min_band_height_pt)
+            .min(max_permitted_h);
         Some(target_h)
     }
 
@@ -494,11 +496,7 @@ mod tests {
         };
 
         let slice = DynamicFootnotePaginator::slice_for_allocated_band_with_width(
-            &lines,
-            410.0,
-            40.0,
-            &config,
-            true,
+            &lines, 410.0, 40.0, &config, true,
         );
 
         assert_eq!(slice.lines_consumed, 4);

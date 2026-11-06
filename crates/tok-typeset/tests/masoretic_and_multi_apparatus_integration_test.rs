@@ -16,7 +16,9 @@ fn test_biblical_masoretic_typography_shaping_and_variants() {
     assert_eq!(NUN_HAFUKHA, '\u{05C6}');
     assert!(is_rare_cantillation_mark('\u{0592}')); // Shalshelet
     assert!(is_rare_cantillation_mark('\u{059F}')); // Qarne Farah
-    assert!(has_rare_cantillation_or_masoretic_marks("\u{05C6} וַיְהִי בִּנְסֹעַ \u{05C6}"));
+    assert!(has_rare_cantillation_or_masoretic_marks(
+        "\u{05C6} וַיְהִי בִּנְסֹעַ \u{05C6}"
+    ));
     assert!(has_rare_cantillation_or_masoretic_marks("וַיִּתְמַהְמָ֓הּ"));
 
     // 2. Verify Variant Scaling & Baseline shifts
@@ -33,7 +35,10 @@ fn test_biblical_masoretic_typography_shaping_and_variants() {
     let (t_sz, t_shift, _) =
         resolve_masoretic_letter_styling(MasoreticLetterVariant::Teluyah, 14.0, None);
     assert_eq!(t_sz, 14.0 * 0.72);
-    assert!(t_shift > 4.0, "Teluyah baseline shift must be positive (upwards)");
+    assert!(
+        t_shift > 4.0,
+        "Teluyah baseline shift must be positive (upwards)"
+    );
 
     // 3. OpenType features mapping for rare cantillation and Torani fonts
     let config = MasoreticTypographyConfig::default();
@@ -147,12 +152,13 @@ fn test_multiple_parallel_footnote_apparatuses_layout() {
     // 1. Primary Flow
     let mut main_flow = Flow::new(FlowId::new("main"), FlowType::Main);
     for i in 0..15 {
-        let t = format!("גוף הטקסט הראשי לפיסקה מספר {} בסוגיא דהאיש מקדש בו ובשלוחו וכל כיוצא בזה.", i + 1);
-        main_flow.paragraphs.push(ParagraphNode::new(
-            FractionalIndex::initial(),
-            "body",
-            &t,
-        ));
+        let t = format!(
+            "גוף הטקסט הראשי לפיסקה מספר {} בסוגיא דהאיש מקדש בו ובשלוחו וכל כיוצא בזה.",
+            i + 1
+        );
+        main_flow
+            .paragraphs
+            .push(ParagraphNode::new(FractionalIndex::initial(), "body", &t));
     }
     sec.flows.push(main_flow);
 
@@ -173,7 +179,10 @@ fn test_multiple_parallel_footnote_apparatuses_layout() {
     let mut biurim_flow = Flow::new(FlowId::new("biurim"), FlowType::Footnote);
     for i in 0..4 {
         let marker = doc.format_footnote_marker("biurim", i + 1);
-        let t = format!("{} וביאור דברי התוספות כאן דאין לומר דמיירי בהכי דהא ליתא כלל וצריך עיון גדול.", marker);
+        let t = format!(
+            "{} וביאור דברי התוספות כאן דאין לומר דמיירי בהכי דהא ליתא כלל וצריך עיון גדול.",
+            marker
+        );
         biurim_flow.paragraphs.push(ParagraphNode::new(
             FractionalIndex::initial(),
             "footnote",
@@ -187,7 +196,10 @@ fn test_multiple_parallel_footnote_apparatuses_layout() {
     let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
     let pages = engine.typeset_document(&doc);
 
-    assert!(!pages.is_empty(), "Typesetting multi-apparatus document must produce pages");
+    assert!(
+        !pages.is_empty(),
+        "Typesetting multi-apparatus document must produce pages"
+    );
 
     let page1 = &pages[0];
     let frame_ids: Vec<&str> = page1.frames.iter().map(|f| f.flow_id.as_str()).collect();
@@ -195,8 +207,14 @@ fn test_multiple_parallel_footnote_apparatuses_layout() {
     let sources_frame = page1.frames.iter().find(|f| f.flow_id == "sources");
     let biurim_frame = page1.frames.iter().find(|f| f.flow_id == "biurim");
 
-    assert!(sources_frame.is_some(), "Page 1 must contain a frame for sources apparatus");
-    assert!(biurim_frame.is_some(), "Page 1 must contain a frame for biurim apparatus");
+    assert!(
+        sources_frame.is_some(),
+        "Page 1 must contain a frame for sources apparatus"
+    );
+    assert!(
+        biurim_frame.is_some(),
+        "Page 1 must contain a frame for biurim apparatus"
+    );
 
     let s_frame = sources_frame.unwrap();
     let b_frame = biurim_frame.unwrap();
@@ -205,7 +223,10 @@ fn test_multiple_parallel_footnote_apparatuses_layout() {
     assert!(
         s_frame.rect.y + s_frame.rect.height <= b_frame.rect.y + 1.0,
         "Sources frame (y={}, h={}) must sit above Biurim frame (y={}, h={})",
-        s_frame.rect.y, s_frame.rect.height, b_frame.rect.y, b_frame.rect.height
+        s_frame.rect.y,
+        s_frame.rect.height,
+        b_frame.rect.y,
+        b_frame.rect.height
     );
 
     // Verify multi-column configuration inside sources frame:
@@ -225,6 +246,9 @@ fn test_multiple_parallel_footnote_apparatuses_layout() {
     // Verify 1-column configuration inside biurim frame:
     // Lines should have x_offset == 0.0
     for l in &b_frame.lines {
-        assert_eq!(l.x_offset, 0.0, "1-column apparatus lines must have x_offset == 0");
+        assert_eq!(
+            l.x_offset, 0.0,
+            "1-column apparatus lines must have x_offset == 0"
+        );
     }
 }

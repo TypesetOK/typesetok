@@ -443,7 +443,8 @@ mod tests {
 
     #[test]
     fn test_nun_hafukha_and_masoretic_punctuation_preservation() {
-        let text_with_nun_hafukha = "\u{05C6}\u{05D5}\u{05D9}\u{05D4}\u{05D9} \u{05D1}\u{05E0}\u{05E1}\u{05E2}\u{05C6}";
+        let text_with_nun_hafukha =
+            "\u{05C6}\u{05D5}\u{05D9}\u{05D4}\u{05D9} \u{05D1}\u{05E0}\u{05E1}\u{05E2}\u{05C6}";
         let normalized = HebrewNormalizer::normalize(text_with_nun_hafukha);
         assert_eq!(normalized, text_with_nun_hafukha);
         assert!(HebrewNormalizer::is_nun_hafukha('\u{05C6}'));

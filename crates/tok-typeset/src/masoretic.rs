@@ -27,21 +27,19 @@ pub fn is_rare_cantillation_mark(c: char) -> bool {
         0x05AB | // Ole Ve-Yored (עֹלֶה וְיוֹרֵד)
         0x05A2 | // Atnah Hafukh / Iluy (אֶתְנַח הָפוּךְ)
         0x05AD | // Dehi (דְּחִי)
-        0x05AE   // Tsinorit (צִנּוֹרִית)
+        0x05AE // Tsinorit (צִנּוֹרִית)
     )
 }
 
 /// Returns true if character is a poetic cantillation mark used in Sifrei Emet (טעמי אמ"ת: תהלים, משלי, איוב).
 pub fn is_poetic_emet_accent(c: char) -> bool {
-    matches!(
-        c as u32,
-        0x05A2 | 0x05AB | 0x05AC | 0x05AD | 0x05AE
-    )
+    matches!(c as u32, 0x05A2 | 0x05AB | 0x05AC | 0x05AD | 0x05AE)
 }
 
 /// Checks whether the text contains any rare cantillation marks or Masoretic special symbols.
 pub fn has_rare_cantillation_or_masoretic_marks(text: &str) -> bool {
-    text.chars().any(|c| is_rare_cantillation_mark(c) || c == NUN_HAFUKHA)
+    text.chars()
+        .any(|c| is_rare_cantillation_mark(c) || c == NUN_HAFUKHA)
 }
 
 /// Configuration for Biblical and Masoretic Hebrew Typography features.
@@ -104,7 +102,8 @@ impl MasoreticTypographyConfig {
 
         // 3. Poetic Accents for Sifrei Emet
         let has_emet = text.chars().any(is_poetic_emet_accent);
-        if (self.enable_poetic_accents_emet || has_emet) && self.enable_rare_cantillation_alternates {
+        if (self.enable_poetic_accents_emet || has_emet) && self.enable_rare_cantillation_alternates
+        {
             features.push(Feature::new(Tag::from_bytes(b"ss02"), 1, ..));
         }
 
@@ -158,7 +157,9 @@ pub fn convert_opentype_settings(settings: &[OpenTypeFeatureSetting]) -> Vec<Fea
         .iter()
         .filter_map(|s| {
             let bytes: Result<[u8; 4], _> = s.tag.as_bytes().try_into();
-            bytes.ok().map(|b| Feature::new(Tag::from_bytes(&b), s.value, ..))
+            bytes
+                .ok()
+                .map(|b| Feature::new(Tag::from_bytes(&b), s.value, ..))
         })
         .collect()
 }
@@ -222,7 +223,10 @@ mod tests {
         let (t_size, t_shift, t_feat) =
             resolve_masoretic_letter_styling(MasoreticLetterVariant::Teluyah, 12.0, None);
         assert!((t_size - 12.0 * 0.72).abs() < 1e-4);
-        assert!(t_shift > 0.0, "Suspended letter must have positive upward baseline shift");
+        assert!(
+            t_shift > 0.0,
+            "Suspended letter must have positive upward baseline shift"
+        );
         assert_eq!(
             t_feat.map(|f| String::from_utf8_lossy(&f.tag.to_bytes()).to_string()),
             Some("sups".to_string())

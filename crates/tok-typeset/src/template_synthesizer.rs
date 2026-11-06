@@ -284,8 +284,9 @@ impl TemplateSynthesizer {
             } else {
                 for note_flow in &note_flows {
                     if !specs.iter().any(|s| s.flow_id == *note_flow) {
-                        let note_spec = FlowGeometrySpec::new(note_flow.clone(), (specs.len() + 1) as u8)
-                            .with_role(FlowPlacementRole::BottomBand);
+                        let note_spec =
+                            FlowGeometrySpec::new(note_flow.clone(), (specs.len() + 1) as u8)
+                                .with_role(FlowPlacementRole::BottomBand);
                         specs.push(note_spec);
                     }
                 }

@@ -427,11 +427,12 @@ impl DocumentRoot {
         self
     }
 
-    pub fn add_footnote_apparatus(
-        &mut self,
-        apparatus: crate::header::FootnoteApparatusConfig,
-    ) {
-        if let Some(pos) = self.footnote_apparatuses.iter().position(|a| a.id == apparatus.id) {
+    pub fn add_footnote_apparatus(&mut self, apparatus: crate::header::FootnoteApparatusConfig) {
+        if let Some(pos) = self
+            .footnote_apparatuses
+            .iter()
+            .position(|a| a.id == apparatus.id)
+        {
             self.footnote_apparatuses[pos] = apparatus;
         } else {
             self.footnote_apparatuses.push(apparatus);
@@ -449,10 +450,18 @@ impl DocumentRoot {
     }
 
     pub fn find_apparatus(&self, id: &str) -> Option<&crate::header::FootnoteApparatusConfig> {
-        if let Some(app) = self.footnote_apparatuses.iter().find(|a| a.id == id || a.flow_id.as_deref() == Some(id)) {
+        if let Some(app) = self
+            .footnote_apparatuses
+            .iter()
+            .find(|a| a.id == id || a.flow_id.as_deref() == Some(id))
+        {
             Some(app)
         } else if let Some(app) = &self.footnote_apparatus {
-            if app.id == id || app.flow_id.as_deref() == Some(id) || id == "footnote" || id == "notes" {
+            if app.id == id
+                || app.flow_id.as_deref() == Some(id)
+                || id == "footnote"
+                || id == "notes"
+            {
                 Some(app)
             } else {
                 None
