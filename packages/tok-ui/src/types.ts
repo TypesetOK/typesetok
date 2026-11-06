@@ -31,6 +31,7 @@ export interface FrameGeometry {
   widthMm: number;
   heightMm: number;
   rotationDeg: number;
+  isLocked?: boolean;
 }
 
 export interface TextFrameData extends FrameGeometry {

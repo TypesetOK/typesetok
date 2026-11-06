@@ -415,6 +415,18 @@ export class ContextualInspector {
         this.callbacks.onFrameChange({ id: this.selectedFrame.id, heightMm: v });
       })
     ));
+
+    const isLocked = Boolean(this.selectedFrame.isLocked);
+    geoCard.appendChild(button(isLocked ? t('inspUnlockFrame') : t('inspLockFrame'), {
+      className: `tok-btn tok-btn-block tok-btn-sm ${isLocked ? 'tok-btn-warning' : 'tok-btn-secondary'}`,
+      icon: isLocked ? 'lock' : 'unlock',
+      iconSize: 14,
+      onClick: () => {
+        this.selectedFrame.isLocked = !isLocked;
+        this.callbacks.onFrameChange({ id: this.selectedFrame.id, isLocked: this.selectedFrame.isLocked });
+        this.render();
+      }
+    }));
     c.appendChild(geoCard);
 
     // 2. Flow & threading

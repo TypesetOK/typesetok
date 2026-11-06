@@ -96,6 +96,7 @@ export class SpreadCanvas {
   private selectedFrameId: string | null = null;
   private selectedFrameIds: Set<string> = new Set();
   private frameRects: Map<string, FrameRect> = new Map();
+  private lockedFrameIds: Set<string> = new Set();
   private virtualizer: PageDomVirtualizer;
   private layerVisibility: Record<string, boolean> = {
     'text-main': true,
@@ -669,6 +670,7 @@ export class SpreadCanvas {
               insetRightMm: 4,
               insetLeftMm: 4,
               verticalAlign: (fr.dataset.verticalAlign as TextFrameData['verticalAlign']) || 'top',
+              isLocked: this.isFrameLocked(frameId),
               text: ''
             });
           }
@@ -754,12 +756,287 @@ export class SpreadCanvas {
           insetRightMm: 4,
           insetLeftMm: 4,
           verticalAlign: (frame.dataset.verticalAlign as TextFrameData['verticalAlign']) || 'top',
+          isLocked: this.isFrameLocked(params.id),
           text: params.text
         });
       }
     });
 
     return frame;
+  }
+
+  public isFrameLocked(frameId: string): boolean {
+    return this.lockedFrameIds.has(frameId);
+  }
+
+  public setFrameLocked(frameId: string, locked: boolean): void {
+    if (locked) {
+      this.lockedFrameIds.add(frameId);
+    } else {
+      this.lockedFrameIds.delete(frameId);
+    }
+    const frame = this.innerContainer.querySelector<HTMLElement>(`.tok-interactive-frame[data-frame-id="${frameId}"]`);
+    if (frame) {
+      frame.dataset.frameLocked = String(locked);
+      frame.classList.toggle('tok-frame-locked', locked);
+      const flowId = (frame.dataset.flowId || 'gemara') as FlowId;
+      this.updateFrameTagAndHandles(frame, frameId, this.flowTitle(flowId), flowId, locked);
+    }
+  }
+
+  public toggleFrameLock(frameId: string): boolean {
+    const next = !this.isFrameLocked(frameId);
+    this.setFrameLocked(frameId, next);
+    const rect = this.frameRects.get(frameId);
+    this.callbacks.onSelectionModeChange('text-frame', {
+      id: frameId,
+      xMm: rect?.x || 10,
+      yMm: rect?.y || 45,
+      widthMm: rect?.w || 110,
+      heightMm: rect?.h || 240,
+      rotationDeg: 0,
+      flowId: 'gemara',
+      columns: 1,
+      columnGapMm: 0,
+      insetTopMm: 3,
+      insetBottomMm: 3,
+      insetRightMm: 4,
+      insetLeftMm: 4,
+      verticalAlign: 'top',
+      text: '',
+      isLocked: next
+    });
+    return next;
+  }
+
+  private updateFrameTagAndHandles(
+    frame: HTMLElement,
+    frameId: string,
+    title: string,
+    flowId: FlowId,
+    isLocked: boolean
+  ): void {
+    frame.querySelectorAll('.tok-frame-tag, .tok-resize-handle').forEach((el) => el.remove());
+
+    // Frame tag with drag ability and lock toggle button
+    const tag = el('span', 'tok-frame-tag', { 'data-frame-tag-id': frameId });
+    const tagTitle = el('span', undefined, undefined, title);
+    tag.appendChild(tagTitle);
+
+    const lockBtn = el('button', 'tok-frame-lock-btn', {
+      type: 'button',
+      title: isLocked ? 'שחרר נעילת תיבה (ניתן להזזה)' : 'נעל מיקום תיבה',
+      'aria-label': isLocked ? 'שחרר נעילת תיבה' : 'נעל תיבה'
+    });
+    lockBtn.appendChild(icon(isLocked ? 'lock' : 'unlock', 12));
+    lockBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      this.toggleFrameLock(frameId);
+    });
+    tag.appendChild(lockBtn);
+    frame.appendChild(tag);
+
+    if (!isLocked) {
+      this.attachFrameDrag(frame, tag, frameId);
+
+      // Corner handles
+      const corners: [string, string, string][] = [
+        ['top', 'left', 'nwse-resize'],
+        ['top', 'right', 'nesw-resize'],
+        ['bottom', 'left', 'nesw-resize'],
+        ['bottom', 'right', 'nwse-resize']
+      ];
+      for (const [v, h, cursor] of corners) {
+        const handle = el('div', 'tok-resize-handle');
+        handle.style[v as 'top' | 'bottom'] = '-7px';
+        handle.style[h as 'left' | 'right'] = '-7px';
+        handle.style.cursor = cursor;
+        this.attachHandleResize(handle, v, h, frame, frameId);
+        frame.appendChild(handle);
+      }
+    }
+  }
+
+  private attachFrameDrag(frame: HTMLElement, handleEl: HTMLElement, frameId: string): void {
+    handleEl.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (this.isFrameLocked(frameId)) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const sheet = frame.closest<HTMLElement>('.tok-page-sheet');
+      if (!sheet) return;
+
+      const z = this.zoomPercent / 100;
+      const sheetRect = sheet.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+
+      const initLeft = (frameRect.left - sheetRect.left) / z;
+      const initTop = (frameRect.top - sheetRect.top) / z;
+      const width = frameRect.width / z;
+      const height = frameRect.height / z;
+
+      frame.style.position = 'absolute';
+      frame.style.left = `${initLeft.toFixed(1)}pt`;
+      frame.style.top = `${initTop.toFixed(1)}pt`;
+      frame.style.width = `${width.toFixed(1)}pt`;
+      frame.style.height = `${height.toFixed(1)}pt`;
+      frame.style.margin = '0';
+      frame.style.zIndex = '15';
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+
+      const onPointerMove = (ev: PointerEvent) => {
+        const dx = (ev.clientX - startX) / z;
+        const dy = (ev.clientY - startY) / z;
+        const curLeft = Math.max(0, initLeft + dx);
+        const curTop = Math.max(0, initTop + dy);
+
+        frame.style.left = `${curLeft.toFixed(1)}pt`;
+        frame.style.top = `${curTop.toFixed(1)}pt`;
+
+        const rect = this.ensureFrameRect(frame, frameId, frame.dataset.flowId || 'gemara');
+        rect.x = Math.round(curLeft);
+        rect.y = Math.round(curTop);
+        this.frameRects.set(frameId, rect);
+        this.syncFrameElementRect(frame, rect);
+
+        this.callbacks.onSelectionModeChange('text-frame', {
+          id: frameId,
+          xMm: rect.x,
+          yMm: rect.y,
+          widthMm: rect.w,
+          heightMm: rect.h,
+          rotationDeg: 0,
+          flowId: (frame.dataset.flowId || 'gemara') as any,
+          columns: 1,
+          columnGapMm: 0,
+          insetTopMm: 3,
+          insetBottomMm: 3,
+          insetRightMm: 4,
+          insetLeftMm: 4,
+          verticalAlign: (frame.dataset.verticalAlign as any) || 'top',
+          text: '',
+          isLocked: false
+        });
+      };
+
+      const onPointerUp = () => {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        frame.style.zIndex = '';
+      };
+
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    });
+  }
+
+  private attachHandleResize(handle: HTMLElement, v: string, h: string, frame: HTMLElement, frameId: string): void {
+    handle.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (this.isFrameLocked(frameId)) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const sheet = frame.closest<HTMLElement>('.tok-page-sheet');
+      if (!sheet) return;
+
+      const z = this.zoomPercent / 100;
+      const sheetRect = sheet.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+
+      const initLeft = (frameRect.left - sheetRect.left) / z;
+      const initTop = (frameRect.top - sheetRect.top) / z;
+      const initW = frameRect.width / z;
+      const initH = frameRect.height / z;
+
+      frame.style.position = 'absolute';
+      frame.style.left = `${initLeft.toFixed(1)}pt`;
+      frame.style.top = `${initTop.toFixed(1)}pt`;
+      frame.style.width = `${initW.toFixed(1)}pt`;
+      frame.style.height = `${initH.toFixed(1)}pt`;
+      frame.style.margin = '0';
+      frame.style.zIndex = '15';
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+
+      const onPointerMove = (ev: PointerEvent) => {
+        const dx = (ev.clientX - startX) / z;
+        const dy = (ev.clientY - startY) / z;
+
+        let curLeft = initLeft;
+        let curTop = initTop;
+        let curW = initW;
+        let curH = initH;
+
+        if (h === 'right') {
+          curW = Math.max(30, initW + dx);
+        } else {
+          const potentialW = initW - dx;
+          if (potentialW >= 30) {
+            curW = potentialW;
+            curLeft = initLeft + dx;
+          }
+        }
+
+        if (v === 'bottom') {
+          curH = Math.max(25, initH + dy);
+        } else {
+          const potentialH = initH - dy;
+          if (potentialH >= 25) {
+            curH = potentialH;
+            curTop = initTop + dy;
+          }
+        }
+
+        frame.style.left = `${curLeft.toFixed(1)}pt`;
+        frame.style.top = `${curTop.toFixed(1)}pt`;
+        frame.style.width = `${curW.toFixed(1)}pt`;
+        frame.style.height = `${curH.toFixed(1)}pt`;
+
+        const rect = this.ensureFrameRect(frame, frameId, frame.dataset.flowId || 'gemara');
+        rect.x = Math.round(curLeft);
+        rect.y = Math.round(curTop);
+        rect.w = Math.round(curW);
+        rect.h = Math.round(curH);
+        rect.width = rect.w;
+        rect.height = rect.h;
+        this.frameRects.set(frameId, rect);
+        this.syncFrameElementRect(frame, rect);
+
+        this.callbacks.onSelectionModeChange('text-frame', {
+          id: frameId,
+          xMm: rect.x,
+          yMm: rect.y,
+          widthMm: rect.w,
+          heightMm: rect.h,
+          rotationDeg: 0,
+          flowId: (frame.dataset.flowId || 'gemara') as any,
+          columns: 1,
+          columnGapMm: 0,
+          insetTopMm: 3,
+          insetBottomMm: 3,
+          insetRightMm: 4,
+          insetLeftMm: 4,
+          verticalAlign: (frame.dataset.verticalAlign as any) || 'top',
+          text: '',
+          isLocked: false
+        });
+      };
+
+      const onPointerUp = () => {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        frame.style.zIndex = '';
+      };
+
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    });
   }
 
   private selectFrame(frame: HTMLElement, params: FrameParams, additive = false): void {
@@ -897,6 +1174,10 @@ export class SpreadCanvas {
       frame = activeSheet?.querySelector<HTMLElement>('.tok-interactive-frame') || null;
     }
     if (!frame) return;
+
+    if (geometry.isLocked !== undefined && targetId) {
+      this.setFrameLocked(targetId, geometry.isLocked);
+    }
 
     const frameId = frame.dataset.frameId || targetId || `frame-main-${this.activePageIndex}`;
     const flowId = frame.dataset.flowId || 'gemara';
