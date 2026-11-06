@@ -6,6 +6,117 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.34.4",
+    "releaseDate": "2026-11-06",
+    "importance": "minor",
+    "title": {
+      "he": "הזזה חופשית ונעילת תיבות בעורך, תזרימים מותאמים אישית (טורים מפוצלים), סינון סגנונות ובחירת תבנית מודרכת",
+      "en": "Free Frame Movement & Locking, Custom Flows with Split Edge Layout, Active Flow Style Filtering & Guided Template Creation"
+    },
+    "summary": {
+      "he": "שחרור גרסה 0.34.4 המוסיף שליטה ישירה ואינטואיטיבית בתיבות טקסט על גבי הקנבס כולל גרירה חופשית ונעילת מיקום, אפשרות הוספת תזרימים מותאמים אישית עם תמיכה בבלוקים מפוצלים בקצוות הזורמים לפי גובה, סינון סגנונות ממוקד לפי התבנית הפעילה, ומסלול פתיחת מסמך חדש מודרך עם בחירת תבנית מיידית והמלצה על ספר רציף.",
+      "en": "Release 0.34.4 introducing direct canvas text frame dragging and location locking, custom text flow creation with split edge dual-margin block streaming by height, template-specific style filtering in structure bar, and guided new document creation with immediate template selection defaulting to continuous prose."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "גרירה ושינוי גודל אינטראקטיביים של תיבות טקסט בעורך עם עדכון קואורדינטות חי בסרגל המאפיינים",
+          "en": "Interactive text frame dragging and resizing directly on canvas with live coordinate synchronization in inspector"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מנגנון נעילת תיבות טקסט (Lock/Unlock) מתגית התיבה ובסרגל המאפיינים למניעת שינויים לא רצויים",
+          "en": "Text frame position and size locking toggle on frame tag and contextual inspector"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "הוספת תזרימי טקסט חדשים בכל תבנית ספר דרך כפתור קומפקטי וחלונית הגדרה ייעודית",
+          "en": "Custom text flow creation across any layout template via a compact button and dedicated modal dialog"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "תמיכה במבנה בלוקים מפוצלים בקצוות (שמאל וימין ללא חיבור ביניהם עם זרימה לפי גובה) לתזרימים מותאמים",
+          "en": "Split edge dual margin layout blocks flowing text by height without intermediate connecting elements"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "סינון סגנונות בסרגל הימני להצגת סגנונות רלוונטיים בלבד לתבנית ולתזרימים הפעילים במסמך",
+          "en": "Dynamic style token filtering in structure bar displaying exclusively styles relevant to active template flows"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "יצירת מסמך חדש פותחת מיד את מסך בחירת התבנית, וברירת המחדל מוגדרת ל'ספר רציף'",
+          "en": "New document creation presents template chooser immediately, defaulting to continuous prose layout"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "frame-drag-lock",
+        "icon": "layers",
+        "title": {
+          "he": "הזזה חופשית ונעילה ישירה על הקנבס",
+          "en": "Direct Canvas Frame Dragging & Locking"
+        },
+        "description": {
+          "he": "אפשרות גרירה ושינוי גודל ישירים של תיבות טקסט במרחב העבודה עם מנגנון נעילה להגנה מפני תזוזה מקרית.",
+          "en": "Freehand dragging and resizing of text frames directly on the editor canvas with instant locking guards."
+        },
+        "badge": {
+          "he": "הזזה ונעילה",
+          "en": "Drag & Lock"
+        }
+      },
+      {
+        "id": "custom-flows",
+        "icon": "flows",
+        "title": {
+          "he": "הוספת תזרימים ובלוקים מפוצלים בקצוות",
+          "en": "Custom Text Flows & Split Edge Layout"
+        },
+        "description": {
+          "he": "כפתור ייעודי קומפקטי וחלונית עיצוב להוספת תזרימי טקסט חדשים, כולל חצי בלוק בקצה אחד וחצי בקצה שני ללא חיבור ביניהם הזורמים לפי גובה.",
+          "en": "Dedicated compact button and configuration modal for custom flows, featuring dual split edge margin blocks streaming text by height."
+        },
+        "badge": {
+          "he": "תזרימים מותאמים",
+          "en": "Custom Flows"
+        }
+      },
+      {
+        "id": "template-onboarding",
+        "icon": "templateBook",
+        "title": {
+          "he": "בחירת תבנית מודרכת וברירת מחדל ספר רציף",
+          "en": "Guided Template Picker & Prose Default"
+        },
+        "description": {
+          "he": "פתיחת מסמך חדש מציגה ישירות את חלון בחירת התבנית המעוצב עם המלצה ברורה על תבנית ספר רציף.",
+          "en": "New document workflow prompts layout template chooser immediately, with continuous prose set as default recommendation."
+        },
+        "badge": {
+          "he": "בחירת תבנית",
+          "en": "Guided Templates"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה נוכחית",
+      "en": "Current Version"
+    }
+  },
+  {
     "version": "0.34.3",
     "releaseDate": "2026-11-06",
     "importance": "major",
@@ -140,8 +251,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       }
     ],
     "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
     }
   },
   {
