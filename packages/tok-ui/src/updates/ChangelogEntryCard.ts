@@ -1,15 +1,31 @@
 import { ChangelogEntry } from './types';
 import { i18n, Language } from '../i18n';
-import { el } from '../ui';
+import { el, icon } from '../ui';
 import { createVersionBadge, createCategoryPill } from './updatePills';
+
+export interface ChangelogCardOptions {
+  isCurrent?: boolean;
+  defaultExpanded?: boolean;
+}
 
 export class ChangelogEntryCard {
   public element: HTMLElement;
   private entry: ChangelogEntry;
+  private isExpanded: boolean;
+  private isCurrent: boolean;
 
-  constructor(entry: ChangelogEntry) {
+  constructor(entry: ChangelogEntry, options?: ChangelogCardOptions) {
     this.entry = entry;
-    this.element = el('article', `tok-changelog-card tok-changelog-${this.entry.importance}`);
+    this.isCurrent = Boolean(options?.isCurrent);
+    this.isExpanded = options?.defaultExpanded ?? this.isCurrent;
+    this.element = el('article', `tok-changelog-card tok-changelog-${this.entry.importance}${this.isExpanded ? ' tok-changelog-expanded' : ' tok-changelog-collapsed'}`);
+    this.render();
+  }
+
+  public toggle(): void {
+    this.isExpanded = !this.isExpanded;
+    this.element.classList.toggle('tok-changelog-expanded', this.isExpanded);
+    this.element.classList.toggle('tok-changelog-collapsed', !this.isExpanded);
     this.render();
   }
 
@@ -18,23 +34,54 @@ export class ChangelogEntryCard {
     this.element.innerHTML = '';
     this.element.setAttribute('data-version', this.entry.version);
 
-    // Header row: version, badge, date
+    // Header row: version, badge, toggle button, date
     const header = el('header', 'tok-changelog-card-header');
     const titleGroup = el('div', 'tok-changelog-version-group');
 
     const versionTitle = el('h3', 'tok-changelog-version-tag', undefined, `v${this.entry.version}`);
     titleGroup.appendChild(versionTitle);
 
-    const badge = createVersionBadge(this.entry.importance, this.entry.badge);
-    titleGroup.appendChild(badge);
+    // Only show "Current Version" badge if this is truly the current version
+    const badgeData = this.isCurrent
+      ? this.entry.badge
+      : (this.entry.badge?.he === 'גרסה נוכחית' ? undefined : this.entry.badge);
+
+    if (badgeData || this.isCurrent) {
+      const badge = createVersionBadge(this.entry.importance, badgeData || { he: 'גרסה נוכחית', en: 'Current Version' });
+      titleGroup.appendChild(badge);
+    }
 
     header.appendChild(titleGroup);
+
+    const rightGroup = el('div', 'tok-changelog-header-right');
 
     const dateSpan = el('time', 'tok-changelog-date', {
       datetime: this.entry.releaseDate,
       dir: 'ltr'
     }, this.entry.releaseDate);
-    header.appendChild(dateSpan);
+    rightGroup.appendChild(dateSpan);
+
+    const toggleBtn = el('button', 'tok-changelog-toggle-btn', {
+      type: 'button',
+      'aria-expanded': String(this.isExpanded),
+      title: this.isExpanded ? (lang === 'he' ? 'צמצם פירוט' : 'Collapse details') : (lang === 'he' ? 'הצג פירוט' : 'Show details')
+    });
+    toggleBtn.appendChild(icon(this.isExpanded ? 'chevronUp' : 'chevronDown', 13));
+    const toggleText = el('span', 'tok-changelog-toggle-label', undefined,
+      this.isExpanded
+        ? (lang === 'he' ? 'צמצם' : 'Collapse')
+        : (lang === 'he' ? 'פירוט השינויים' : 'Details')
+    );
+    toggleBtn.appendChild(toggleText);
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggle();
+    });
+    rightGroup.appendChild(toggleBtn);
+
+    header.appendChild(rightGroup);
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => this.toggle());
 
     this.element.appendChild(header);
 
@@ -48,8 +95,9 @@ export class ChangelogEntryCard {
     const summaryPara = el('p', 'tok-changelog-entry-summary', undefined, summaryText);
     this.element.appendChild(summaryPara);
 
-    // Changes List
-    if (this.entry.changes && this.entry.changes.length > 0) {
+    // Changes List (accordion expandable)
+    if (this.isExpanded && this.entry.changes && this.entry.changes.length > 0) {
+      const expandable = el('div', 'tok-changelog-expandable');
       const changesList = el('ul', 'tok-changelog-changes-list');
 
       for (const item of this.entry.changes) {
@@ -63,7 +111,8 @@ export class ChangelogEntryCard {
         changesList.appendChild(li);
       }
 
-      this.element.appendChild(changesList);
+      expandable.appendChild(changesList);
+      this.element.appendChild(expandable);
     }
   }
 

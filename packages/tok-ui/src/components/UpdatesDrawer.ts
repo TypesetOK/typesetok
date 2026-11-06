@@ -199,8 +199,10 @@ export class UpdatesDrawer {
       return;
     }
 
-    for (const entry of entries) {
-      const card = new ChangelogEntryCard(entry);
+    for (let idx = 0; idx < entries.length; idx++) {
+      const entry = entries[idx];
+      const isCurrent = idx === 0;
+      const card = new ChangelogEntryCard(entry, { isCurrent, defaultExpanded: isCurrent });
       this.cardsContainer.appendChild(card.element);
     }
   }

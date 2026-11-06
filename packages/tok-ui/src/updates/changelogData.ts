@@ -494,11 +494,7 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         }
       }
     ],
-    "highlights": [],
-    "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
-    }
+    "highlights": []
   },
   {
     "version": "0.30.0",

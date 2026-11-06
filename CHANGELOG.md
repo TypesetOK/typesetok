@@ -114,7 +114,6 @@
 
 ## [0.30.4] - 2026-10-30
 - **Importance**: minor
-- **Badge**: עברית: גרסה נוכחית | en: Current Version
 - **Title**: עברית: עדכון שיפורים, טיפוגרפיה ותאימות מקלדת | en: Enhancements, Hebrew Typography & Keyboard Usability
 - **Summary**: עברית: עדכון זה מביא תמיכה מלאה במשקלי גופן (Regular/Bold) בסרגל המבנה ובקנבס, שיפור במקשי קיצור במקלדת עברית ותיקוני יציבות. | en: This update brings font weight support (Regular/Bold) across inspector and canvas, Hebrew keyboard shortcut compatibility, and stability fixes.
 

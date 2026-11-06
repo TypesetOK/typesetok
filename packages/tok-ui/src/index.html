@@ -537,7 +537,15 @@
     /* ==========================================================================
        Story editor & split view
        ========================================================================== */
-    .tok-story-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--tok-bg-surface-1); }
+    .tok-story-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--tok-bg-surface-1); container-type: inline-size; }
+    .tok-split .tok-story-toolbar {
+      height: auto; min-height: 42px; flex-wrap: wrap; padding: 6px 12px; gap: 6px; row-gap: 6px; align-items: center;
+    }
+    @container (max-width: 780px) {
+      .tok-story-toolbar {
+        height: auto; min-height: 42px; flex-wrap: wrap; padding: 6px 12px; gap: 6px; row-gap: 6px; align-items: center;
+      }
+    }
     .tok-story-toolbar {
       height: 46px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px;
       border-bottom: 1px solid var(--tok-border-subtle); background: var(--tok-bg-surface-1);
@@ -1041,15 +1049,19 @@
     }
     .tok-updates-search-wrap svg {
       position: absolute;
-      inset-inline-start: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      inset-inline-start: 12px;
       color: var(--tok-text-muted);
       pointer-events: none;
+      z-index: 2;
     }
     .tok-updates-search-input {
       width: 100%;
-      padding-inline-start: 32px;
+      box-sizing: border-box;
+      padding-inline-start: 36px;
       padding-inline-end: 12px;
-      height: 34px;
+      height: 36px;
       font-size: 13px;
     }
     .tok-updates-filter-chips {
@@ -1137,6 +1149,30 @@
       font-size: 11.5px;
       color: var(--tok-text-muted);
     }
+    .tok-changelog-header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tok-changelog-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--tok-text-secondary);
+      background: var(--tok-bg-surface-3);
+      border: 1px solid var(--tok-border-subtle);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .tok-changelog-toggle-btn:hover {
+      background: var(--tok-bg-surface-2);
+      color: var(--tok-text-primary);
+      border-color: var(--tok-border-strong);
+    }
     .tok-changelog-entry-title {
       font-size: 13.5px;
       font-weight: 600;
@@ -1159,10 +1195,10 @@
     }
     .tok-changelog-change-item {
       display: flex;
-      align-items: flex-start;
-      gap: 8px;
+      align-items: baseline;
+      gap: 12px;
       font-size: 12px;
-      line-height: 1.45;
+      line-height: 1.5;
     }
     .tok-changelog-change-text {
       flex: 1;
@@ -1173,12 +1209,18 @@
     .tok-update-pill {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 4px;
-      padding: 2px 7px;
+      padding: 2px 8px;
       border-radius: 10px;
       font-size: 11px;
       font-weight: 600;
+      width: 82px;
+      min-width: 82px;
+      max-width: 82px;
       flex-shrink: 0;
+      text-align: center;
+      box-sizing: border-box;
     }
     .tok-update-pill-features { background: rgba(124, 58, 237, 0.12); color: #7c3aed; }
     .tok-update-pill-typography { background: rgba(180, 83, 9, 0.12); color: #b45309; }
