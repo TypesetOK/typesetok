@@ -34,6 +34,7 @@ export interface ParagraphStylePatch {
   indentEndPt?: number;
   alignment?: 'Justified' | 'Right' | 'Left' | 'Center';
   direction?: 'Rtl' | 'Ltr';
+  color?: string;
 }
 
 export interface StoryParagraph {

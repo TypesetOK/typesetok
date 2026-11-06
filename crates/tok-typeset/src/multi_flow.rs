@@ -212,20 +212,19 @@ impl MultiFlowSolver {
     ) -> (Vec<&FlowGeometrySpec>, ColumnWidthDistribution) {
         let num_cols = flows.len();
 
-        // Check for custom width ratios
-        if flows.iter().any(|f| f.width_ratio.is_some()) {
-            let ratios: Vec<f32> = flows
-                .iter()
-                .map(|f| f.width_ratio.unwrap_or(1.0 / num_cols as f32))
-                .collect();
-            return (
-                flows.iter().collect(),
-                ColumnWidthDistribution::Proportional(ratios),
-            );
-        }
+        let is_talmud_or_rabbinic = flows.iter().any(|f| {
+            let id = f.flow_id.0.as_str();
+            id == "gemara"
+                || id == "main"
+                || id == "rashi"
+                || id == "tosafot"
+                || id == "torah"
+                || id == "targum"
+                || id == "ramban"
+        });
 
         // 2-stream: (Primary 60%, Secondary 40%)
-        if num_cols == 2 {
+        if num_cols == 2 && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some())) {
             let primary_idx = flows
                 .iter()
                 .position(|f| f.role == FlowPlacementRole::Primary || f.priority == 1)
@@ -235,12 +234,16 @@ impl MultiFlowSolver {
             let is_inner_secondary = flows[secondary_idx].role == FlowPlacementRole::InnerSpine
                 || flows[secondary_idx].priority == 2;
 
-            let (left_idx, right_idx, left_ratio, right_ratio) = match (side, is_inner_secondary) {
-                (SpreadSide::Recto, true) | (SpreadSide::Verso, false) => {
-                    (secondary_idx, primary_idx, 0.40, 0.60)
-                }
-                _ => (primary_idx, secondary_idx, 0.60, 0.40),
-            };
+            let (left_idx, right_idx, def_left_ratio, def_right_ratio) =
+                match (side, is_inner_secondary) {
+                    (SpreadSide::Recto, true) | (SpreadSide::Verso, false) => {
+                        (secondary_idx, primary_idx, 0.40, 0.60)
+                    }
+                    _ => (primary_idx, secondary_idx, 0.60, 0.40),
+                };
+
+            let left_ratio = flows[left_idx].width_ratio.unwrap_or(def_left_ratio);
+            let right_ratio = flows[right_idx].width_ratio.unwrap_or(def_right_ratio);
 
             let ordered = vec![&flows[left_idx], &flows[right_idx]];
             let dist = ColumnWidthDistribution::Proportional(vec![left_ratio, right_ratio]);
@@ -248,36 +251,149 @@ impl MultiFlowSolver {
         }
 
         // 3-stream: Talmud layout (Main 40%, Inner 28%, Outer 32%)
-        if num_cols == 3 {
+        if num_cols == 3 && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some())) {
             let main_idx = flows
                 .iter()
                 .position(|f| FlowRole::of(f) == FlowRole::Main)
                 .unwrap_or(0);
             let rashi_idx = flows
                 .iter()
-                .position(|f| FlowRole::of(f) == FlowRole::Rashi)
-                .unwrap_or(1);
+                .position(|f| {
+                    FlowRole::of(f) == FlowRole::Rashi
+                        && f.priority != flows[main_idx].priority
+                })
+                .unwrap_or_else(|| {
+                    flows
+                        .iter()
+                        .enumerate()
+                        .position(|(i, _)| i != main_idx)
+                        .unwrap_or(1)
+                });
             let tosafot_idx = flows
                 .iter()
-                .position(|f| FlowRole::of(f) == FlowRole::Tosafot)
-                .unwrap_or(2);
+                .position(|f| {
+                    FlowRole::of(f) == FlowRole::Tosafot
+                        && f.priority != flows[main_idx].priority
+                        && f.priority != flows[rashi_idx].priority
+                })
+                .unwrap_or_else(|| {
+                    flows
+                        .iter()
+                        .enumerate()
+                        .position(|(i, _)| i != main_idx && i != rashi_idx)
+                        .unwrap_or(2)
+                });
 
-            let (left_idx, right_idx, left_ratio, right_ratio) = match side {
+            let (left_idx, right_idx, def_left_ratio, def_right_ratio) = match side {
                 SpreadSide::Verso => (tosafot_idx, rashi_idx, 0.32, 0.28),
                 SpreadSide::Recto => (rashi_idx, tosafot_idx, 0.28, 0.32),
             };
 
+            let left_ratio = flows[left_idx].width_ratio.unwrap_or(def_left_ratio);
+            let main_ratio = flows[main_idx].width_ratio.unwrap_or(0.40);
+            let right_ratio = flows[right_idx].width_ratio.unwrap_or(def_right_ratio);
+
             let ordered = vec![&flows[left_idx], &flows[main_idx], &flows[right_idx]];
-            let dist = ColumnWidthDistribution::Proportional(vec![left_ratio, 0.40, right_ratio]);
+            let dist = ColumnWidthDistribution::Proportional(vec![left_ratio, main_ratio, right_ratio]);
             return (ordered, dist);
         }
 
-        // 4-stream: Mikraot Gedolot / 4 columns
-        if num_cols == 4 {
-            let ratios = match side {
-                SpreadSide::Recto => vec![0.24, 0.36, 0.22, 0.18],
-                SpreadSide::Verso => vec![0.18, 0.22, 0.36, 0.24],
+        // 4-stream: Mikraot Gedolot / 4 columns (Scripture center, commentaries surrounding)
+        if num_cols == 4 && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some())) {
+            let primary_idx = flows
+                .iter()
+                .position(|f| {
+                    f.role == FlowPlacementRole::Primary
+                        || f.priority == 1
+                        || f.flow_id.0 == "gemara"
+                        || f.flow_id.0 == "main"
+                        || f.flow_id.0 == "torah"
+                })
+                .unwrap_or(0);
+
+            let inner_idx = flows
+                .iter()
+                .enumerate()
+                .position(|(i, f)| {
+                    i != primary_idx
+                        && (f.role == FlowPlacementRole::InnerSpine
+                            || f.priority == 2
+                            || f.flow_id.0 == "rashi")
+                })
+                .unwrap_or_else(|| {
+                    flows
+                        .iter()
+                        .enumerate()
+                        .position(|(i, _)| i != primary_idx)
+                        .unwrap_or(1)
+                });
+
+            let targum_idx = flows
+                .iter()
+                .enumerate()
+                .position(|(i, f)| {
+                    i != primary_idx
+                        && i != inner_idx
+                        && (f.priority == 3
+                            || f.flow_id.0 == "tosafot"
+                            || f.flow_id.0 == "targum"
+                            || f.flow_id.0 == "onkelos")
+                })
+                .unwrap_or_else(|| {
+                    flows
+                        .iter()
+                        .enumerate()
+                        .position(|(i, _)| i != primary_idx && i != inner_idx)
+                        .unwrap_or(2)
+                });
+
+            let outer_idx = flows
+                .iter()
+                .enumerate()
+                .position(|(i, f)| {
+                    i != primary_idx
+                        && i != inner_idx
+                        && i != targum_idx
+                        && (f.role == FlowPlacementRole::OuterMargin
+                            || f.priority == 4
+                            || f.flow_id.0 == "notes"
+                            || f.flow_id.0 == "ramban")
+                })
+                .unwrap_or_else(|| {
+                    flows
+                        .iter()
+                        .enumerate()
+                        .position(|(i, _)| i != primary_idx && i != inner_idx && i != targum_idx)
+                        .unwrap_or(3)
+                });
+
+            let (c0, c1, c2, c3, def0, def1, def2, def3) = match side {
+                SpreadSide::Recto => (
+                    inner_idx, primary_idx, targum_idx, outer_idx,
+                    0.24, 0.36, 0.22, 0.18,
+                ),
+                SpreadSide::Verso => (
+                    outer_idx, targum_idx, primary_idx, inner_idx,
+                    0.18, 0.22, 0.36, 0.24,
+                ),
             };
+
+            let r0 = flows[c0].width_ratio.unwrap_or(def0);
+            let r1 = flows[c1].width_ratio.unwrap_or(def1);
+            let r2 = flows[c2].width_ratio.unwrap_or(def2);
+            let r3 = flows[c3].width_ratio.unwrap_or(def3);
+
+            let ordered = vec![&flows[c0], &flows[c1], &flows[c2], &flows[c3]];
+            let dist = ColumnWidthDistribution::Proportional(vec![r0, r1, r2, r3]);
+            return (ordered, dist);
+        }
+
+        // Check for custom width ratios on generic N columns
+        if flows.iter().any(|f| f.width_ratio.is_some()) {
+            let ratios: Vec<f32> = flows
+                .iter()
+                .map(|f| f.width_ratio.unwrap_or(1.0 / num_cols as f32))
+                .collect();
             return (
                 flows.iter().collect(),
                 ColumnWidthDistribution::Proportional(ratios),
@@ -803,8 +919,10 @@ mod tests {
             SpreadSide::Recto,
         );
         let rashi_recto = recto.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
+        let main_recto = recto.iter().find(|a| a.flow_id.0 == "main").unwrap();
         let tosafot_recto = recto.iter().find(|a| a.flow_id.0 == "tosafot").unwrap();
-        assert!(rashi_recto.allocated_x_pt < tosafot_recto.allocated_x_pt);
+        assert!(rashi_recto.allocated_x_pt < main_recto.allocated_x_pt);
+        assert!(main_recto.allocated_x_pt < tosafot_recto.allocated_x_pt);
 
         // Verso (Left page): Rashi should be on the RIGHT (inner margin near spine)
         let verso = MultiFlowSolver::solve_talmud_spread(
@@ -817,8 +935,58 @@ mod tests {
             SpreadSide::Verso,
         );
         let rashi_verso = verso.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
+        let main_verso = verso.iter().find(|a| a.flow_id.0 == "main").unwrap();
         let tosafot_verso = verso.iter().find(|a| a.flow_id.0 == "tosafot").unwrap();
-        assert!(rashi_verso.allocated_x_pt > tosafot_verso.allocated_x_pt);
+        assert!(tosafot_verso.allocated_x_pt < main_verso.allocated_x_pt);
+        assert!(main_verso.allocated_x_pt < rashi_verso.allocated_x_pt);
+    }
+
+    #[test]
+    fn test_talmud_and_mikraot_central_stream_with_width_ratios() {
+        // Test 3-stream Talmud with explicit width ratios: Main must remain in the center!
+        let talmud_ratios = vec![
+            spec("gemara", 1).with_width_ratio(0.40),
+            spec("rashi", 2).with_width_ratio(0.28),
+            spec("tosafot", 3).with_width_ratio(0.32),
+        ];
+        let recto3 = MultiFlowSolver::solve_talmud_spread(
+            595.0, 842.0, 40.0, 20.0, 36.0, &talmud_ratios, SpreadSide::Recto,
+        );
+        let g3_r = recto3.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
+        let r3_r = recto3.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
+        let t3_r = recto3.iter().find(|a| a.flow_id.0 == "tosafot").unwrap();
+        assert!(r3_r.allocated_x_pt < g3_r.allocated_x_pt, "Rashi must be left of Gemara on Recto");
+        assert!(g3_r.allocated_x_pt < t3_r.allocated_x_pt, "Gemara must be left of Tosafot on Recto");
+
+        let verso3 = MultiFlowSolver::solve_talmud_spread(
+            595.0, 842.0, 40.0, 20.0, 36.0, &talmud_ratios, SpreadSide::Verso,
+        );
+        let g3_v = verso3.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
+        let r3_v = verso3.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
+        let t3_v = verso3.iter().find(|a| a.flow_id.0 == "tosafot").unwrap();
+        assert!(t3_v.allocated_x_pt < g3_v.allocated_x_pt, "Tosafot must be left of Gemara on Verso");
+        assert!(g3_v.allocated_x_pt < r3_v.allocated_x_pt, "Gemara must be left of Rashi on Verso");
+
+        // Test 4-stream Mikraot Gedolot: Torah/Mikra (gemara flow id) must be in the central primary column!
+        let mikraot_flows = vec![
+            spec("gemara", 1).with_width_ratio(0.36),
+            spec("rashi", 2).with_width_ratio(0.24),
+            spec("tosafot", 3).with_width_ratio(0.22),
+            spec("notes", 4).with_width_ratio(0.18),
+        ];
+        let recto4 = MultiFlowSolver::solve_generic_spread(
+            595.0, 842.0, 40.0, 20.0, 36.0, &mikraot_flows, SpreadSide::Recto,
+        );
+        let g4_r = recto4.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
+        let r4_r = recto4.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
+        assert!(r4_r.allocated_x_pt < g4_r.allocated_x_pt, "Rashi must be on left spine margin, Torah central on Recto");
+
+        let verso4 = MultiFlowSolver::solve_generic_spread(
+            595.0, 842.0, 40.0, 20.0, 36.0, &mikraot_flows, SpreadSide::Verso,
+        );
+        let g4_v = verso4.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
+        let r4_v = verso4.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
+        assert!(g4_v.allocated_x_pt < r4_v.allocated_x_pt, "Torah central, Rashi on right spine margin on Verso");
     }
 
     #[test]

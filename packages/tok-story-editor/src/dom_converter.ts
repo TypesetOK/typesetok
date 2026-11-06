@@ -52,6 +52,12 @@ export function applyPatchToElement(pEl: HTMLElement, patch?: ParagraphStylePatc
   if (patch.fontWeight !== undefined) {
     pEl.style.fontWeight = String(patch.fontWeight);
   }
+  if (patch.lineHeightPt !== undefined) {
+    pEl.style.lineHeight = `${patch.lineHeightPt}pt`;
+  }
+  if (patch.color) {
+    pEl.style.color = patch.color;
+  }
 }
 
 /** Extracts a ParagraphStylePatch from a paragraph DOM element */
@@ -89,6 +95,51 @@ export function extractPatchFromElement(pEl: HTMLElement): ParagraphStylePatch |
   const marginEnd = pEl.style.marginInlineEnd;
   if (marginEnd && marginEnd.endsWith('pt')) {
     patch.indentEndPt = parseFloat(marginEnd);
+    hasPatch = true;
+  }
+
+  const marginTop = pEl.style.marginTop;
+  if (marginTop && marginTop.endsWith('pt')) {
+    patch.spaceBeforePt = parseFloat(marginTop);
+    hasPatch = true;
+  }
+
+  const marginBottom = pEl.style.marginBottom;
+  if (marginBottom && marginBottom.endsWith('pt')) {
+    patch.spaceAfterPt = parseFloat(marginBottom);
+    hasPatch = true;
+  }
+
+  const fontFamily = pEl.style.fontFamily;
+  if (fontFamily) {
+    patch.fontFamily = fontFamily.replace(/^['"]|['"]$/g, '');
+    hasPatch = true;
+  }
+
+  const fontSize = pEl.style.fontSize;
+  if (fontSize && (fontSize.endsWith('pt') || fontSize.endsWith('px'))) {
+    const val = parseFloat(fontSize);
+    patch.fontSizePt = fontSize.endsWith('px') ? Math.round(val * 0.75 * 10) / 10 : val;
+    hasPatch = true;
+  }
+
+  const fontWeight = pEl.style.fontWeight;
+  if (fontWeight) {
+    const val = parseInt(fontWeight, 10);
+    patch.fontWeight = isNaN(val) ? (fontWeight === 'bold' ? 700 : 400) : val;
+    hasPatch = true;
+  }
+
+  const lineHeight = pEl.style.lineHeight;
+  if (lineHeight && (lineHeight.endsWith('pt') || lineHeight.endsWith('px'))) {
+    const val = parseFloat(lineHeight);
+    patch.lineHeightPt = lineHeight.endsWith('px') ? Math.round(val * 0.75 * 10) / 10 : val;
+    hasPatch = true;
+  }
+
+  const color = pEl.style.color;
+  if (color) {
+    patch.color = color;
     hasPatch = true;
   }
 
