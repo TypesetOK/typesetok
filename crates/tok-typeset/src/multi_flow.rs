@@ -224,7 +224,9 @@ impl MultiFlowSolver {
         });
 
         // 2-stream: (Primary 60%, Secondary 40%)
-        if num_cols == 2 && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some())) {
+        if num_cols == 2
+            && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some()))
+        {
             let primary_idx = flows
                 .iter()
                 .position(|f| f.role == FlowPlacementRole::Primary || f.priority == 1)
@@ -251,7 +253,9 @@ impl MultiFlowSolver {
         }
 
         // 3-stream: Talmud layout (Main 40%, Inner 28%, Outer 32%)
-        if num_cols == 3 && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some())) {
+        if num_cols == 3
+            && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some()))
+        {
             let main_idx = flows
                 .iter()
                 .position(|f| FlowRole::of(f) == FlowRole::Main)
@@ -259,8 +263,7 @@ impl MultiFlowSolver {
             let rashi_idx = flows
                 .iter()
                 .position(|f| {
-                    FlowRole::of(f) == FlowRole::Rashi
-                        && f.priority != flows[main_idx].priority
+                    FlowRole::of(f) == FlowRole::Rashi && f.priority != flows[main_idx].priority
                 })
                 .unwrap_or_else(|| {
                     flows
@@ -294,12 +297,15 @@ impl MultiFlowSolver {
             let right_ratio = flows[right_idx].width_ratio.unwrap_or(def_right_ratio);
 
             let ordered = vec![&flows[left_idx], &flows[main_idx], &flows[right_idx]];
-            let dist = ColumnWidthDistribution::Proportional(vec![left_ratio, main_ratio, right_ratio]);
+            let dist =
+                ColumnWidthDistribution::Proportional(vec![left_ratio, main_ratio, right_ratio]);
             return (ordered, dist);
         }
 
         // 4-stream: Mikraot Gedolot / 4 columns (Scripture center, commentaries surrounding)
-        if num_cols == 4 && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some())) {
+        if num_cols == 4
+            && (is_talmud_or_rabbinic || !flows.iter().any(|f| f.width_ratio.is_some()))
+        {
             let primary_idx = flows
                 .iter()
                 .position(|f| {
@@ -369,12 +375,24 @@ impl MultiFlowSolver {
 
             let (c0, c1, c2, c3, def0, def1, def2, def3) = match side {
                 SpreadSide::Recto => (
-                    inner_idx, primary_idx, targum_idx, outer_idx,
-                    0.24, 0.36, 0.22, 0.18,
+                    inner_idx,
+                    primary_idx,
+                    targum_idx,
+                    outer_idx,
+                    0.24,
+                    0.36,
+                    0.22,
+                    0.18,
                 ),
                 SpreadSide::Verso => (
-                    outer_idx, targum_idx, primary_idx, inner_idx,
-                    0.18, 0.22, 0.36, 0.24,
+                    outer_idx,
+                    targum_idx,
+                    primary_idx,
+                    inner_idx,
+                    0.18,
+                    0.22,
+                    0.36,
+                    0.24,
                 ),
             };
 
@@ -950,22 +968,46 @@ mod tests {
             spec("tosafot", 3).with_width_ratio(0.32),
         ];
         let recto3 = MultiFlowSolver::solve_talmud_spread(
-            595.0, 842.0, 40.0, 20.0, 36.0, &talmud_ratios, SpreadSide::Recto,
+            595.0,
+            842.0,
+            40.0,
+            20.0,
+            36.0,
+            &talmud_ratios,
+            SpreadSide::Recto,
         );
         let g3_r = recto3.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
         let r3_r = recto3.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
         let t3_r = recto3.iter().find(|a| a.flow_id.0 == "tosafot").unwrap();
-        assert!(r3_r.allocated_x_pt < g3_r.allocated_x_pt, "Rashi must be left of Gemara on Recto");
-        assert!(g3_r.allocated_x_pt < t3_r.allocated_x_pt, "Gemara must be left of Tosafot on Recto");
+        assert!(
+            r3_r.allocated_x_pt < g3_r.allocated_x_pt,
+            "Rashi must be left of Gemara on Recto"
+        );
+        assert!(
+            g3_r.allocated_x_pt < t3_r.allocated_x_pt,
+            "Gemara must be left of Tosafot on Recto"
+        );
 
         let verso3 = MultiFlowSolver::solve_talmud_spread(
-            595.0, 842.0, 40.0, 20.0, 36.0, &talmud_ratios, SpreadSide::Verso,
+            595.0,
+            842.0,
+            40.0,
+            20.0,
+            36.0,
+            &talmud_ratios,
+            SpreadSide::Verso,
         );
         let g3_v = verso3.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
         let r3_v = verso3.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
         let t3_v = verso3.iter().find(|a| a.flow_id.0 == "tosafot").unwrap();
-        assert!(t3_v.allocated_x_pt < g3_v.allocated_x_pt, "Tosafot must be left of Gemara on Verso");
-        assert!(g3_v.allocated_x_pt < r3_v.allocated_x_pt, "Gemara must be left of Rashi on Verso");
+        assert!(
+            t3_v.allocated_x_pt < g3_v.allocated_x_pt,
+            "Tosafot must be left of Gemara on Verso"
+        );
+        assert!(
+            g3_v.allocated_x_pt < r3_v.allocated_x_pt,
+            "Gemara must be left of Rashi on Verso"
+        );
 
         // Test 4-stream Mikraot Gedolot: Torah/Mikra (gemara flow id) must be in the central primary column!
         let mikraot_flows = vec![
@@ -975,18 +1017,36 @@ mod tests {
             spec("notes", 4).with_width_ratio(0.18),
         ];
         let recto4 = MultiFlowSolver::solve_generic_spread(
-            595.0, 842.0, 40.0, 20.0, 36.0, &mikraot_flows, SpreadSide::Recto,
+            595.0,
+            842.0,
+            40.0,
+            20.0,
+            36.0,
+            &mikraot_flows,
+            SpreadSide::Recto,
         );
         let g4_r = recto4.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
         let r4_r = recto4.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
-        assert!(r4_r.allocated_x_pt < g4_r.allocated_x_pt, "Rashi must be on left spine margin, Torah central on Recto");
+        assert!(
+            r4_r.allocated_x_pt < g4_r.allocated_x_pt,
+            "Rashi must be on left spine margin, Torah central on Recto"
+        );
 
         let verso4 = MultiFlowSolver::solve_generic_spread(
-            595.0, 842.0, 40.0, 20.0, 36.0, &mikraot_flows, SpreadSide::Verso,
+            595.0,
+            842.0,
+            40.0,
+            20.0,
+            36.0,
+            &mikraot_flows,
+            SpreadSide::Verso,
         );
         let g4_v = verso4.iter().find(|a| a.flow_id.0 == "gemara").unwrap();
         let r4_v = verso4.iter().find(|a| a.flow_id.0 == "rashi").unwrap();
-        assert!(g4_v.allocated_x_pt < r4_v.allocated_x_pt, "Torah central, Rashi on right spine margin on Verso");
+        assert!(
+            g4_v.allocated_x_pt < r4_v.allocated_x_pt,
+            "Torah central, Rashi on right spine margin on Verso"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 {
   "name": "tok-electron",
-  "version": "0.34.3",
+  "version": "0.34.9",
   "license": "SEE LICENSE IN LICENSE.md",
   "main": "dist/main.js",
   "scripts": {

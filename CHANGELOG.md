@@ -5,9 +5,39 @@
 
 ---
 
-## [0.34.4] - 2026-11-06
+## [0.34.9] - 2026-11-06
 - **Importance**: minor
 - **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Title**: עברית: טיפוגרפיה מסורתית מקראית, מערך הערות רב-שכבתי, יחסי תזרימים דינמיים וסנכרון עיצוב חי | en: Biblical Masoretic Typography, Multi-Apparatus Footnotes, Dynamic Rabbinic Flow Ratios & Live Styling Pipeline
+- **Summary**: עברית: שחרור גרסה 0.34.9 המשלב תמיכה טיפוגרפית מלאה בטקסט מקראי ומסורתי (נון הפוכה, פסיק, מתג, טעמי המקרא וגליפים מקראיים ב-OpenType), פריסת הערות רב-שכבתית מקבילה (מספר מנגנוני הערות ופירושים נפרדים בתחתית העמוד), יחסי תזרימים גמישים לעימוד תלמודי ורבני רב-טורי, שימור עיצובים וטלאי טיפוגרפיה בעורך הרציף, וסנכרון מלא של צינור הסגנונות בין סרגל המאפיינים, סרגל הכלים והקנבס. | en: Release 0.34.9 delivering complete Masoretic biblical typography (Nun Hafukha, Paseq, Meteg, cantillation marks and biblical OpenType shaping variants), parallel multi-apparatus footnote layouts, flexible multi-flow column width proportions for Talmudic and rabbinic spreads, persistent typography patches in story DOM, and unified live styling pipeline across inspector, toolbar, and canvas.
+
+### Highlights
+- [masoretic-typography] icon: typography | badge: עברית: טיפוגרפיה מקראית, en: Masoretic Typography
+  - Title: עברית: טיפוגרפיה מקראית ומסורתית מתקדמת | en: Advanced Biblical Masoretic Typography
+  - Description: עברית: עיצוב מדויק של תווי מסורה עבריים כולל נון הפוכה, פסיק, מתג עליון ותחתון, כללי הצמדת טעמים והחלת תכונות OpenType ייעודיות לטקסט מקראי. | en: Native biblical Hebrew shaping support including Nun Hafukha, Paseq, upper/lower Meteg, cantillation anchoring, and biblical OpenType font features.
+- [multi-apparatus] icon: layers | badge: עברית: מערך הערות מקבילי, en: Multi-Apparatus
+  - Title: עברית: מערך הערות שוליים רב-שכבתי ומקבילי | en: Parallel Multi-Apparatus Footnote Bands
+  - Description: עברית: תמיכה במגוון מנגנוני הערות מקבילים על אותו עמוד (הערות שוליים, ביאורים ומראי מקומות) עם סימונים עצמאיים והקצאת גובה מאוזנת. | en: Multiple simultaneous parallel footnote bands on the same page (notes, glosses, critical apparatus) with distinct numbering schemes and balanced height allocation.
+- [rabbinic-flow-ratios] icon: flows | badge: עברית: יחסי תזרימים, en: Flow Ratios
+  - Title: עברית: יחסי רוחב דינמיים לתזרימים רבניים | en: Dynamic Flow Width Ratios for Rabbinic Layouts
+  - Description: עברית: שליטה מדויקת ביחסי רוחב עמודות בעימוד ש"ס ומקראות גדולות (2, 3 ו-4 תזרימים) תוך שמירה מלאה על עקרון שדרה-שוליים recto/verso. | en: Precise column width ratio distribution for 2, 3, and 4 stream Talmudic and Mikraot Gedolot spreads with full recto/verso spine-margin symmetry.
+- [live-styling-pipeline] icon: sliders | badge: עברית: סנכרון סגנונות חי, en: Live Styling
+  - Title: עברית: סנכרון סגנונות וטיפוגרפיה חי בין הרכיבים | en: Real-Time Styling Pipeline Synchronization
+  - Description: עברית: חיבור ישיר ורציף בין עריכת סגנונות בסרגל המאפיינים, פקדי הטיפוגרפיה בסרגל העליון, והקרנת ה-DOM בקנבס עם שימור טלאי עיצוב ב-Story DOM. | en: Continuous bidirectional synchronization between inspector properties, toolbar typography controls, and canvas DOM projection with lossless patch preservation.
+
+### Changes
+- [features] עברית: תמיכה טיפוגרפית מקיפה בטעמי המקרא, פסיק, מתג ונון הפוכה במנועי העיצוב והקדם-דפוס | en: Comprehensive biblical typography with cantillation marks, paseq, meteg, and nun hafukha in shaping and pre-press pipelines
+- [features] עברית: פריסת הערות רב-שכבתית מקבילה (Multi-Apparatus) עם הגדרות גובה, קווי הפרדה ומספור עצמאי | en: Parallel multi-apparatus footnote layout supporting distinct apparatus configurations, custom separators, and independent numbering
+- [features] עברית: חלוקת רוחב עמודות פרופורציונלית מותאמת אישית בתבניות 2, 3 ו-4 תזרימים (ש"ס ומקראות גדולות) | en: Proportional column width distribution in 2, 3, and 4 stream layouts with custom width ratios and recto/verso spine tracking
+- [improvements] עברית: שימור טלאי טיפוגרפיה ועיצוב מקומי בעת המרת DOM בעורך הסיפור הרציף (Story DOM) | en: Preservation of typography patches and inline span styling during bidirectional DOM conversion in story editor
+- [improvements] עברית: סנכרון חי של שינויי פונט, גודל, ריווח ויישור ישירות מקנבס העריכה ומסרגל המאפיינים | en: Real-time synchronization of font family, size, leading, tracking, and alignment directly from editor canvas and inspector
+- [fixes] עברית: תיקון דרישות עיצוב קוד ב-CI ב-Rustfmt ושמירה על יציבות מלאה של צינור הבדיקות האוטומטי | en: Fix Rustfmt formatting compliance across crates/tok-typeset for CI stability
+
+---
+
+## [0.34.4] - 2026-11-06
+- **Importance**: minor
+- **Badge**: עברית: גרסה קודמת | en: Previous Version
 - **Title**: עברית: הזזה חופשית ונעילת תיבות בעורך, תזרימים מותאמים אישית (טורים מפוצלים), סינון סגנונות ובחירת תבנית מודרכת | en: Free Frame Movement & Locking, Custom Flows with Split Edge Layout, Active Flow Style Filtering & Guided Template Creation
 - **Summary**: עברית: שחרור גרסה 0.34.4 המוסיף שליטה ישירה ואינטואיטיבית בתיבות טקסט על גבי הקנבס כולל גרירה חופשית ונעילת מיקום, אפשרות הוספת תזרימים מותאמים אישית עם תמיכה בבלוקים מפוצלים בקצוות הזורמים לפי גובה, סינון סגנונות ממוקד לפי התבנית הפעילה, ומסלול פתיחת מסמך חדש מודרך עם בחירת תבנית מיידית והמלצה על ספר רציף. | en: Release 0.34.4 introducing direct canvas text frame dragging and location locking, custom text flow creation with split edge dual-margin block streaming by height, template-specific style filtering in structure bar, and guided new document creation with immediate template selection defaulting to continuous prose.
 

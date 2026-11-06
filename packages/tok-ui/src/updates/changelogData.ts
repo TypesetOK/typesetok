@@ -6,6 +6,133 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.34.9",
+    "releaseDate": "2026-11-06",
+    "importance": "minor",
+    "title": {
+      "he": "טיפוגרפיה מסורתית מקראית, מערך הערות רב-שכבתי, יחסי תזרימים דינמיים וסנכרון עיצוב חי",
+      "en": "Biblical Masoretic Typography, Multi-Apparatus Footnotes, Dynamic Rabbinic Flow Ratios & Live Styling Pipeline"
+    },
+    "summary": {
+      "he": "שחרור גרסה 0.34.9 המשלב תמיכה טיפוגרפית מלאה בטקסט מקראי ומסורתי (נון הפוכה, פסיק, מתג, טעמי המקרא וגליפים מקראיים ב-OpenType), פריסת הערות רב-שכבתית מקבילה (מספר מנגנוני הערות ופירושים נפרדים בתחתית העמוד), יחסי תזרימים גמישים לעימוד תלמודי ורבני רב-טורי, שימור עיצובים וטלאי טיפוגרפיה בעורך הרציף, וסנכרון מלא של צינור הסגנונות בין סרגל המאפיינים, סרגל הכלים והקנבס.",
+      "en": "Release 0.34.9 delivering complete Masoretic biblical typography (Nun Hafukha, Paseq, Meteg, cantillation marks and biblical OpenType shaping variants), parallel multi-apparatus footnote layouts, flexible multi-flow column width proportions for Talmudic and rabbinic spreads, persistent typography patches in story DOM, and unified live styling pipeline across inspector, toolbar, and canvas."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "תמיכה טיפוגרפית מקיפה בטעמי המקרא, פסיק, מתג ונון הפוכה במנועי העיצוב והקדם-דפוס",
+          "en": "Comprehensive biblical typography with cantillation marks, paseq, meteg, and nun hafukha in shaping and pre-press pipelines"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "פריסת הערות רב-שכבתית מקבילה (Multi-Apparatus) עם הגדרות גובה, קווי הפרדה ומספור עצמאי",
+          "en": "Parallel multi-apparatus footnote layout supporting distinct apparatus configurations, custom separators, and independent numbering"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "חלוקת רוחב עמודות פרופורציונלית מותאמת אישית בתבניות 2, 3 ו-4 תזרימים (ש\"ס ומקראות גדולות)",
+          "en": "Proportional column width distribution in 2, 3, and 4 stream layouts with custom width ratios and recto/verso spine tracking"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "שימור טלאי טיפוגרפיה ועיצוב מקומי בעת המרת DOM בעורך הסיפור הרציף (Story DOM)",
+          "en": "Preservation of typography patches and inline span styling during bidirectional DOM conversion in story editor"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "סנכרון חי של שינויי פונט, גודל, ריווח ויישור ישירות מקנבס העריכה ומסרגל המאפיינים",
+          "en": "Real-time synchronization of font family, size, leading, tracking, and alignment directly from editor canvas and inspector"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "תיקון דרישות עיצוב קוד ב-CI ב-Rustfmt ושמירה על יציבות מלאה של צינור הבדיקות האוטומטי",
+          "en": "Fix Rustfmt formatting compliance across crates/tok-typeset for CI stability"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "masoretic-typography",
+        "icon": "typography",
+        "title": {
+          "he": "טיפוגרפיה מקראית ומסורתית מתקדמת",
+          "en": "Advanced Biblical Masoretic Typography"
+        },
+        "description": {
+          "he": "עיצוב מדויק של תווי מסורה עבריים כולל נון הפוכה, פסיק, מתג עליון ותחתון, כללי הצמדת טעמים והחלת תכונות OpenType ייעודיות לטקסט מקראי.",
+          "en": "Native biblical Hebrew shaping support including Nun Hafukha, Paseq, upper/lower Meteg, cantillation anchoring, and biblical OpenType font features."
+        },
+        "badge": {
+          "he": "טיפוגרפיה מקראית",
+          "en": "Masoretic Typography"
+        }
+      },
+      {
+        "id": "multi-apparatus",
+        "icon": "layers",
+        "title": {
+          "he": "מערך הערות שוליים רב-שכבתי ומקבילי",
+          "en": "Parallel Multi-Apparatus Footnote Bands"
+        },
+        "description": {
+          "he": "תמיכה במגוון מנגנוני הערות מקבילים על אותו עמוד (הערות שוליים, ביאורים ומראי מקומות) עם סימונים עצמאיים והקצאת גובה מאוזנת.",
+          "en": "Multiple simultaneous parallel footnote bands on the same page (notes, glosses, critical apparatus) with distinct numbering schemes and balanced height allocation."
+        },
+        "badge": {
+          "he": "מערך הערות מקבילי",
+          "en": "Multi-Apparatus"
+        }
+      },
+      {
+        "id": "rabbinic-flow-ratios",
+        "icon": "flows",
+        "title": {
+          "he": "יחסי רוחב דינמיים לתזרימים רבניים",
+          "en": "Dynamic Flow Width Ratios for Rabbinic Layouts"
+        },
+        "description": {
+          "he": "שליטה מדויקת ביחסי רוחב עמודות בעימוד ש\"ס ומקראות גדולות (2, 3 ו-4 תזרימים) תוך שמירה מלאה על עקרון שדרה-שוליים recto/verso.",
+          "en": "Precise column width ratio distribution for 2, 3, and 4 stream Talmudic and Mikraot Gedolot spreads with full recto/verso spine-margin symmetry."
+        },
+        "badge": {
+          "he": "יחסי תזרימים",
+          "en": "Flow Ratios"
+        }
+      },
+      {
+        "id": "live-styling-pipeline",
+        "icon": "sliders",
+        "title": {
+          "he": "סנכרון סגנונות וטיפוגרפיה חי בין הרכיבים",
+          "en": "Real-Time Styling Pipeline Synchronization"
+        },
+        "description": {
+          "he": "חיבור ישיר ורציף בין עריכת סגנונות בסרגל המאפיינים, פקדי הטיפוגרפיה בסרגל העליון, והקרנת ה-DOM בקנבס עם שימור טלאי עיצוב ב-Story DOM.",
+          "en": "Continuous bidirectional synchronization between inspector properties, toolbar typography controls, and canvas DOM projection with lossless patch preservation."
+        },
+        "badge": {
+          "he": "סנכרון סגנונות חי",
+          "en": "Live Styling"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה נוכחית",
+      "en": "Current Version"
+    }
+  },
+  {
     "version": "0.34.4",
     "releaseDate": "2026-11-06",
     "importance": "minor",
@@ -112,8 +239,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       }
     ],
     "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
     }
   },
   {

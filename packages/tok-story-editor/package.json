@@ -1,6 +1,6 @@
 {
   "name": "tok-story-editor",
-  "version": "0.34.3",
+  "version": "0.34.9",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "main": "dist/index.js",

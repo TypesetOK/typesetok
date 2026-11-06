@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>תוכנת עימוד שולחנית מקצועית לעברית, רב-טקסט (מקראות גדולות וש"ס), צורת הדף חיה וקדם-דפוס</strong><br>
-  <em>גרסה 0.34.3 • ליבת Native Rust • מעטפת Electron מוקשחת • דטרמיניזם מלא</em>
+  <em>גרסה 0.34.9 • ליבת Native Rust • מעטפת Electron מוקשחת • דטרמיניזם מלא</em>
 </p>
 
 <p align="center">
@@ -31,8 +31,8 @@
        ▼  (JSON Document Snapshot / Incremental Edit)
 [tok-cli (Rust Binary Bridge)]
        │
-       ├──► [tok-core]      Canonical Document Model (TDM), B-Tree Rope, ULID, Hebrew Normalizer
-       ├──► [tok-typeset]   Unicode Bidi (UAX #9) + rustybuzz OpenType + Knuth-Plass + Cassowary + Co-Pagination
+       ├──► [tok-core]      Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
+       ├──► [tok-typeset]   Unicode Bidi (UAX #9) + Masoretic Shaper + Knuth-Plass + Multi-Apparatus + Cassowary + Co-Pagination
        │
        ▼
 [PageLayoutBox Geometry Tree (in DTP Points / pt)]
@@ -43,6 +43,7 @@
 - tok-ui: SpreadCanvas (Deterministic DOM Projection)   - tok-pdf: Direct PDF/X-1a:2001 Generator
 - tok-viewer: PageDomVirtualizer ([K-1, K, K+1] Window)   (DeviceCMYK, Spot Colors, TrimBox/BleedBox,
 - tok-canvas: CanvasInteractionOverlay (120fps Caret)      Embedded Font Subsets & /ToUnicode CMap)
+- tok-story-editor: Unpaginated Lossless Story Editor
 ```
 
 > **עיקרון הנדסי מחייב:** הדפדפן (Chromium) **אינו** מחליט היכן נשברות שורות או היכן מתפצלים עמודים, והמערכת **אינה** משתמשת בספריות Polyfill חיצוניות בדפדפן (כגון `@vivliostyle/core` או `Paged.js`). כל הגיאומטריה מחושבת ב-Rust (`tok-typeset`), מיוצאת כמבני `PageLayoutBox` ביחידות `pt` מדויקות, ומוקרנת להיטל DOM קשיח (`SpreadCanvas`) או ישירות לקובץ `PDF/X-1a`.
@@ -53,8 +54,8 @@
 
 | חבילה (Crate) | תפקיד ואחריות מרכזית |
 | :--- | :--- |
-| **`tok-core`** | מודל המסמך הקנוני (TDM): עץ מסמך אי-מוטבילי, `ropey` B-Tree Rope לטקסטים ארוכים, מזהי `ULID`, אינדוקס שברירי (`FractionalIndex`), מחסנית טרנזקציות ו-Undo/Redo דלתא, מנוע גימטריה עברית (כולל טבלת טאבו: ט״ו, ט״ז, ע״ר, ער״ב, ער״ה, רח״צ, שי״ד, נט״ש, תשי״ד ותווי `U+05F3`/`U+05F4`), ושער נרמול קלט טיפוגרפי עברי קנוני ($\text{Base} \rightarrow \text{Shin/Sin Dot} \rightarrow \text{Dagesh/Mapiq} \rightarrow \text{Niqqud} \rightarrow \text{Meteg} \rightarrow \text{Te'amim}$). |
-| **`tok-typeset`** | מנוע העימוד והטיפוגרפיה: פירוק כיווניות `unicode-bidi` (UAX #9), עיצוב גופנים OpenType ב-Rust טהור (`rustybuzz` כולל GPOS `mark`/`mkmk`), אלגוריתם שבירת שורות גלובלי **Knuth-Plass**, מדרג יישור עברי תלת-שלבי (רווחי מילים מבוקרים $\leftarrow$ מתיחת אותיות אהלתר"ם $\leftarrow$ מיקרו-טרקינג $\pm 2\%$), פותר אילוצים ליניארי (**Cassowary**) למקראות גדולות וש"ס, סינכרון רב-תזרימי (**Co-Pagination**) של טקסט ראשי ופרשנים, הערות שוליים, כותרות רצות, ואינדקס מרחבי לבדיקת פגיעה (`Hit-Testing`). |
+| **`tok-core`** | מודל המסמך הקנוני (TDM): עץ מסמך אי-מוטבילי, `ropey` B-Tree Rope לטקסטים ארוכים, מזהי `ULID`, אינדוקס שברירי (`FractionalIndex`), מחסנית טרנזקציות ו-Undo/Redo דלתא, תצורות מערך הערות רב-שכבתי (`ApparatusConfig`), טלאי עיצוב טיפוגרפיים, מנוע גימטריה עברית (כולל טבלת טאבו: ט״ו, ט״ז, ע״ר, ער״ב, ער״ה, רח״צ, שי״ד, נט״ש, תשי״ד ותווי `U+05F3`/`U+05F4`), ושער נרמול קלט טיפוגרפי עברי קנוני ($\text{Base} \rightarrow \text{Shin/Sin Dot} \rightarrow \text{Dagesh/Mapiq} \rightarrow \text{Niqqud} \rightarrow \text{Meteg} \rightarrow \text{Te'amim}$). |
+| **`tok-typeset`** | מנוע העימוד והטיפוגרפיה: שייפר מסורה וטעמי מקרא ייעודי (`MasoreticShaper`, נון הפוכה, פסיק, מתג עליון ותחתון ותכונות OpenType מקראיות), פירוק כיווניות `unicode-bidi` (UAX #9), עיצוב גופנים ב-Rust טהור (`rustybuzz` כולל GPOS `mark`/`mkmk`), אלגוריתם שבירת שורות גלובלי **Knuth-Plass**, מדרג יישור עברי תלת-שלבי (רווחי מילים מבוקרים $\leftarrow$ מתיחת אותיות אהלתר"ם $\leftarrow$ מיקרו-טרקינג $\pm 2\%$), פותר אילוצים ליניארי (**Cassowary**), חלוקת יחסי רוחב דינמיים לתזרימים רבניים (2, 3 ו-4 טורים בש"ס ומקראות גדולות תוך מעקב Recto/Verso מדויק), מנוע פריסת הערות שוליים רב-שכבתי מקבילי (`FootnotePaginator`), אותיות פתיחה עבריות (Drop Caps), ומנוע מצולעים וחיתוך Scanline לספיגת פירושים בצורת L. |
 | **`tok-pdf`** | מנוע קדם-דפוס נייטיבי (`pdf-writer`): הפקה ישירה של קובצי `PDF/X-1a:2001` (ISO 15930-1) ומצבי PDF/X-4, מרחב צבע `DeviceCMYK` וצבעי ספוט (`Separation`), תיבות דפוס תקניות (`MediaBox`, `CropBox`, `BleedBox`, `TrimBox`), סימני חיתוך ורישום (Crop & Registration Marks), שיבוץ גופנים וטבלאות `/ToUnicode` לחיפוש והעתקת טקסט עברי, ומנוע בדיקות קדם-דפוס (`Preflight`). |
 | **`tok-storage`** | מנוע אחסון כפול: סביבת עבודה חסינת-קריסות ב-**SQLite WAL** (`rusqlite`) + שמירה אטומית לקובץ חבילה `.tok` (ארכיב ZIP בדחיסת **Zstandard** הכולל `manifest.json`, `document.json`, `styles.json` ונכסים מאומתים בחתימת SHA-256). |
 | **`tok-plugin-host`** | מנוע הרחבות ותוספים דטרמיניסטי: הרצת תוספי ליבה מבוססי טרנזקציות אטומיות תחת מגבלות משאבים (`Fuel` / `Memory` / `Capabilities`), כולל תוספים מובנים לניקוי רווחים כפולים, החלת סגנון דיבור המתחיל (ד"ה) ברש"י ותוספות, ואכיפת מקף עברי (`U+05BE`). |
@@ -68,10 +69,10 @@
 | חבילה (Package) | תפקיד ואחריות מרכזית |
 | :--- | :--- |
 | **`tok-electron`** | תהליך ה-Main של Electron וגשר `preload` מוקשח (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), אימות סכמת IPC קפדני, חסימת ניווט חיצוני, וניהול קריאות תהליכי משנה אל `tok-cli`. |
-| **`tok-ui`** | סביבת העבודה השולחנית המלאה: רכיב `SpreadCanvas` להקרנת `PageLayoutBox` להיטל DOM דטרמיניסטי, גשר העימוד (`typesetBridge.ts`), עורך תבניות רב-טקסט (צורת הדף / מקראות גדולות), מנוע תוספים מוקשח (`PluginEngine`), בדיקות קדם-דפוס חיות (`Preflight`), חיפוש והחלפה (כולל סינון ניקוד וטעמים), מפתח עניינים (TOC), ומנוע היסטוריית פקודות. |
+| **`tok-ui`** | סביבת העבודה השולחנית המלאה: רכיב `SpreadCanvas` להקרנת `PageLayoutBox` להיטל DOM דטרמיניסטי, צינור סנכרון סגנונות וטיפוגרפיה חי בין סרגל המאפיינים, סרגל הכלים והקנבס, גרירה ישירה ונעילת תיבות טקסט על גבי הקנבס, הוספת תזרימים מותאמים אישית (כולל פריסת בלוקים מפוצלים בקצוות ללא חיבור ביניהם הזורמים לפי גובה), סינון סגנונות מותאם לתבנית הפעילה, מסך בחירת תבנית מודרך בפתיחת מסמך עם המלצה על ספר רציף, מערכת עדכונים ויומן שינויים ("מה חדש"), מנוע תוספים מוקשח (`PluginEngine`), ובדיקות קדם-דפוס חיות (`Preflight`). |
 | **`tok-viewer`** | מנהל הווירטואליזציה של עמודי התצוגה (`PageDomVirtualizer`): שומר ב-DOM חלון פעיל של 3 עמודים בלבד (`[K-1, K, K+1]`) ומייצג את שאר עמודי הספר כאלמנטי Spacer קלי-משקל. |
 | **`tok-canvas`** | שכבת הכיסוי הגרפית השקופה (`CanvasInteractionOverlay`): ציור סמן דו-כיווני (`Dual Caret` / `RTL Caret`), תנועת סמן אופטימית מיידית (`<16ms`), בחירה ויזואלית לא-רציפה בטקסט מעורב, ובדיקת פגיעה מרחבית (`Hit-Testing`). |
-| **`tok-story-editor`** | עורך סיפור רציף (`Unpaginated Story Editor`) לעריכת תוכן מהירה ללא תקורת עימוד רב-עמודי, עם סנכרון דו-כיווני מלא מול תצוגת העמודים. |
+| **`tok-story-editor`** | עורך סיפור רציף (`Unpaginated Story Editor`) לעריכת תוכן מהירה ללא תקורת עימוד רב-עמודי, עם המרת DOM דו-כיוונית ללא אובדן נתונים, ושימור מלא של טלאי עיצוב וסגנונות מקומיים. |
 
 ---
 
@@ -149,11 +150,11 @@ cargo test --workspace
 # 2. בדיקת קומפילציה וטיפוסים קפדנית בכל 5 חבילות ה-TypeScript
 npm run lint
 
-# 3. הרצת חבילת הבדיקות של ה-Frontend, הגימטריה, הווירטואליזציה, ה-Canvas והאבטחה (95 בדיקות)
+# 3. הרצת חבילת הבדיקות של ה-Frontend, הגימטריה, הווירטואליזציה, ה-Canvas, ה-Story Editor, מערכת העדכונים והאבטחה (240 בדיקות מקיפות)
 npm test
 
-# 4. הרצת סוויטת הבדיקות מקצה לקצה (4-Tier E2E Verification Suite)
-node test/run_e2e_suite.mjs
+# 4. אימות דטרמיניזם ביט-לביט (Bit-for-Bit Determinism)
+cargo run -p tok-cli -- verify-determinism
 ```
 
 ---
