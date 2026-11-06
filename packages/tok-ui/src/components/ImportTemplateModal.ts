@@ -53,6 +53,7 @@ export class ImportTemplateModal {
   private callbacks: ImportTemplateModalCallbacks;
   private currentResult: ImportResult | null = null;
   private isVisible = false;
+  private isNewDocument = false;
 
   constructor(callbacks: ImportTemplateModalCallbacks) {
     this.callbacks = callbacks;
@@ -65,7 +66,8 @@ export class ImportTemplateModal {
     });
   }
 
-  public show(result: ImportResult): void {
+  public show(result: ImportResult, options?: { isNewDocument?: boolean }): void {
+    this.isNewDocument = Boolean(options?.isNewDocument);
     this.currentResult = result;
     this.isVisible = true;
     this.element.dir = i18n.getDirection();
@@ -100,8 +102,8 @@ export class ImportTemplateModal {
     // Header
     const head = el('div', 'tok-modal-header', { style: 'display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--tok-border-subtle);' });
     const titleWrap = el('div');
-    const title = el('h2', undefined, { id: 'tok-import-tmpl-h', style: 'margin:0 0 4px 0;font-size:18px;font-weight:700;' }, tf('importChooseTemplateTitle', { title: res.title }));
-    const sub = el('p', undefined, { style: 'margin:0;font-size:12px;color:var(--tok-text-muted);' }, tf('importChooseTemplateSub', { count: res.paragraphCount }));
+    const title = el('h2', undefined, { id: 'tok-import-tmpl-h', style: 'margin:0 0 4px 0;font-size:18px;font-weight:700;' }, this.isNewDocument ? t('newDocChooseTemplateTitle') : tf('importChooseTemplateTitle', { title: res.title }));
+    const sub = el('p', undefined, { style: 'margin:0;font-size:12px;color:var(--tok-text-muted);' }, this.isNewDocument ? t('newDocChooseTemplateSub') : tf('importChooseTemplateSub', { count: res.paragraphCount }));
     titleWrap.appendChild(title);
     titleWrap.appendChild(sub);
     head.appendChild(titleWrap);

@@ -30,6 +30,7 @@ import {
   MultiFlowDocumentState,
   DEFAULT_TALMUD_FLOWS,
   DEFAULT_PROSE_FLOWS,
+  getDefaultFlowsForTemplate,
   getFlowsForTemplate,
   TemplateType,
   FlowPaginator
@@ -149,6 +150,7 @@ export class TypesetOkApp {
   private textCleanupModalInstance?: TextCleanupModal;
   private pendingImportResult: { result: ImportResult; filePath?: string } | null = null;
   private isChangingActiveDocumentTemplate = false;
+  private isCreatingNewDocument = false;
   private pluginEngine!: PluginEngine;
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   private autosaveInterval: ReturnType<typeof setInterval> | null = null;
@@ -165,8 +167,8 @@ export class TypesetOkApp {
   private latestTypesetRequestId = 0;
   private activeTypesetAbortController: AbortController | null = null;
   private documentState: MultiFlowDocumentState = {
-    title: 'מסמך ריק.tok',
-    templateType: 'gemara',
+    title: 'ספר קריאה וטקסט רציף.tok',
+    templateType: 'prose',
     flows: { gemara: [], rashi: [], tosafot: [], notes: [] }
   };
 
@@ -559,7 +561,9 @@ export class TypesetOkApp {
       this.checkStartupUpdatesPrompt();
     });
 
-    // 8. Initialize default multi-flow document state
+    // 8. Initialize default multi-flow document state (Prose default)
+    this.documentState.flows = getDefaultFlowsForTemplate('prose');
+    this.structureBar.setFlows(getFlowsForTemplate('prose'));
     this.activeFlowId = 'gemara';
     this.storyEditor.loadStory(this.documentState.flows.gemara);
     this.repaginateAndSync(true);
@@ -872,7 +876,7 @@ export class TypesetOkApp {
   private get welcomeModal(): WelcomeModal {
     if (!this.welcomeModalInstance) {
       this.welcomeModalInstance = new WelcomeModal({
-        onSelectTemplate: (tmpl) => this.handleTemplateSelect(tmpl),
+        onSelectTemplate: (tmpl) => (tmpl === 'blank' ? this.promptNewDocumentTemplate() : this.handleTemplateSelect(tmpl)),
         onOpenProject: (path) => this.handleSystemAction('open-document', path),
         onImportDocument: () => this.handleSystemAction('import-document'),
         onClose: () => {
@@ -962,6 +966,11 @@ export class TypesetOkApp {
             this.changeDocumentTemplate(templateId);
             return;
           }
+          if (this.isCreatingNewDocument) {
+            this.isCreatingNewDocument = false;
+            this.handleTemplateSelect(templateId);
+            return;
+          }
           if (this.pendingImportResult) {
             rememberImportTemplate(this.pendingImportResult.filePath, templateId);
             this.applyImportedDocument(this.pendingImportResult.result, this.pendingImportResult.filePath, templateId);
@@ -970,6 +979,7 @@ export class TypesetOkApp {
         },
         onCancel: () => {
           this.isChangingActiveDocumentTemplate = false;
+          this.isCreatingNewDocument = false;
           this.pendingImportResult = null;
           if (!this.hasOpenDocument) {
             this.welcomeModal.show();
@@ -2162,13 +2172,14 @@ export class TypesetOkApp {
   private handleTemplateSelect(templateId: string): void {
     this.resetDocumentSession();
     const isBlank = templateId === 'blank';
-    const name = isBlank ? BLANK_TEMPLATE_TITLE : (TEMPLATE_TITLES[templateId] || BLANK_TEMPLATE_TITLE);
+    const effectiveTemplate = isBlank ? 'prose' : ((templateId in TEMPLATE_TITLES ? templateId : 'prose') as TemplateType);
+    const name = TEMPLATE_TITLES[effectiveTemplate] || BLANK_TEMPLATE_TITLE;
     this.documentTitle = name;
     this.documentState.title = name;
-    this.documentState.templateType = (templateId in TEMPLATE_TITLES ? templateId : 'gemara') as TemplateType;
+    this.documentState.templateType = effectiveTemplate;
     this.currentFilePath = '';
 
-    this.documentState.flows = { gemara: [], rashi: [], tosafot: [], notes: [] };
+    this.documentState.flows = getDefaultFlowsForTemplate(effectiveTemplate);
 
     this.activeFlowId = 'gemara';
     this.storyEditor.loadStory(this.documentState.flows.gemara);
@@ -2519,6 +2530,24 @@ export class TypesetOkApp {
    * allowing the user to seamlessly switch between book layouts (prose, talmud, notes, etc.)
    * without losing any content.
    */
+    /**
+   * Opens the template chooser dialog for a new document, allowing the user
+   * to pick their desired layout (defaulting to prose) before starting to typeset.
+   */
+  public promptNewDocumentTemplate(): void {
+    const mockResult: ImportResult = {
+      title: 'ספר חדש',
+      paragraphs: [],
+      paragraphCount: 0,
+      wordCount: 0,
+      format: 'txt',
+      detectedDirection: i18n.getDirection(),
+      detectedLanguage: 'he'
+    };
+    this.isCreatingNewDocument = true;
+    this.importTemplateModal.show(mockResult, { isNewDocument: true });
+  }
+
   public promptChangeDocumentTemplate(): void {
     if (!this.hasOpenDocument) {
       this.welcomeModal.show();
@@ -2662,8 +2691,7 @@ export class TypesetOkApp {
         if (this.documentTitle) {
           updateProjectClosedTime(this.documentTitle);
         }
-        this.resetDocumentSession();
-        this.welcomeModal.show();
+        this.promptNewDocumentTemplate();
         break;
       case 'open-projects':
       case 'open-welcome':

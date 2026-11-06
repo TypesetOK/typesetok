@@ -58,6 +58,8 @@ export const strings: Translations = {
   importDocumentDesc: { he: 'ייבוא קובץ Word (.docx), Markdown (.md) או טקסט פשוט (.txt)', en: 'Import Word (.docx), Markdown (.md) or plain text (.txt)' },
   importChooseTemplateTitle: { he: 'בחירת תבנית עימוד עבור: {title}', en: 'Choose Layout Template for: {title}' },
   importChooseTemplateSub: { he: 'התוכן המיובא ({count} פסקאות) ישובץ בתבנית הנבחרת ללא דריסת טקסט', en: 'Imported content ({count} paragraphs) will be placed in the selected template' },
+  newDocChooseTemplateTitle: { he: 'בחירת תבנית עימוד למסמך חדש', en: 'Choose Layout Template for New Document' },
+  newDocChooseTemplateSub: { he: 'בחר את תבנית העימוד לפרויקט החדש (מומלץ: ספר רציף)', en: 'Select a layout template for your new document (Recommended: Continuous Prose)' },
   menuSave: { he: 'שמירת מסמך', en: 'Save Document' },
   menuSaveAs: { he: 'שמירה בשם...', en: 'Save As...' },
   menuRenameDocument: { he: 'שינוי שם המסמך…', en: 'Rename Document…' },
