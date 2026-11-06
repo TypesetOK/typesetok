@@ -114,6 +114,18 @@ export class StructureBar {
     if (this.activeTab === 'flows') this.renderPanel();
   }
 
+  public getVisibleStyles(): StyleToken[] {
+    const activeFlowIds = new Set<string>(this.flows.map((f) => f.id));
+    return this.styles.filter((s) => !s.flowId || activeFlowIds.has(s.flowId));
+  }
+
+  public addStyle(style: StyleToken): void {
+    if (!this.styles.some((s) => s.id === style.id)) {
+      this.styles.push(style);
+      if (this.activeTab === 'styles') this.renderPanel();
+    }
+  }
+
   public setFlows(flows: MultiFlowItem[]): void {
     this.flows = flows.map((f) => ({ ...f }));
     if (!this.flows.some((f) => f.id === this.activeFlowId)) {
@@ -274,7 +286,8 @@ export class StructureBar {
       this.panel.appendChild(this.panelHeader(titles.flows, this.flows.length, changeBtn));
       this.renderFlowsView(body);
     } else if (this.activeTab === 'styles') {
-      this.panel.appendChild(this.panelHeader(titles.styles, this.styles.length));
+      const visibleStyles = this.getVisibleStyles();
+      this.panel.appendChild(this.panelHeader(titles.styles, visibleStyles.length));
       this.renderStylesView(body);
     } else {
       this.panel.appendChild(this.panelHeader(titles.layers, this.layers.length));
@@ -362,7 +375,8 @@ export class StructureBar {
   }
 
   private renderStylesView(container: HTMLElement): void {
-    for (const s of this.styles) {
+    const visibleStyles = this.getVisibleStyles();
+    for (const s of visibleStyles) {
       const row = el('button', 'tok-list-row', { type: 'button' });
       const main = el('span', 'tok-list-main');
       main.appendChild(el('span', 'tok-list-title', { style: `font-weight:${s.fontWeight}` }, s.name));

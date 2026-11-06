@@ -102,7 +102,7 @@ export interface TypographySettings {
 }
 
 export interface MultiFlowItem {
-  id: 'gemara' | 'rashi' | 'tosafot' | 'notes';
+  id: 'gemara' | 'rashi' | 'tosafot' | 'notes' | string;
   name: string;
   color: string;
   role: string;
