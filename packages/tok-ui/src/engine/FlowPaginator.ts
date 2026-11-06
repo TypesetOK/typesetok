@@ -418,6 +418,81 @@ function getDocDimensionsPt(doc?: MultiFlowDocumentState): { widthPt: number; he
   return { widthPt: 480, heightPt: 678 };
 }
 
+function renderParagraphHtml(p: StoryParagraph, defaultStyle: { fontSize?: string; lineHeight?: string; fontFamily?: string; textAlign?: string } = {}): string {
+  const patch = p.patch || {};
+  const styles: string[] = ['margin: 0 0 0.55em'];
+
+  const align = patch.alignment ? (patch.alignment === 'Justified' ? 'justify' : patch.alignment.toLowerCase()) : (defaultStyle.textAlign || 'justify');
+  styles.push(`text-align: ${align}`);
+
+  if (patch.fontFamily) {
+    styles.push(`font-family: '${patch.fontFamily}', serif`);
+  } else if (defaultStyle.fontFamily) {
+    styles.push(`font-family: ${defaultStyle.fontFamily}`);
+  }
+
+  if (patch.fontSizePt !== undefined) {
+    styles.push(`font-size: ${patch.fontSizePt}pt`);
+  } else if (defaultStyle.fontSize) {
+    styles.push(`font-size: ${defaultStyle.fontSize}`);
+  }
+
+  if (patch.lineHeightPt !== undefined) {
+    styles.push(`line-height: ${patch.lineHeightPt}pt`);
+  } else if (defaultStyle.lineHeight) {
+    styles.push(`line-height: ${defaultStyle.lineHeight}`);
+  }
+
+  if (patch.fontWeight !== undefined) {
+    styles.push(`font-weight: ${patch.fontWeight}`);
+  }
+
+  if (patch.firstLineIndentPt !== undefined) {
+    styles.push(`text-indent: ${patch.firstLineIndentPt}pt`);
+  }
+
+  if (patch.spaceBeforePt !== undefined) {
+    styles.push(`margin-top: ${patch.spaceBeforePt}pt`);
+  }
+  if (patch.spaceAfterPt !== undefined) {
+    styles.push(`margin-bottom: ${patch.spaceAfterPt}pt`);
+  }
+
+  if (patch.color) {
+    styles.push(`color: ${patch.color}`);
+  }
+
+  let text = p.text || '&nbsp;';
+  if (p.spans && p.spans.length > 0 && text !== '&nbsp;') {
+    const chars = Array.from(text);
+    const parts: string[] = [];
+    let lastIndex = 0;
+    const sortedSpans = [...p.spans].sort((a, b) => a.start - b.start);
+    for (const span of sortedSpans) {
+      if (span.start > lastIndex) {
+        parts.push(chars.slice(lastIndex, span.start).join(''));
+      }
+      const spanChars = chars.slice(span.start, span.end).join('');
+      let spanStyle = '';
+      if (span.format.fontWeight && span.format.fontWeight >= 600) spanStyle += 'font-weight: bold;';
+      if (span.format.italic) spanStyle += 'font-style: italic;';
+      if (span.format.underline) spanStyle += 'text-decoration: underline;';
+      if (span.format.fontFamily) spanStyle += `font-family: '${span.format.fontFamily}', serif;`;
+      if (span.format.fontSizePt) spanStyle += `font-size: ${span.format.fontSizePt}pt;`;
+      if (span.format.color) spanStyle += `color: ${span.format.color};`;
+      parts.push(`<span style="${spanStyle}">${spanChars}</span>`);
+      lastIndex = Math.max(lastIndex, span.end);
+    }
+    if (lastIndex < chars.length) {
+      parts.push(chars.slice(lastIndex).join(''));
+    }
+    text = parts.join('');
+  }
+
+  const classAttr = p.styleId ? ` class="tok-style-${p.styleId}"` : '';
+  return `<p data-para-id="${p.id}"${classAttr} style="${styles.join('; ')}">${text}</p>`;
+}
+
 export class FlowPaginator {
   /**
    * Paginates a multi-flow document into a list of full PageDescriptors for SpreadCanvas.
@@ -506,12 +581,18 @@ export class FlowPaginator {
       // On Verso (ע״ב - left page in Hebrew book): Spine is on the RIGHT.
       //   Inner commentary (Rashi) -> RIGHT column.
       //   Outer commentary (Tosafot) -> LEFT column.
+      const isMikraot = doc.templateType === 'mikraot';
       const leftFlowId = isRecto ? 'rashi' : 'tosafot';
       const rightFlowId = isRecto ? 'tosafot' : 'rashi';
       const leftParas = isRecto ? pRashi : pTosafot;
       const rightParas = isRecto ? pTosafot : pRashi;
-      const leftTitle = isRecto ? 'רש"י (פנימי)' : 'תוספות (חיצוני)';
-      const rightTitle = isRecto ? 'תוספות (חיצוני)' : 'רש"י (פנימי)';
+      const leftTitle = isRecto
+        ? 'רש"י (פנימי)'
+        : (isMikraot ? 'תרגום אונקלוס (חיצוני)' : 'תוספות (חיצוני)');
+      const rightTitle = isRecto
+        ? (isMikraot ? 'תרגום אונקלוס (חיצוני)' : 'תוספות (חיצוני)')
+        : 'רש"י (פנימי)';
+      const mainTitle = isMikraot ? 'מקרא (חומש)' : 'גמרא (טקסט ראשי)';
       const leftClass = isRecto ? 'tok-frame-comm' : 'tok-frame-comm';
       const rightClass = isRecto ? 'tok-frame-comm' : 'tok-frame-comm';
 
@@ -523,6 +604,7 @@ export class FlowPaginator {
 
       const html = this.buildTalmudPageHtml({
         pageIndex: pageIdx,
+        mainTitle,
         gemaraParas: pGemara,
         leftFlowId,
         leftTitle,
@@ -567,7 +649,7 @@ export class FlowPaginator {
         <div class="tok-page-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; overflow: hidden;">
           <div class="tok-interactive-frame tok-frame-main" data-frame-id="frame-main-${pageIdx}" data-flow-id="gemara" style="flex: 1; min-height: 0;">
             <div class="tok-frame-text tok-frame-gemara" style="font-size: 13.5px; line-height: 1.6; text-align: justify;">
-              ${paras.map((p) => `<p data-para-id="${p.id}" class="${p.styleId ? `tok-style-${p.styleId}` : ''}" style="margin: 0 0 0.8em; text-indent: 1.2em;">${p.text || '&nbsp;'}</p>`).join('')}
+              ${paras.map((p) => renderParagraphHtml(p, { fontSize: '13.5px', lineHeight: '1.6', textAlign: 'justify' })).join('')}
             </div>
           </div>
         </div>
@@ -609,13 +691,13 @@ export class FlowPaginator {
         <div class="tok-page-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; overflow: hidden; gap: 12px;">
           <div class="tok-interactive-frame tok-frame-main" data-frame-id="frame-main-${pageIdx}" data-flow-id="gemara" style="flex: 1; min-height: 0;">
             <div class="tok-frame-text tok-frame-gemara" style="font-size: 13.5px; line-height: 1.6; text-align: justify;">
-              ${pMain.map((p) => `<p data-para-id="${p.id}" style="margin: 0 0 0.8em;">${p.text || '&nbsp;'}</p>`).join('')}
+              ${pMain.map((p) => renderParagraphHtml(p, { fontSize: '13.5px', lineHeight: '1.6', textAlign: 'justify' })).join('')}
             </div>
           </div>
           ${pNotes.length > 0 ? `
             <div class="tok-interactive-frame tok-frame-notes-box" data-frame-id="frame-notes-${pageIdx}" data-flow-id="notes" style="flex: none; border-top: 1px solid var(--tok-ink-rule); padding-top: 8px;">
               <div class="tok-frame-text tok-frame-notes" style="font-size: 9.5px; line-height: 1.45; text-align: justify; color: var(--tok-ink-soft);">
-                ${pNotes.map((p) => `<p data-para-id="${p.id}" style="margin: 0 0 0.4em;">${p.text}</p>`).join('')}
+                ${pNotes.map((p) => renderParagraphHtml(p, { fontSize: '9.5px', lineHeight: '1.45', textAlign: 'justify' })).join('')}
               </div>
             </div>
           ` : ''}
@@ -639,6 +721,7 @@ export class FlowPaginator {
    */
   private static buildTalmudPageHtml(params: {
     pageIndex: number;
+    mainTitle?: string;
     gemaraParas: StoryParagraph[];
     leftFlowId: string;
     leftTitle: string;
@@ -653,6 +736,7 @@ export class FlowPaginator {
   }): string {
     const {
       pageIndex,
+      mainTitle,
       gemaraParas,
       leftFlowId,
       leftTitle,
@@ -671,7 +755,7 @@ export class FlowPaginator {
         ? paras
             .map(
               (p) =>
-                `<p data-para-id="${p.id}" style="margin: 0 0 0.55em; text-align: justify;">${p.text || '&nbsp;'}</p>`
+                renderParagraphHtml(p, { textAlign: 'justify' })
             )
             .join('')
         : `<div style="font-size: 10px; color: var(--tok-text-muted); font-style: italic; text-align: center; padding-top: 20px;">[אין טקסט בעמוד זה]</div>`;
@@ -694,7 +778,7 @@ export class FlowPaginator {
           <!-- Column 2: Center (Gemara) -->
           <div class="tok-interactive-frame tok-col-center" data-frame-id="frame-gemara-${pageIndex}" data-flow-id="gemara" style="display: flex; flex-direction: column; overflow: hidden; background: rgba(0,0,0,0.012); padding: 0 4px; border-radius: 2px;">
             <div class="tok-frame-label" style="font-size: 11px; font-weight: 800; text-align: center; border-bottom: 0.5px solid var(--tok-ink-rule); margin-bottom: 4px; padding-bottom: 2px;">
-              גמרא (טקסט ראשי)
+              ${mainTitle || 'גמרא (טקסט ראשי)'}
             </div>
             <div class="tok-frame-text tok-frame-gemara" style="flex: 1; min-height: 0; overflow: hidden; font-size: 13.5px; line-height: 1.55; font-weight: 600;">
               ${renderParas(gemaraParas)}

@@ -41,8 +41,16 @@ export const MIN_ZOOM = 25;
 export const MAX_ZOOM = 400;
 
 /** Zoom (percent) at which a full spread fits the visible canvas area. */
-export function fitZoom(viewportWidth: number, viewportHeight: number, pageWidth = PAGE_WIDTH_PX, pageHeight = PAGE_HEIGHT_PX): number {
-  const z = Math.min((viewportWidth - 80) / (2 * pageWidth), (viewportHeight - 136) / pageHeight) * 100;
+export function fitZoom(viewportWidth: number, viewportHeight: number, pageWidth = PAGE_WIDTH_PX, pageHeight = PAGE_HEIGHT_PX, isSinglePage = false): number {
+  const ptToPx = 96 / 72;
+  const pageWPx = pageWidth * ptToPx;
+  const pageHPx = pageHeight * ptToPx;
+  const targetW = isSinglePage ? pageWPx : (2 * pageWPx);
+
+  const availW = Math.max(100, viewportWidth - 36);
+  const availH = Math.max(100, viewportHeight - 50);
+
+  const z = Math.min(availW / targetW, availH / pageHPx) * 100;
   if (!Number.isFinite(z)) return 100;
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.floor(z)));
 }
@@ -273,10 +281,18 @@ export class SpreadCanvas {
 
   /** Zooms so one full spread fits the visible area. */
   public fitToWindow(): void {
-    const firstPage = this.pages[0];
-    const pageWidth = firstPage?.widthPt || PAGE_WIDTH_PX;
-    const pageHeight = firstPage?.heightPt || PAGE_HEIGHT_PX;
-    this.applyUserZoom(fitZoom(this.scroller.clientWidth, this.scroller.clientHeight, pageWidth, pageHeight));
+    const pageIndex = this.activePageIndex;
+    const page = this.pages[pageIndex] || this.pages[0];
+    const pageWidth = page?.widthPt || PAGE_WIDTH_PX;
+    const pageHeight = page?.heightPt || PAGE_HEIGHT_PX;
+
+    const ptToPx = 96 / 72;
+    const pageWPx = pageWidth * ptToPx;
+    const viewportW = this.scroller.clientWidth;
+    // In split view, single-page view, or narrow canvas, fit a single page to fill the screen comfortably
+    const isSinglePage = (pageIndex === 0) || (this.pages.length <= 1) || (viewportW < 1.6 * pageWPx);
+
+    this.applyUserZoom(fitZoom(this.scroller.clientWidth, this.scroller.clientHeight, pageWidth, pageHeight, isSinglePage));
   }
 
   private applyUserZoom(z: number): void {

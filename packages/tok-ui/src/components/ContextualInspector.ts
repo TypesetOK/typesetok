@@ -46,6 +46,7 @@ const FLOW_COLORS: Record<string, string> = { gemara: '#1E4A9E', rashi: '#B45309
 
 export class ContextualInspector {
   public element: HTMLElement;
+  private availableFlows: Array<{ id: string; name: string; color?: string }> = [];
   private mode: SelectionMode = 'zero';
   private callbacks: InspectorCallbacks;
   private isCollapsed = false;
@@ -178,9 +179,19 @@ export class ContextualInspector {
     }
   }
 
+  public setFlows(flows: Array<{ id: string; name: string; color?: string }>): void {
+    this.availableFlows = flows;
+    if (this.mode === 'text-frame' || this.mode === 'text-edit') {
+      this.render();
+    }
+  }
+
   private flowName(flowId: string): string {
+    const canonical = (flowId === 'main' || flowId === 'primary') ? 'gemara' : flowId;
+    const fromAvailable = this.availableFlows.find((f) => f.id === canonical || f.id === flowId);
+    if (fromAvailable?.name) return fromAvailable.name;
     const keys: Record<string, string> = { gemara: 'inspFlowGemara', rashi: 'inspFlowRashi', tosafot: 'inspFlowTosafot', notes: 'inspFlowNotes' };
-    return keys[flowId] ? t(keys[flowId]) : flowId;
+    return keys[canonical] ? t(keys[canonical]) : (keys[flowId] ? t(keys[flowId]) : flowId);
   }
 
   private getContainer(): HTMLElement {
@@ -431,7 +442,15 @@ export class ContextualInspector {
 
     // 2. Flow & threading
     const flowCard = this.createCard(t('inspFlowThreading'));
-    const flows = ['gemara', 'rashi', 'tosafot', 'notes'].map((id) => ({ value: id, label: this.flowName(id) }));
+    const flowList = this.availableFlows.length > 0
+      ? this.availableFlows
+      : [
+          { id: 'gemara', name: this.flowName('gemara') },
+          { id: 'rashi', name: this.flowName('rashi') },
+          { id: 'tosafot', name: this.flowName('tosafot') },
+          { id: 'notes', name: this.flowName('notes') }
+        ];
+    const flows = flowList.map((f) => ({ value: f.id, label: f.name }));
     flowCard.appendChild(selectField(t('inspFlowThreading'), flows, flow, (value) => {
       this.selectedFrame.flowId = value as TextFrameData['flowId'];
       this.callbacks.onFrameChange({ id: this.selectedFrame.id, flowId: this.selectedFrame.flowId });
@@ -476,36 +495,13 @@ export class ContextualInspector {
       this.callbacks.onFrameChange({ id: this.selectedFrame.id, verticalAlign: id });
     }, { fill: true }));
     c.appendChild(insetCard);
+
+    // 4. Frame Typography & Alignment
+    this.appendTypographyCard(c);
+    this.appendAlignCard(c);
   }
 
-  // =========================================================================
-  // State 3: Text edit mode (typography, 3-tier Hebrew justification, niqqud)
-  // =========================================================================
-  private renderTextEditMode(): void {
-    const c = this.getContainer();
-    c.appendChild(this.createHeader(t('inspSelected'), this.typographySettings.styleTokenName, t('inspTypography'), 'typography'));
-
-    // 1. Paragraph style & override sync
-    const styleCard = this.createCard(t('inspStyleToken'));
-    const tokenRow = el('div', 'tok-status-line');
-    tokenRow.appendChild(el('span', undefined, { style: 'font-size:13px;font-weight:600;color:var(--tok-accent-text)' }, this.typographySettings.styleTokenName));
-    if (this.typographySettings.isOverride) {
-      tokenRow.appendChild(el('span', 'tok-badge tok-badge-warning', undefined, t('inspLocalOverride')));
-    }
-    styleCard.appendChild(tokenRow);
-    styleCard.appendChild(button(t('inspSyncStyle'), {
-      className: 'tok-btn tok-btn-block tok-btn-sm',
-      icon: 'refresh',
-      iconSize: 14,
-      onClick: () => {
-        this.typographySettings.isOverride = false;
-        this.callbacks.onSyncStyleToken();
-        this.render();
-      }
-    }));
-    c.appendChild(styleCard);
-
-    // 2. Font
+  private appendTypographyCard(c: HTMLElement): void {
     const fontCard = this.createCard(t('inspFontSpacing'));
     const availFonts = getAvailableFonts();
     const current = availFonts.some((f) => f.family === this.typographySettings.fontFamily)
@@ -541,8 +537,9 @@ export class ContextualInspector {
       })
     ));
     c.appendChild(fontCard);
+  }
 
-    // 3. Alignment
+  private appendAlignCard(c: HTMLElement): void {
     const alignCard = this.createCard(t('inspAlignTitle'));
     alignCard.appendChild(segmented(t('inspAlignTitle'), [
       { id: 'right', label: t('hudAlignRight'), icon: 'alignRight' },
@@ -554,6 +551,40 @@ export class ContextualInspector {
       this.callbacks.onTypographyChange({ alignment: id });
     }, { fill: true, iconOnly: true }));
     c.appendChild(alignCard);
+  }
+
+  // =========================================================================
+  // State 3: Text edit mode (typography, 3-tier Hebrew justification, niqqud)
+  // =========================================================================
+  private renderTextEditMode(): void {
+    const c = this.getContainer();
+    c.appendChild(this.createHeader(t('inspSelected'), this.typographySettings.styleTokenName, t('inspTypography'), 'typography'));
+
+    // 1. Paragraph style & override sync
+    const styleCard = this.createCard(t('inspStyleToken'));
+    const tokenRow = el('div', 'tok-status-line');
+    tokenRow.appendChild(el('span', undefined, { style: 'font-size:13px;font-weight:600;color:var(--tok-accent-text)' }, this.typographySettings.styleTokenName));
+    if (this.typographySettings.isOverride) {
+      tokenRow.appendChild(el('span', 'tok-badge tok-badge-warning', undefined, t('inspLocalOverride')));
+    }
+    styleCard.appendChild(tokenRow);
+    styleCard.appendChild(button(t('inspSyncStyle'), {
+      className: 'tok-btn tok-btn-block tok-btn-sm',
+      icon: 'refresh',
+      iconSize: 14,
+      onClick: () => {
+        this.typographySettings.isOverride = false;
+        this.callbacks.onSyncStyleToken();
+        this.render();
+      }
+    }));
+    c.appendChild(styleCard);
+
+    // 2. Font & Spacing
+    this.appendTypographyCard(c);
+
+    // 3. Alignment
+    this.appendAlignCard(c);
 
     // 4. Three-tier Hebrew justification
     const j = this.typographySettings.justification;

@@ -314,12 +314,18 @@ export class TypesetOkApp {
         this.showToast(tf('toastFlowSelected', { name }));
       },
       onSelectStyle: (styleId) => {
-        const sel = this.storyEditor.getStorySelection();
-        if (sel) {
-          this.storyEditor.setParagraphStyle(sel.paraId, styleId);
+        const sel = this.storyEditor?.getStorySelection();
+        const activeFlowParas = (this.activeFlowId ? this.documentState.flows[this.activeFlowId] : []) || [];
+        const targetParaId = sel?.paraId || (activeFlowParas.length > 0 ? activeFlowParas[0].id : null);
+        if (targetParaId) {
+          this.storyEditor.setParagraphStyle(targetParaId, styleId);
+          const p = activeFlowParas.find((x: any) => x.id === targetParaId);
+          if (p) {
+            p.styleId = styleId;
+          }
           this.updateFormattingToolbarState();
-          this.setDirty(true);
         }
+        this.syncAndScheduleRepaginate();
         this.inspector.setMode('text-edit');
         this.showToast(tf('toastStyleApplied', { name: styleId }));
       },
@@ -337,6 +343,7 @@ export class TypesetOkApp {
       onPanelToggle: () => this.updateStoryToolbar()
     });
     this.workbench.appendChild(this.structureBar.element);
+    this.inspector.setFlows(this.structureBar.getFlows());
 
     // 3b. Center: Spread Canvas
     this.canvas = new SpreadCanvas({
@@ -426,33 +433,39 @@ export class TypesetOkApp {
       },
       onTypographyChange: (typo) => {
         const sel = this.storyEditor?.getStorySelection();
-        if (sel) {
+        const activeFlowParas = (this.activeFlowId ? this.documentState.flows[this.activeFlowId] : []) || [];
+        if (sel && !sel.isCollapsed) {
           const fmt: any = {};
           if (typo.fontFamily) fmt.fontFamily = typo.fontFamily;
           if (typo.fontSizePt) fmt.fontSizePt = typo.fontSizePt;
           if (typo.fontWeight) fmt.fontWeight = typo.fontWeight;
-          if (Object.keys(fmt).length > 0 && !sel.isCollapsed) {
+          if (Object.keys(fmt).length > 0) {
             this.storyEditor.formatSelection(fmt);
           }
+        }
 
-          const patch: any = {};
-          if (typo.fontFamily) patch.fontFamily = typo.fontFamily;
-          if (typo.fontSizePt) patch.fontSizePt = typo.fontSizePt;
-          if (typo.fontWeight) patch.fontWeight = typo.fontWeight;
-          if (typo.lineHeightPt) patch.lineHeightPt = typo.lineHeightPt;
-          if (typo.alignment) {
-            patch.alignment = typo.alignment === 'justify' ? 'Justified' : typo.alignment === 'center' ? 'Center' : typo.alignment === 'left' ? 'Left' : 'Right';
-          }
-          if (Object.keys(patch).length > 0) {
+        const patch: any = {};
+        if (typo.fontFamily) patch.fontFamily = typo.fontFamily;
+        if (typo.fontSizePt) patch.fontSizePt = typo.fontSizePt;
+        if (typo.fontWeight) patch.fontWeight = typo.fontWeight;
+        if (typo.lineHeightPt) patch.lineHeightPt = typo.lineHeightPt;
+        if (typo.alignment) {
+          patch.alignment = typo.alignment === 'justify' ? 'Justified' : typo.alignment === 'center' ? 'Center' : typo.alignment === 'left' ? 'Left' : 'Right';
+        }
+        if (Object.keys(patch).length > 0) {
+          if (sel?.paraId) {
             this.storyEditor.setParagraphPatch(sel.paraId, patch);
+            const p = activeFlowParas.find((x: any) => x.id === sel.paraId);
+            if (p) p.patch = { ...(p.patch || {}), ...patch };
+          } else if (activeFlowParas.length > 0) {
+            for (const p of activeFlowParas) {
+              this.storyEditor.setParagraphPatch(p.id, patch);
+              p.patch = { ...(p.patch || {}), ...patch };
+            }
           }
-          this.updateFormattingToolbarState();
         }
-        if (this.activeFlowId) {
-          this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory();
-        }
-        this.setDirty(true);
-        this.scheduleRepaginate();
+        this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       },
       onSyncStyleToken: () => {
         const sel = this.storyEditor?.getStorySelection();
@@ -513,16 +526,35 @@ export class TypesetOkApp {
     // 5. Action HUD (Floating, anchored)
     this.actionHud = new ActionHud({
       onFontChange: (f) => {
-        this.storyEditor.formatSelection({ fontFamily: f });
+        const sel = this.storyEditor.getStorySelection();
+        if (sel && !sel.isCollapsed) {
+          this.storyEditor.formatSelection({ fontFamily: f });
+        } else if (sel?.paraId) {
+          this.storyEditor.setParagraphPatch(sel.paraId, { fontFamily: f });
+        }
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       },
       onSizeChange: (s) => {
-        this.storyEditor.formatSelection({ fontSizePt: s });
+        const sel = this.storyEditor.getStorySelection();
+        if (sel && !sel.isCollapsed) {
+          this.storyEditor.formatSelection({ fontSizePt: s });
+        } else if (sel?.paraId) {
+          this.storyEditor.setParagraphPatch(sel.paraId, { fontSizePt: s });
+        }
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       },
       onWeightChange: (b) => {
-        this.storyEditor.formatSelection({ fontWeight: b ? FONT_WEIGHT_BOLD : FONT_WEIGHT_REGULAR });
+        const wt = b ? FONT_WEIGHT_BOLD : FONT_WEIGHT_REGULAR;
+        const sel = this.storyEditor.getStorySelection();
+        if (sel && !sel.isCollapsed) {
+          this.storyEditor.formatSelection({ fontWeight: wt });
+        } else if (sel?.paraId) {
+          this.storyEditor.setParagraphPatch(sel.paraId, { fontWeight: wt });
+        }
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       },
       onAlignChange: (a) => {
         const sel = this.storyEditor.getStorySelection();
@@ -530,6 +562,7 @@ export class TypesetOkApp {
           const alignment = (a === 'justify' ? 'Justified' : a === 'center' ? 'Center' : a === 'left' ? 'Left' : 'Right') as any;
           this.storyEditor.setParagraphPatch(sel.paraId, { alignment });
           this.updateFormattingToolbarState();
+          this.syncAndScheduleRepaginate();
         }
       },
       onStyleChange: (st) => {
@@ -537,6 +570,7 @@ export class TypesetOkApp {
         if (sel) {
           this.storyEditor.setParagraphStyle(sel.paraId, st);
           this.updateFormattingToolbarState();
+          this.syncAndScheduleRepaginate();
         }
         this.showToast(tf('toastQuickStyle', { name: st }));
       },
@@ -1270,6 +1304,7 @@ export class TypesetOkApp {
     this.storyBoldBtn.addEventListener('click', () => {
       this.storyEditor.toggleFormatSelection('bold');
       this.updateFormattingToolbarState();
+      this.syncAndScheduleRepaginate();
     });
     bar.appendChild(this.storyBoldBtn);
 
@@ -1283,6 +1318,7 @@ export class TypesetOkApp {
     this.storyItalicBtn.addEventListener('click', () => {
       this.storyEditor.toggleFormatSelection('italic');
       this.updateFormattingToolbarState();
+      this.syncAndScheduleRepaginate();
     });
     bar.appendChild(this.storyItalicBtn);
 
@@ -1296,6 +1332,7 @@ export class TypesetOkApp {
     this.storyUnderlineBtn.addEventListener('click', () => {
       this.storyEditor.toggleFormatSelection('underline');
       this.updateFormattingToolbarState();
+      this.syncAndScheduleRepaginate();
     });
     bar.appendChild(this.storyUnderlineBtn);
 
@@ -1308,6 +1345,7 @@ export class TypesetOkApp {
     clearFmtBtn.addEventListener('click', () => {
       this.storyEditor.clearFormattingSelection();
       this.updateFormattingToolbarState();
+      this.syncAndScheduleRepaginate();
     });
     bar.appendChild(clearFmtBtn);
 
@@ -1333,9 +1371,8 @@ export class TypesetOkApp {
         } else {
           this.storyEditor.setParagraphPatch(sel.paraId, { fontFamily: chosenFont });
         }
-        this.setDirty(true);
-        this.scheduleRepaginate();
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     });
     bar.appendChild(this.storyFontFamilySelect);
@@ -1346,6 +1383,7 @@ export class TypesetOkApp {
       if (sel) {
         this.storyEditor.setParagraphPatch(sel.paraId, { alignment: 'Right' });
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     }, { size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
 
@@ -1354,6 +1392,7 @@ export class TypesetOkApp {
       if (sel) {
         this.storyEditor.setParagraphPatch(sel.paraId, { alignment: 'Center' });
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     }, { size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
 
@@ -1362,6 +1401,7 @@ export class TypesetOkApp {
       if (sel) {
         this.storyEditor.setParagraphPatch(sel.paraId, { alignment: 'Left' });
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     }, { size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
 
@@ -1370,6 +1410,7 @@ export class TypesetOkApp {
       if (sel) {
         this.storyEditor.setParagraphPatch(sel.paraId, { alignment: 'Justified' });
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     }, { size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
 
@@ -1383,6 +1424,7 @@ export class TypesetOkApp {
       if (sel) {
         this.storyEditor.outdentParagraph(sel.paraId);
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     }, { size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
 
@@ -1391,6 +1433,7 @@ export class TypesetOkApp {
       if (sel) {
         this.storyEditor.indentParagraph(sel.paraId);
         this.updateFormattingToolbarState();
+        this.syncAndScheduleRepaginate();
       }
     }, { size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
 
@@ -2088,6 +2131,15 @@ export class TypesetOkApp {
     this.latestTypesetRequestId++;
   }
 
+  public syncAndScheduleRepaginate(forceReset = false, delayMs = 100): void {
+    if (this.storyEditor && this.activeFlowId) {
+      this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory(true);
+    }
+    this.setDirty(true);
+    this.scheduleWordCountUpdate();
+    this.scheduleRepaginate(delayMs, forceReset);
+  }
+
   public scheduleRepaginate(delayMs = 150, forceReset = false): void {
     if (this.repaginateTimer) {
       clearTimeout(this.repaginateTimer);
@@ -2373,6 +2425,7 @@ export class TypesetOkApp {
       : (flowKeys[0] || 'gemara');
     this.activeFlowId = activeKey;
     this.structureBar.setFlows(getFlowsForTemplate(newState.templateType));
+    this.inspector.setFlows(getFlowsForTemplate(newState.templateType));
     this.structureBar.setActiveFlow(activeKey);
     const activeStory = newState.flows[activeKey] || [];
     this.storyEditor.loadStory(activeStory);
@@ -2572,6 +2625,7 @@ export class TypesetOkApp {
     this.activeFlowId = 'gemara';
     this.storyEditor.loadStory(this.documentState.flows.gemara);
     this.structureBar.setFlows(getFlowsForTemplate(templateType));
+    this.inspector.setFlows(getFlowsForTemplate(templateType));
     this.activePageIndex = 0;
     this.structureBar.setActivePage(0);
     this.repaginateAndSync(true);
@@ -2644,6 +2698,7 @@ export class TypesetOkApp {
     }
     // Update structure bar and ensure active flow is valid
     this.structureBar.setFlows(templateFlows);
+    this.inspector.setFlows(templateFlows);
     if (!this.activeFlowId || !templateFlows.some((f) => f.id === this.activeFlowId)) {
       this.activeFlowId = templateFlows[0]?.id || 'gemara';
     }

@@ -163,11 +163,15 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[
 
         const engineFont = formatEngineFont(line.fonts?.[0], isPrimary);
         const isBoldLine = line.is_drop_cap || engineFont.fontWeight === 700;
-        const fontStyle = `font-family: ${engineFont.fontFamily};` + (isBoldLine ? ` font-weight: 700;` : '');
+        const lineFontSizePt = (line.glyphs && line.glyphs.length > 0 && line.glyphs[0].height > 0)
+          ? line.glyphs[0].height
+          : Math.max(7, Math.round(line.height * 0.76 * 10) / 10);
+        const fontStyle = `font-family: ${engineFont.fontFamily}; font-size: ${lineFontSizePt.toFixed(2)}pt;` + (isBoldLine ? ` font-weight: 700;` : '');
         const paraAttr = line.paragraph_id ? ` data-para-id="${escapeHtml(String(line.paragraph_id))}"` : '';
+        const offsetStyle = line.x_offset ? (line.is_rtl ? ` margin-right: ${line.x_offset.toFixed(2)}pt;` : ` margin-left: ${line.x_offset.toFixed(2)}pt;`) : '';
         const contentHtml = renderLineText(line.text, line.is_drop_cap);
 
-        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
+        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
       }).join('\n');
 
       const emptyNotice = (!frame.lines || frame.lines.length === 0)
