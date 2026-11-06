@@ -91,6 +91,7 @@ pub struct SolvedFlowAllocation {
 pub struct DynamicTalmudPageResult {
     pub allocations: Vec<SolvedFlowAllocation>,
     pub footnote_allocation: Option<SolvedFlowAllocation>,
+    pub footnote_allocations: Vec<SolvedFlowAllocation>,
     pub gemara_height_pt: f32,
     pub primary_height_pt: f32,
     pub has_l_shape_expansion: bool,
@@ -538,34 +539,66 @@ impl MultiFlowSolver {
         let mut available_height = non_negative(page_height_pt - 2.0 * margin_y_pt);
         let gutter = Self::gutter_for(content_width);
 
-        // 1. Allocate Floating Footnotes at bottom
-        let footnote_flow = flows
+        // 1. Allocate Floating Footnotes at bottom (supports multiple parallel apparatuses)
+        let footnote_flows: Vec<&FlowGeometrySpec> = flows
             .iter()
-            .find(|f| f.role == FlowPlacementRole::BottomBand || f.flow_id.0 == "footnote");
+            .filter(|f| {
+                f.role == FlowPlacementRole::BottomBand
+                    || f.flow_id.0 == "footnote"
+                    || f.flow_id.0.contains("note")
+            })
+            .collect();
 
-        let footnote_target =
-            footnote_target_height_pt.or_else(|| footnote_flow.map(|f| f.target_height_pt));
+        let mut footnote_allocations = Vec::new();
+        let max_fn_total_h = available_height * 0.40;
 
-        let footnote_allocation = match footnote_target.map(non_negative) {
-            Some(fn_height) if fn_height > 0.0 && available_height > 0.0 => {
-                let actual_fn_height = fn_height.min(available_height * 0.40);
-                let fn_y = margin_y_pt + available_height - actual_fn_height;
-                available_height = non_negative(available_height - actual_fn_height - gutter);
+        if !footnote_flows.is_empty() {
+            let mut remaining_fn_budget = max_fn_total_h;
 
-                let fn_id = footnote_flow
-                    .map(|f| f.flow_id.clone())
-                    .unwrap_or_else(|| FlowId::new("footnote"));
+            for f in footnote_flows.iter().rev() {
+                let target_h = if footnote_flows.len() == 1 {
+                    footnote_target_height_pt.unwrap_or(f.target_height_pt)
+                } else {
+                    f.target_height_pt
+                };
 
-                Some(SolvedFlowAllocation {
-                    flow_id: fn_id,
-                    allocated_x_pt: margin_left,
-                    allocated_y_pt: fn_y,
-                    allocated_width_pt: content_width,
-                    allocated_height_pt: actual_fn_height,
-                })
+                let target_h = non_negative(target_h);
+                if target_h > 0.0 && available_height > 0.0 && remaining_fn_budget > 0.0 {
+                    let actual_h = target_h.min(remaining_fn_budget).min(available_height);
+                    if actual_h > 0.0 {
+                        let fn_y = margin_y_pt + available_height - actual_h;
+                        available_height = non_negative(available_height - actual_h - gutter);
+                        remaining_fn_budget = non_negative(remaining_fn_budget - actual_h);
+
+                        footnote_allocations.push(SolvedFlowAllocation {
+                            flow_id: f.flow_id.clone(),
+                            allocated_x_pt: margin_left,
+                            allocated_y_pt: fn_y,
+                            allocated_width_pt: content_width,
+                            allocated_height_pt: actual_h,
+                        });
+                    }
+                }
             }
-            _ => None,
-        };
+        } else if let Some(target_h) = footnote_target_height_pt.map(non_negative) {
+            if target_h > 0.0 && available_height > 0.0 {
+                let actual_h = target_h.min(max_fn_total_h).min(available_height);
+                if actual_h > 0.0 {
+                    let fn_y = margin_y_pt + available_height - actual_h;
+                    available_height = non_negative(available_height - actual_h - gutter);
+
+                    footnote_allocations.push(SolvedFlowAllocation {
+                        flow_id: FlowId::new("footnote"),
+                        allocated_x_pt: margin_left,
+                        allocated_y_pt: fn_y,
+                        allocated_width_pt: content_width,
+                        allocated_height_pt: actual_h,
+                    });
+                }
+            }
+        }
+
+        let footnote_allocation = footnote_allocations.first().cloned();
 
         // 2. Compute column allocation (excluding bottom band)
         let column_flows: Vec<FlowGeometrySpec> = flows
@@ -703,6 +736,7 @@ impl MultiFlowSolver {
         DynamicTalmudPageResult {
             allocations,
             footnote_allocation,
+            footnote_allocations,
             gemara_height_pt: primary_h,
             primary_height_pt: primary_h,
             has_l_shape_expansion: has_l_shape,

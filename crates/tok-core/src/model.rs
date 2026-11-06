@@ -362,6 +362,8 @@ pub struct DocumentRoot {
     pub running_header: Option<crate::header::RunningHeaderConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footnote_apparatus: Option<crate::header::FootnoteApparatusConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub footnote_apparatuses: Vec<crate::header::FootnoteApparatusConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependency_tracker: Option<crate::dependency::DocumentDependencyTracker>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -383,6 +385,7 @@ impl DocumentRoot {
             cross_references: None,
             running_header: None,
             footnote_apparatus: None,
+            footnote_apparatuses: Vec::new(),
             dependency_tracker: None,
             multi_flow_anchors: None,
         };
@@ -414,6 +417,57 @@ impl DocumentRoot {
     ) -> Self {
         self.footnote_apparatus = Some(apparatus);
         self
+    }
+
+    pub fn with_footnote_apparatuses(
+        mut self,
+        apparatuses: Vec<crate::header::FootnoteApparatusConfig>,
+    ) -> Self {
+        self.footnote_apparatuses = apparatuses;
+        self
+    }
+
+    pub fn add_footnote_apparatus(
+        &mut self,
+        apparatus: crate::header::FootnoteApparatusConfig,
+    ) {
+        if let Some(pos) = self.footnote_apparatuses.iter().position(|a| a.id == apparatus.id) {
+            self.footnote_apparatuses[pos] = apparatus;
+        } else {
+            self.footnote_apparatuses.push(apparatus);
+        }
+    }
+
+    pub fn apparatuses(&self) -> Vec<crate::header::FootnoteApparatusConfig> {
+        if !self.footnote_apparatuses.is_empty() {
+            self.footnote_apparatuses.clone()
+        } else if let Some(app) = &self.footnote_apparatus {
+            vec![app.clone()]
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn find_apparatus(&self, id: &str) -> Option<&crate::header::FootnoteApparatusConfig> {
+        if let Some(app) = self.footnote_apparatuses.iter().find(|a| a.id == id || a.flow_id.as_deref() == Some(id)) {
+            Some(app)
+        } else if let Some(app) = &self.footnote_apparatus {
+            if app.id == id || app.flow_id.as_deref() == Some(id) || id == "footnote" || id == "notes" {
+                Some(app)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn format_footnote_marker(&self, apparatus_id: &str, index: usize) -> String {
+        if let Some(app) = self.find_apparatus(apparatus_id) {
+            app.format_marker(index)
+        } else {
+            index.to_string()
+        }
     }
 
     pub fn with_dependency_tracker(
@@ -833,5 +887,35 @@ mod tests {
         let effective = p.effective_style(&styles);
         assert_eq!(effective.font_size_pt, 20.0);
         assert_eq!(effective.alignment, TextAlignment::Center);
+    }
+
+    #[test]
+    fn test_document_root_multiple_footnote_apparatuses() {
+        use crate::header::FootnoteApparatusConfig;
+        use crate::numbering::{GematriaPunctuation, NumberingScheme};
+
+        let mut doc = DocumentRoot::new("ספר שו\"ת");
+        let sources = FootnoteApparatusConfig::new("sources")
+            .with_title("מקורות")
+            .with_columns(2, 10.0)
+            .with_numbering(NumberingScheme::HebrewGematria(
+                GematriaPunctuation::PlainLetters,
+            ))
+            .with_marker_delimiters("[", "]");
+
+        let biurim = FootnoteApparatusConfig::new("biurim")
+            .with_title("ביאורים")
+            .with_columns(1, 12.0)
+            .with_numbering(NumberingScheme::Arabic)
+            .with_marker_delimiters("(", ")");
+
+        doc.add_footnote_apparatus(sources);
+        doc.add_footnote_apparatus(biurim);
+
+        assert_eq!(doc.apparatuses().len(), 2);
+        assert_eq!(doc.format_footnote_marker("sources", 1), "[א]");
+        assert_eq!(doc.format_footnote_marker("biurim", 1), "(1)");
+        assert_eq!(doc.find_apparatus("sources").unwrap().columns, 2);
+        assert_eq!(doc.find_apparatus("biurim").unwrap().columns, 1);
     }
 }

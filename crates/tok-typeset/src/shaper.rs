@@ -35,8 +35,19 @@ fn cluster_character(text: &str, byte_offset: u32) -> Option<char> {
 pub struct TextShaper;
 
 impl TextShaper {
-    /// Shapes text using an OpenType/TrueType font face.
+    /// Shapes text using an OpenType/TrueType font face with default features.
     pub fn shape_with_face(face: &Face, text: &str, font_size_pt: f32, is_rtl: bool) -> ShapedRun {
+        Self::shape_with_face_and_features(face, text, font_size_pt, is_rtl, &[])
+    }
+
+    /// Shapes text using an OpenType/TrueType font face with additional custom features (e.g. ss01, ss04, calt).
+    pub fn shape_with_face_and_features(
+        face: &Face,
+        text: &str,
+        font_size_pt: f32,
+        is_rtl: bool,
+        extra_features: &[Feature],
+    ) -> ShapedRun {
         let mut buffer = UnicodeBuffer::new();
         buffer.set_cluster_level(BufferClusterLevel::MonotoneGraphemes);
         buffer.set_direction(if is_rtl {
@@ -46,9 +57,23 @@ impl TextShaper {
         });
         buffer.push_str(text);
 
-        // Standard OpenType typography features
-        let features = [b"kern", b"liga", b"mark", b"mkmk", b"ccmp"]
-            .map(|tag| Feature::new(Tag::from_bytes(tag), 1, ..));
+        // Standard OpenType typography features (always including contextual alternates)
+        let mut features = vec![
+            Feature::new(Tag::from_bytes(b"kern"), 1, ..),
+            Feature::new(Tag::from_bytes(b"liga"), 1, ..),
+            Feature::new(Tag::from_bytes(b"mark"), 1, ..),
+            Feature::new(Tag::from_bytes(b"mkmk"), 1, ..),
+            Feature::new(Tag::from_bytes(b"ccmp"), 1, ..),
+            Feature::new(Tag::from_bytes(b"calt"), 1, ..),
+        ];
+
+        for feat in extra_features {
+            if let Some(pos) = features.iter().position(|f| f.tag == feat.tag) {
+                features[pos] = *feat;
+            } else {
+                features.push(*feat);
+            }
+        }
 
         let glyph_buffer = rustybuzz::shape(face, &features, buffer);
         let infos = glyph_buffer.glyph_infos();
@@ -123,6 +148,10 @@ impl TextShaper {
         for (i, ch) in text.char_indices() {
             // Niqqud, Dagesh, Te'amim have 0 advance width in fallback
             let width_ratio = match ch as u32 {
+                0x05C6 => 0.55,          // Inverted Nun (נו"ן הפוכה U+05C6) - distinct letter glyph
+                0x05BE => 0.40,          // Maqaf (מקף)
+                0x05C0 => 0.25,          // Paseq (פסק)
+                0x05C3 => 0.40,          // Sof Pasuq (סוף פסוק)
                 0x0591..=0x05C7 => 0.0,  // Combining marks: zero width
                 0x0020 => 0.28,          // Space
                 0x05D0..=0x05EA => 0.55, // Standard Hebrew letter
@@ -206,5 +235,15 @@ mod tests {
         // 6 base Hebrew letters: ב, ר, א, ש, י, ת
         assert_eq!(non_zero_advances, 6);
         assert!(run.total_width_pt > 0.0);
+    }
+
+    #[test]
+    fn test_shape_fallback_nun_hafukha_and_masoretic_punctuation() {
+        let text = "\u{05C6}\u{05BE}\u{05C0}\u{05C3}";
+        let run = TextShaper::shape_fallback(text, 12.0, true);
+        assert_eq!(run.glyphs.len(), 4);
+        for g in &run.glyphs {
+            assert!(g.x_advance > 0.0, "Masoretic punctuation must have non-zero advance width");
+        }
     }
 }

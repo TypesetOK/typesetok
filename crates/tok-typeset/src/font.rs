@@ -134,6 +134,17 @@ impl<'a> ShapingSession<'a> {
     /// Shapes `text` with the primary font, or with the first fallback that
     /// covers more of it when the primary lacks glyphs.
     pub fn shape(&self, text: &str, font_size_pt: f32, is_rtl: bool) -> (ShapedRun, FontChoice) {
+        self.shape_with_features(text, font_size_pt, is_rtl, &[])
+    }
+
+    /// Shapes `text` with OpenType feature settings, falling back if glyphs are missing.
+    pub fn shape_with_features(
+        &self,
+        text: &str,
+        font_size_pt: f32,
+        is_rtl: bool,
+        extra_features: &[rustybuzz::Feature],
+    ) -> (ShapedRun, FontChoice) {
         if text.is_empty() {
             return (
                 ShapedRun {
@@ -162,7 +173,13 @@ impl<'a> ShapingSession<'a> {
                 if primary_missing.is_none_or(|p| missing < p) {
                     let face = &self.fallbacks[i].1;
                     return (
-                        TextShaper::shape_with_face(face, text, font_size_pt, is_rtl),
+                        TextShaper::shape_with_face_and_features(
+                            face,
+                            text,
+                            font_size_pt,
+                            is_rtl,
+                            extra_features,
+                        ),
                         FontChoice::Fallback(i),
                     );
                 }
@@ -171,7 +188,13 @@ impl<'a> ShapingSession<'a> {
 
         match &self.primary {
             Some((_, primary)) => (
-                TextShaper::shape_with_face(primary, text, font_size_pt, is_rtl),
+                TextShaper::shape_with_face_and_features(
+                    primary,
+                    text,
+                    font_size_pt,
+                    is_rtl,
+                    extra_features,
+                ),
                 FontChoice::Primary,
             ),
             None => (

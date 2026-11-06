@@ -264,18 +264,32 @@ impl TemplateSynthesizer {
 
         // Add footnote band if present
         if has_bottom_band {
-            let note_flow = section
+            let note_flows: Vec<FlowId> = section
                 .flows
                 .iter()
-                .find(|f| f.flow_type == FlowType::Footnote || f.id.0.contains("note"))
+                .filter(|f| {
+                    f.flow_type == FlowType::Footnote
+                        || f.placement_role.as_deref() == Some("bottom_band")
+                        || f.id.0.contains("note")
+                })
                 .map(|f| f.id.clone())
-                .unwrap_or_else(|| FlowId::new("notes"));
+                .collect();
 
-            if !specs.iter().any(|s| s.flow_id == note_flow) {
+            if note_flows.is_empty() {
+                let note_flow = FlowId::new("notes");
                 let note_spec = FlowGeometrySpec::new(note_flow.clone(), (specs.len() + 1) as u8)
                     .with_role(FlowPlacementRole::BottomBand);
                 specs.push(note_spec);
                 template.footnote_flow_id = Some(note_flow);
+            } else {
+                for note_flow in &note_flows {
+                    if !specs.iter().any(|s| s.flow_id == *note_flow) {
+                        let note_spec = FlowGeometrySpec::new(note_flow.clone(), (specs.len() + 1) as u8)
+                            .with_role(FlowPlacementRole::BottomBand);
+                        specs.push(note_spec);
+                    }
+                }
+                template.footnote_flow_id = note_flows.first().cloned();
             }
         }
 
@@ -343,6 +357,19 @@ impl TemplateSynthesizer {
         let fn_spec = FlowGeometrySpec::new(footnote_flow.clone(), (specs.len() + 1) as u8)
             .with_role(FlowPlacementRole::BottomBand);
         specs.push(fn_spec);
+
+        for extra_fn in section.flows.iter().filter(|f| {
+            f.id != *footnote_flow
+                && (f.flow_type == FlowType::Footnote
+                    || f.placement_role.as_deref() == Some("bottom_band"))
+        }) {
+            if !specs.iter().any(|s| s.flow_id == extra_fn.id) {
+                specs.push(
+                    FlowGeometrySpec::new(extra_fn.id.clone(), (specs.len() + 1) as u8)
+                        .with_role(FlowPlacementRole::BottomBand),
+                );
+            }
+        }
 
         template.flow_specs = specs;
         template.nominal_proportions = proportions;

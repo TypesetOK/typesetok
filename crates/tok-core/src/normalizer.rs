@@ -121,6 +121,25 @@ impl HebrewNormalizer {
         matches!(c as u32, 0x05D0..=0x05EA)
     }
 
+    /// Codepoint for Inverted Nun (נו"ן הפוכה `U+05C6`).
+    pub const NUN_HAFUKHA: char = '\u{05C6}';
+
+    /// Returns true if character is an Inverted Nun (נו"ן הפוכה).
+    pub fn is_nun_hafukha(c: char) -> bool {
+        c == Self::NUN_HAFUKHA
+    }
+
+    /// Returns true if character is a Masoretic Biblical punctuation mark
+    /// (e.g. Inverted Nun U+05C6, Paseq U+05C0, Sof Pasuq U+05C3, Maqaf U+05BE).
+    pub fn is_masoretic_punctuation(c: char) -> bool {
+        matches!(c as u32, 0x05BE | 0x05C0 | 0x05C3 | 0x05C6)
+    }
+
+    /// Returns true if character is a base Hebrew character (either letter or Masoretic punctuation).
+    pub fn is_hebrew_base_char(c: char) -> bool {
+        Self::is_hebrew_letter(c) || Self::is_masoretic_punctuation(c)
+    }
+
     /// Returns true if character is a Unicode BiDi directional control.
     pub fn is_bidi_control(c: char) -> bool {
         matches!(
@@ -420,5 +439,21 @@ mod tests {
         }
 
         assert_eq!(count, 120, "All 120 permutations of 5 marks must be tested");
+    }
+
+    #[test]
+    fn test_nun_hafukha_and_masoretic_punctuation_preservation() {
+        let text_with_nun_hafukha = "\u{05C6}\u{05D5}\u{05D9}\u{05D4}\u{05D9} \u{05D1}\u{05E0}\u{05E1}\u{05E2}\u{05C6}";
+        let normalized = HebrewNormalizer::normalize(text_with_nun_hafukha);
+        assert_eq!(normalized, text_with_nun_hafukha);
+        assert!(HebrewNormalizer::is_nun_hafukha('\u{05C6}'));
+        assert!(HebrewNormalizer::is_masoretic_punctuation('\u{05C6}'));
+        assert!(HebrewNormalizer::is_hebrew_base_char('\u{05C6}'));
+
+        let stripped = HebrewNormalizer::strip_all_marks(text_with_nun_hafukha);
+        assert!(stripped.contains('\u{05C6}'));
+
+        let clean = HebrewNormalizer::sanitize_plain_text(text_with_nun_hafukha);
+        assert_eq!(clean, text_with_nun_hafukha);
     }
 }

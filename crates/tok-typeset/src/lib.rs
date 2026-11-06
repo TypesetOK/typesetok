@@ -34,6 +34,7 @@ pub mod layout_classifier;
 pub mod layout_family;
 pub mod layout_features;
 pub mod layout_template;
+pub mod masoretic;
 pub mod multi_flow;
 pub mod optical_margin;
 pub mod page_break;
@@ -82,6 +83,10 @@ pub use layout_classifier::{ClassificationConfidence, ClassificationResult, Docu
 pub use layout_family::LayoutFamily;
 pub use layout_features::{DocumentLayoutFeatures, FlowFeature};
 pub use layout_template::{LayoutTemplate, TemplateConstraintError};
+pub use masoretic::{
+    has_rare_cantillation_or_masoretic_marks, is_poetic_emet_accent, is_rare_cantillation_mark,
+    resolve_masoretic_letter_styling, MasoreticTypographyConfig, NUN_HAFUKHA,
+};
 pub use multi_flow::{
     DynamicPageResult, DynamicTalmudPageResult, FlowGeometrySpec, FlowPlacementRole,
     MultiFlowSolver, SolvedFlowAllocation, SpreadSide,

@@ -11,6 +11,12 @@ use crate::geometry::LineBox;
 /// Configuration for footnote apparatus sizing and multi-page pagination.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FootnotePaginatorConfig {
+    /// Identifier of the apparatus stream (e.g. "sources", "biurim", "footnote").
+    pub apparatus_id: String,
+    /// Number of columns allocated for this apparatus band (e.g. 1 for commentary, 2 for brief citations).
+    pub columns: u32,
+    /// Column gutter gap in points.
+    pub column_gap_pt: f32,
     /// Maximum proportion of content area height that footnotes may occupy (typically 0.40 = 40%).
     pub max_height_ratio: f32,
     /// Minimum height (pt) for a footnote band if any footnotes exist.
@@ -25,9 +31,27 @@ pub struct FootnotePaginatorConfig {
 impl Default for FootnotePaginatorConfig {
     fn default() -> Self {
         Self {
+            apparatus_id: "footnote".to_string(),
+            columns: 1,
+            column_gap_pt: 12.0,
             max_height_ratio: 0.40,
             min_band_height_pt: 20.0,
             separator_gap_pt: 6.0,
+            orphan_control: 2,
+            widow_control: 2,
+        }
+    }
+}
+
+impl FootnotePaginatorConfig {
+    pub fn from_apparatus_config(cfg: &tok_core::header::FootnoteApparatusConfig) -> Self {
+        Self {
+            apparatus_id: cfg.id.clone(),
+            columns: cfg.columns.max(1),
+            column_gap_pt: cfg.column_gap_pt,
+            max_height_ratio: cfg.max_band_height_ratio,
+            min_band_height_pt: 20.0,
+            separator_gap_pt: cfg.space_above_pt,
             orphan_control: 2,
             widow_control: 2,
         }
@@ -59,21 +83,135 @@ impl DynamicFootnotePaginator {
         }
 
         let max_permitted_h = content_height * config.max_height_ratio;
-        let mut demand: f32 = 0.0;
-
-        for line in remaining_lines {
-            if demand + line.height > max_permitted_h && demand > 0.0 {
-                break;
-            }
-            demand += line.height;
-        }
-
-        if demand <= 0.0 {
+        let total_line_h: f32 = remaining_lines.iter().map(|l| l.height).sum();
+        if total_line_h <= 0.0 {
             return None;
         }
 
-        let target_h = demand.max(config.min_band_height_pt).min(max_permitted_h);
+        let cols = config.columns.max(1) as f32;
+        let vertical_demand = total_line_h / cols;
+
+        let target_h = vertical_demand.max(config.min_band_height_pt).min(max_permitted_h);
         Some(target_h)
+    }
+
+    /// Proportionally budgets target heights across multiple parallel footnote apparatuses
+    /// (e.g. "sources" + "biurim") such that the combined footnote band height remains within
+    /// the page ratio limit (e.g. 40% of page height).
+    pub fn calculate_multi_apparatus_heights<'a>(
+        apparatuses: &[(&'a str, &'a [LineBox], &'a FootnotePaginatorConfig)],
+        content_height: f32,
+    ) -> Vec<(&'a str, f32)> {
+        if apparatuses.is_empty() || content_height <= 0.0 {
+            return Vec::new();
+        }
+
+        let mut demands: Vec<(&'a str, f32, f32)> = Vec::new();
+        let mut max_ratio: f32 = 0.40;
+
+        for (id, lines, cfg) in apparatuses {
+            if let Some(target) = Self::calculate_target_height(lines, content_height, cfg) {
+                demands.push((*id, target, cfg.min_band_height_pt));
+                if cfg.max_height_ratio > 0.0 {
+                    max_ratio = max_ratio.max(cfg.max_height_ratio);
+                }
+            }
+        }
+
+        if demands.is_empty() {
+            return Vec::new();
+        }
+
+        let max_combined_h = content_height * max_ratio;
+        let total_demanded: f32 = demands.iter().map(|(_, t, _)| *t).sum();
+
+        if total_demanded <= max_combined_h {
+            demands.into_iter().map(|(id, t, _)| (id, t)).collect()
+        } else {
+            let scale = max_combined_h / total_demanded;
+            demands
+                .into_iter()
+                .map(|(id, t, min_h)| {
+                    let budgeted = (t * scale).max(min_h);
+                    (id, budgeted)
+                })
+                .collect()
+        }
+    }
+
+    /// Slices lines to fit within multi-column width and allocated height granted by solver.
+    pub fn slice_for_allocated_band_with_width(
+        remaining_lines: &[LineBox],
+        allocated_width: f32,
+        allocated_height: f32,
+        config: &FootnotePaginatorConfig,
+        is_rtl: bool,
+    ) -> FootnotePageSlice {
+        if remaining_lines.is_empty() || allocated_height <= 0.0 || allocated_width <= 0.0 {
+            return FootnotePageSlice {
+                placed_lines: Vec::new(),
+                lines_consumed: 0,
+                actual_height_pt: 0.0,
+                has_carry_over: false,
+            };
+        }
+
+        let num_cols = config.columns.max(1) as usize;
+        if num_cols == 1 {
+            return Self::slice_for_allocated_band(remaining_lines, allocated_height, config);
+        }
+
+        let gap = config.column_gap_pt;
+        let total_gaps = (num_cols - 1) as f32 * gap;
+        let col_width = (allocated_width - total_gaps).max(10.0) / num_cols as f32;
+
+        let mut placed = Vec::new();
+        let mut idx = 0;
+        let mut max_col_h: f32 = 0.0;
+
+        for col_idx in 0..num_cols {
+            if idx >= remaining_lines.len() {
+                break;
+            }
+
+            // In RTL, column 0 is at the right edge
+            let x_off = if is_rtl {
+                allocated_width - (col_idx as f32 + 1.0) * col_width - col_idx as f32 * gap
+            } else {
+                col_idx as f32 * (col_width + gap)
+            };
+
+            let mut curr_y = 0.0;
+
+            while idx < remaining_lines.len() {
+                let line = &remaining_lines[idx];
+                if curr_y + line.height > allocated_height && curr_y > 0.0 {
+                    break;
+                }
+
+                let mut positioned = line.clone();
+                positioned.x_offset = x_off;
+                positioned.width = col_width;
+                positioned.baseline_y = curr_y + positioned.height;
+                positioned.line_index = placed.len();
+                curr_y += positioned.height;
+                placed.push(positioned);
+                idx += 1;
+            }
+
+            if curr_y > max_col_h {
+                max_col_h = curr_y;
+            }
+        }
+
+        let has_carry_over = idx < remaining_lines.len();
+
+        FootnotePageSlice {
+            placed_lines: placed,
+            lines_consumed: idx,
+            actual_height_pt: max_col_h,
+            has_carry_over,
+        }
     }
 
     /// Slices lines to fit within the actual allocated height granted by `GeometricConstraintSolver`.
@@ -316,5 +454,60 @@ mod tests {
         assert_eq!(slice.placed_lines.len(), 2);
         assert_eq!(slice.actual_height_pt, 30.0);
         assert!(slice.has_carry_over);
+    }
+
+    #[test]
+    fn test_multi_apparatus_height_budgeting() {
+        let lines_a: Vec<LineBox> = (0..10).map(|i| make_fn_line(i, 15.0)).collect();
+        let lines_b: Vec<LineBox> = (0..6).map(|i| make_fn_line(i, 15.0)).collect();
+
+        let cfg_a = FootnotePaginatorConfig {
+            apparatus_id: "sources".to_string(),
+            columns: 2,
+            ..Default::default()
+        };
+        let cfg_b = FootnotePaginatorConfig {
+            apparatus_id: "biurim".to_string(),
+            columns: 1,
+            ..Default::default()
+        };
+
+        let apps = [
+            ("sources", &lines_a[..], &cfg_a),
+            ("biurim", &lines_b[..], &cfg_b),
+        ];
+
+        let budgeted = DynamicFootnotePaginator::calculate_multi_apparatus_heights(&apps, 500.0);
+        assert_eq!(budgeted.len(), 2);
+        assert_eq!(budgeted[0], ("sources", 75.0));
+        assert_eq!(budgeted[1], ("biurim", 90.0));
+    }
+
+    #[test]
+    fn test_multi_column_footnote_slicing_rtl() {
+        let lines: Vec<LineBox> = (0..6).map(|i| make_fn_line(i, 15.0)).collect();
+        let config = FootnotePaginatorConfig {
+            apparatus_id: "sources".to_string(),
+            columns: 2,
+            column_gap_pt: 10.0,
+            ..Default::default()
+        };
+
+        let slice = DynamicFootnotePaginator::slice_for_allocated_band_with_width(
+            &lines,
+            410.0,
+            40.0,
+            &config,
+            true,
+        );
+
+        assert_eq!(slice.lines_consumed, 4);
+        assert_eq!(slice.placed_lines.len(), 4);
+        assert!(slice.has_carry_over);
+
+        assert_eq!(slice.placed_lines[0].x_offset, 210.0);
+        assert_eq!(slice.placed_lines[1].x_offset, 210.0);
+        assert_eq!(slice.placed_lines[2].x_offset, 0.0);
+        assert_eq!(slice.placed_lines[3].x_offset, 0.0);
     }
 }

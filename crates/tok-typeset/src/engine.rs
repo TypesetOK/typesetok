@@ -1810,31 +1810,54 @@ impl TypesettingEngine {
                 SpreadSide::Verso
             };
 
-            let notes_flow = first_sec.flows.iter().find(|f| {
-                f.flow_type == FlowType::Footnote
-                    || f.placement_role.as_deref() == Some("bottom_band")
-                    || f.id.0.contains("note")
-            });
-            let notes_id = notes_flow.map(|f| f.id.0.as_str());
+            let fn_flow_specs: Vec<&FlowGeometrySpec> = flow_specs
+                .iter()
+                .filter(|s| {
+                    s.role == FlowPlacementRole::BottomBand
+                        || s.flow_id.0 == "footnote"
+                        || s.flow_id.0.contains("note")
+                        || doc.find_apparatus(&s.flow_id.0).is_some()
+                })
+                .collect();
 
-            let footnote_target = if let Some(n_id) = notes_id {
-                let cur = flow_cursors.get(n_id).copied().unwrap_or(0);
-                if let Some(lines) = flow_lines_map.get(n_id) {
+            // Prepare paginator configs for all apparatuses
+            let mut apparatus_demands: Vec<(&str, &[LineBox], FootnotePaginatorConfig)> = Vec::new();
+            for fn_s in &fn_flow_specs {
+                let f_id = fn_s.flow_id.0.as_str();
+                let cur = flow_cursors.get(f_id).copied().unwrap_or(0);
+                if let Some(lines) = flow_lines_map.get(f_id) {
                     let remaining = &lines[cur..];
-                    DynamicFootnotePaginator::calculate_target_height(
-                        remaining,
-                        content_height,
-                        &FootnotePaginatorConfig::default(),
-                    )
-                } else {
-                    None
+                    if !remaining.is_empty() {
+                        let p_cfg = doc
+                            .find_apparatus(f_id)
+                            .map(FootnotePaginatorConfig::from_apparatus_config)
+                            .unwrap_or_else(|| FootnotePaginatorConfig {
+                                apparatus_id: f_id.to_string(),
+                                ..Default::default()
+                            });
+                        apparatus_demands.push((f_id, remaining, p_cfg));
+                    }
                 }
-            } else {
+            }
+
+            let app_tuples: Vec<(&str, &[LineBox], &FootnotePaginatorConfig)> = apparatus_demands
+                .iter()
+                .map(|(id, l, c)| (*id, *l, c))
+                .collect();
+
+            let budgeted_fn_heights = DynamicFootnotePaginator::calculate_multi_apparatus_heights(
+                &app_tuples,
+                content_height,
+            );
+
+            let footnote_target = if budgeted_fn_heights.is_empty() {
                 None
+            } else {
+                Some(budgeted_fn_heights.iter().map(|(_, h)| *h).sum())
             };
 
             // Determine active flows on this page (flows with unplaced lines)
-            let active_specs: Vec<FlowGeometrySpec> = flow_specs
+            let mut active_specs: Vec<FlowGeometrySpec> = flow_specs
                 .iter()
                 .filter(|s| {
                     let cur = flow_cursors.get(&s.flow_id.0).copied().unwrap_or(0);
@@ -1843,6 +1866,13 @@ impl TypesettingEngine {
                 })
                 .cloned()
                 .collect();
+
+            // Set each footnote flow's target_height_pt from its budgeted apparatus height
+            for s in &mut active_specs {
+                if let Some((_, h)) = budgeted_fn_heights.iter().find(|(id, _)| *id == s.flow_id.0) {
+                    s.target_height_pt = *h;
+                }
+            }
 
             let current_specs = if active_specs.is_empty() {
                 &flow_specs[..]
@@ -2440,18 +2470,24 @@ impl TypesettingEngine {
                 });
             }
 
-            // Place footnotes if present
-            if let Some(fn_alloc) = dynamic_result.footnote_allocation {
-                let notes_id = first_sec
-                    .flows
-                    .iter()
-                    .find(|f| {
-                        f.flow_type == FlowType::Footnote
-                            || f.placement_role.as_deref() == Some("bottom_band")
-                            || f.id.0.contains("note")
-                    })
-                    .map(|f| f.id.0.clone())
-                    .unwrap_or_else(|| fn_alloc.flow_id.0.clone());
+            // Place footnotes if present (supports multiple independent parallel apparatuses)
+            let fn_allocs = if !dynamic_result.footnote_allocations.is_empty() {
+                dynamic_result.footnote_allocations.clone()
+            } else if let Some(fn_alloc) = &dynamic_result.footnote_allocation {
+                vec![fn_alloc.clone()]
+            } else {
+                Vec::new()
+            };
+
+            for fn_alloc in fn_allocs {
+                let notes_id = fn_alloc.flow_id.0.clone();
+                let p_cfg = doc
+                    .find_apparatus(&notes_id)
+                    .map(FootnotePaginatorConfig::from_apparatus_config)
+                    .unwrap_or_else(|| FootnotePaginatorConfig {
+                        apparatus_id: notes_id.clone(),
+                        ..Default::default()
+                    });
 
                 let lines_pool = flow_lines_map.get(&notes_id);
                 let cursor = flow_cursors.get(&notes_id).copied().unwrap_or(0);
@@ -2459,10 +2495,12 @@ impl TypesettingEngine {
 
                 if let Some(pool) = lines_pool {
                     let remaining = &pool[cursor..];
-                    let fn_slice = DynamicFootnotePaginator::slice_for_allocated_band(
+                    let fn_slice = DynamicFootnotePaginator::slice_for_allocated_band_with_width(
                         remaining,
+                        fn_alloc.allocated_width_pt,
                         fn_alloc.allocated_height_pt,
-                        &FootnotePaginatorConfig::default(),
+                        &p_cfg,
+                        true,
                     );
                     if fn_slice.lines_consumed > 0 {
                         flow_cursors.insert(notes_id.clone(), cursor + fn_slice.lines_consumed);

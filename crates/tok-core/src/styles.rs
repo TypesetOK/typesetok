@@ -302,6 +302,73 @@ pub struct CharacterStyle {
     pub italic: Option<bool>,
     pub tracking_em: Option<f32>,
     pub color: Option<Color>,
+    pub baseline_shift_pt: Option<f32>,
+    pub masoretic_variant: Option<MasoreticLetterVariant>,
+    pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
+}
+
+/// OpenType feature setting tag (e.g. "calt", "ss01", "ss04", "cv04") and value (0 or 1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenTypeFeatureSetting {
+    pub tag: String,
+    pub value: u32,
+}
+
+impl OpenTypeFeatureSetting {
+    pub fn new(tag: impl Into<String>, value: u32) -> Self {
+        Self {
+            tag: tag.into(),
+            value,
+        }
+    }
+}
+
+/// Masoretic letter variation in Biblical Hebrew typography (טיפוגרפיה מסורתית של התנ"ך והמסורה).
+///
+/// Traditional Masoretic codices feature three distinct letter size/position modifications:
+/// 1. `Rabbatai` (אותיות רבתי / Literae Majusculae) — enlarged letters (e.g. ב' בראשית, ע' ו-ד' בשמע).
+/// 2. `Zeira` (אותיות זעירות / Literae Minusculae) — reduced letters (e.g. ה' בבהבראם, א' בויקרא).
+/// 3. `Teluyah` (אותיות תלויות / Literae Suspensae) — suspended / elevated letters positioned above baseline (e.g. ע' תלויה ביער מיער, נ' תלויה במנשה).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MasoreticLetterVariant {
+    #[default]
+    Regular,
+    /// Literae Majusculae (אות רבתי) - typical size scaling ~1.25x - 1.35x.
+    Rabbatai,
+    /// Literae Minusculae (אות זעירא) - typical size scaling ~0.70x - 0.75x.
+    Zeira,
+    /// Literae Suspensae (אות תלויה) - smaller size (~0.72x) elevated above baseline.
+    Teluyah,
+}
+
+impl MasoreticLetterVariant {
+    /// Recommended font scale relative to current font size.
+    pub fn font_size_scale(&self) -> f32 {
+        match self {
+            Self::Regular => 1.0,
+            Self::Rabbatai => 1.30,
+            Self::Zeira => 0.72,
+            Self::Teluyah => 0.72,
+        }
+    }
+
+    /// Baseline shift in em units (positive shifts upwards).
+    pub fn baseline_shift_em(&self) -> f32 {
+        match self {
+            Self::Regular | Self::Rabbatai | Self::Zeira => 0.0,
+            Self::Teluyah => 0.38,
+        }
+    }
+
+    /// OpenType stylistic set or character variant tag if supported by Torani OpenType fonts.
+    pub fn recommended_opentype_tag(&self) -> Option<&'static str> {
+        match self {
+            Self::Regular => None,
+            Self::Rabbatai => Some("titl"),
+            Self::Zeira => Some("smcp"),
+            Self::Teluyah => Some("sups"),
+        }
+    }
 }
 
 /// A local paragraph-level override (direct formatting) applied on top of the
@@ -362,6 +429,12 @@ pub struct CharacterFormat {
     pub tracking_em: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_shift_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub masoretic_variant: Option<MasoreticLetterVariant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
 }
 
 impl CharacterFormat {
@@ -484,5 +557,24 @@ mod tests {
 
         style.apply_patch(&patch);
         assert_eq!(style.drop_cap, Some(dc));
+    }
+
+    #[test]
+    fn test_masoretic_variant_scaling_and_serialization() {
+        assert_eq!(MasoreticLetterVariant::Rabbatai.font_size_scale(), 1.30);
+        assert_eq!(MasoreticLetterVariant::Zeira.font_size_scale(), 0.72);
+        assert_eq!(MasoreticLetterVariant::Teluyah.font_size_scale(), 0.72);
+        assert_eq!(MasoreticLetterVariant::Teluyah.baseline_shift_em(), 0.38);
+        assert_eq!(MasoreticLetterVariant::Regular.baseline_shift_em(), 0.0);
+
+        let fmt = CharacterFormat {
+            masoretic_variant: Some(MasoreticLetterVariant::Teluyah),
+            baseline_shift_pt: Some(4.5),
+            opentype_features: Some(vec![OpenTypeFeatureSetting::new("ss01", 1)]),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&fmt).unwrap();
+        let parsed: CharacterFormat = serde_json::from_str(&json).unwrap();
+        assert_eq!(fmt, parsed);
     }
 }
