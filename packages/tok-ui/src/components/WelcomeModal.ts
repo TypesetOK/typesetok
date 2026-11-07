@@ -432,31 +432,6 @@ export class WelcomeModal {
     const side = el('aside', 'tok-recent', { 'aria-labelledby': 'tok-recent-h' });
     const sideHead = el('div', 'tok-recent-head');
     sideHead.appendChild(el('h2', undefined, { id: 'tok-recent-h' }, t('recentProjects')));
-
-    const headActions = el('div', undefined, { style: 'display:flex;align-items:center;gap:6px;' });
-
-    const importBtn = button(t('importDocument'), {
-      className: 'tok-btn tok-btn-sm',
-      icon: 'file',
-      iconSize: 15,
-      attrs: { 'data-focus-key': 'import', title: t('importDocumentDesc') },
-      onClick: () => {
-        this.callbacks.onImportDocument?.();
-      }
-    });
-    headActions.appendChild(importBtn);
-
-    const openBtn = button(t('openProject'), {
-      className: 'tok-btn tok-btn-sm',
-      icon: 'folder',
-      iconSize: 15,
-      attrs: { 'data-focus-key': 'open' },
-      onClick: () => {
-        this.callbacks.onOpenProject();
-      }
-    });
-    headActions.appendChild(openBtn);
-    sideHead.appendChild(headActions);
     side.appendChild(sideHead);
 
     const recent = getRecentProjects();
