@@ -6,6 +6,119 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.35.0",
+    "releaseDate": "2026-11-07",
+    "importance": "major",
+    "title": {
+      "he": "ייבוא DOCX מתקדם (הערות שוליים, טבלאות ורשימות), ריבוי מדורי הערות במקביל, ניהול צבע ICC/PDF-X ומנוע GREP חי",
+      "en": "Advanced DOCX Import, Multi-Apparatus Footnotes, ICC Color Management & Live GREP Engine"
+    },
+    "summary": {
+      "he": "שחרור גרסה 0.35.0 המשלים ארבע יכולות ליבה לעימוד ספרי קודש וספרות תורנית מקצועית: ייבוא מלא מקובצי Word כולל חילוץ הערות שוליים וקישורן לטקסט הראשי, טבלאות RTL ורשימות ממוספרות מקוננות; מערכת הערות שוליים רב-מדורית במקביל (כגון מדור מקורות ב-2 טורים ומדור ביאורים בטור רחב) עם איזון גובה דינמי וקווי הפרדה; מנוע ניהול צבע קדם-דפוס ופרופילי ICC (FOGRA39, FOGRA51, GRACoL, SWOP) עם הגבלת עומס דיו (TAC <= 300%) והטמעת OutputIntent תקני ב-PDF/X-1a ו-PDF/X-4; ומנוע חוקי GREP חי לעיצוב אוטומטי בזמן אמת ללא שינוי טקסט המקור.",
+      "en": "Release 0.35.0 delivering four core capabilities: full DOCX import extracting footnotes, nested RTL tables, and numbered lists; parallel multi-apparatus footnotes with independent columns, numbering, proportional height budgeting, and separator rules; pre-press ICC color management (FOGRA39, FOGRA51, GRACoL, SWOP) with GCR/UCR TAC <= 300% and embedded PDF/X OutputIntent profiles; and a non-destructive Live GREP regex styling engine."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "חילוץ אוטומטי של הערות שוליים (word/footnotes.xml), טבלאות מקוננות ורשימות ממוספרות (word/numbering.xml) בייבוא קובצי DOCX",
+          "en": "Extract footnotes, nested tables, and hierarchical numbered lists from DOCX archives"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "תמיכה בריבוי מדורי הערות שוליים עצמאיים במקביל עם מספור, כמות טורים, גופנים וקווי הפרדה ייחודיים לכל מדור",
+          "en": "Support multiple parallel footnote apparatuses with per-apparatus columns, numbering, typography, and separator rules"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מנוע ניהול צבע קדם-דפוס בליבת ה-Rust התומך בפרופילי FOGRA39, FOGRA51, ISO Coated v2, GRACoL 2013 ו-SWOP עם הטמעת DestOutputProfile ב-PDF/X-1a ו-PDF/X-4",
+          "en": "Rust pre-press color management engine with GCR/UCR separation, 300% TAC enforcement, and embedded ICC profiles in PDF/X"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מנוע חוקי GREP חי בליבת ה-Rust ובממשק המשתמש עם תבניות מוכנות לעימוד תורני ויכולת הוספת כללי Regex מותאמים אישית",
+          "en": "Live non-destructive GREP regex rule engine in Rust and UI inspector with built-in Torah typesetting presets"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "docx-advanced-import",
+        "icon": "file",
+        "title": {
+          "he": "חילוץ הערות שוליים, טבלאות ורשימות ממוספרות מ-Word",
+          "en": "DOCX Footnotes, Nested Tables & Numbered Lists Import"
+        },
+        "description": {
+          "he": "קריאה ישירה של word/footnotes.xml, word/numbering.xml וטבלאות מקוננות מקובץ ה-DOCX ושיבוצם האוטומטי בתזרימי המסמך עם עוגנים מקושרים.",
+          "en": "Direct extraction of word/footnotes.xml, word/numbering.xml, and tables into linked document flows."
+        },
+        "badge": {
+          "he": "ייבוא וורד מלא",
+          "en": "Full DOCX Import"
+        }
+      },
+      {
+        "id": "multi-apparatus-footnotes",
+        "icon": "layers",
+        "title": {
+          "he": "ריבוי מערכות הערות שוליים עצמאיות במקביל",
+          "en": "Parallel Multi-Apparatus Footnote Channels"
+        },
+        "description": {
+          "he": "תמיכה במדורי הערות מקבילים בתחתית העמוד (מדור מקורות באותיות ובשני טורים לצד מדור ביאורים במספרים ובטור אחד) עם חלוקת תקציב גובה וקווי הפרדה.",
+          "en": "Independent bottom footnote apparatuses with custom columns, numbering schemes, dynamic height budgeting, and separator rules."
+        },
+        "badge": {
+          "he": "רב-מדורי",
+          "en": "Multi-Apparatus"
+        }
+      },
+      {
+        "id": "icc-color-pdfx",
+        "icon": "check",
+        "title": {
+          "he": "ניהול צבע מקצועי ופרופילי ICC מוטמעים ב-PDF/X",
+          "en": "Professional ICC Color Management & PDF/X OutputIntent"
+        },
+        "description": {
+          "he": "המרת RGB ל-CMYK בשיטת GCR/UCR עם הגבלת דיו ל-300%, שמירת טקסט שחור 100% K והטמעת פרופיל DestOutputProfile תקני (FOGRA39/51, GRACoL, SWOP).",
+          "en": "GCR/UCR RGB-to-CMYK separation with 300% total ink limit, pure 100% K black text, and embedded ICC OutputIntent streams."
+        },
+        "badge": {
+          "he": "קדם-דפוס ICC",
+          "en": "ICC & PDF/X"
+        }
+      },
+      {
+        "id": "live-grep-engine",
+        "icon": "sparkle",
+        "title": {
+          "he": "מנוע ביטויים רגולריים (GREP) חי לעיצוב אוטומטי",
+          "en": "Non-Destructive Live GREP Styling Engine"
+        },
+        "description": {
+          "he": "החלת סגנונות תו אוטומטית בזמן אמת (הקטנת מראי מקומות בסוגריים ל-80%, הדגשת ראשי תיבות ומילות פתיחה בגמרא) מבלי לשנות את טקסט המקור.",
+          "en": "Real-time non-destructive regex styling for parenthetical citations, acronyms, and opening words."
+        },
+        "badge": {
+          "he": "מנוע GREP חי",
+          "en": "Live GREP Engine"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה נוכחית",
+      "en": "Current Version"
+    }
+  },
+  {
     "version": "0.34.11",
     "releaseDate": "2026-11-07",
     "importance": "patch",
@@ -128,8 +241,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       }
     ],
     "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
     }
   },
   {
