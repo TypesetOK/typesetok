@@ -10,15 +10,20 @@
  * and tok-core model specifications.
  */
 
-import { MultiFlowDocumentState, TemplateType } from './FlowPaginator';
+import type { MultiFlowDocumentState, TemplateType } from './FlowPaginator.js';
 import {
   CharacterFormat,
   ParagraphStylePatch,
   StoryParagraph,
   TextSpan
 } from 'tok-story-editor';
-import { DocumentSettings, MultiFlowAnchorLink } from '../types';
-import type { ImportResult } from './textImporter';
+import type {
+  DocumentSettings,
+  FootnoteApparatusConfigData,
+  GrepRuleData,
+  MultiFlowAnchorLink
+} from '../types.js';
+import type { ImportResult } from './textImporter.js';
 
 export const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
@@ -126,11 +131,116 @@ export interface CharacterFormatJson {
   character_style_id?: string;
   font_family?: string;
   font_size_pt?: number;
+  font_scale?: number;
   font_weight?: number;
   italic?: boolean;
   underline?: boolean;
   tracking_em?: number;
   color?: ColorJson;
+}
+
+export type FootnoteApparatusConfigJson = FootnoteApparatusConfigData;
+export type GrepRuleJson = GrepRuleData;
+
+/**
+ * Built-in Torah & scholarly DTP Live GREP presets matching `GrepRule::builtin_presets()` in `tok-core`.
+ */
+export function getBuiltinGrepRules(): GrepRuleJson[] {
+  return [
+    {
+      id: 'grep-parens-citations',
+      name: 'הקטנת מראי מקומות בסוגריים (80% + אפור עדין)',
+      pattern: '\\([^()]+\\)',
+      target_style_id: 'char-citation-parens',
+      format: {
+        character_style_id: 'char-citation-parens',
+        font_scale: 0.80,
+        color: { DeviceCmyk: { c: 0.0, m: 0.0, y: 0.0, k: 0.65 } }
+      },
+      enabled: false
+    },
+    {
+      id: 'grep-acronyms-rashi',
+      name: 'ראשי תיבות בגרשיים (גופן רש״י / הדגשה)',
+      pattern: '[\\u0590-\\u05FF]+["״][\\u0590-\\u05FF]+',
+      target_style_id: 'char-acronym',
+      format: {
+        character_style_id: 'char-acronym',
+        font_family: 'Noto Rashi Hebrew',
+        font_weight: 700
+      },
+      enabled: false
+    },
+    {
+      id: 'grep-talmud-opening-words',
+      name: 'הדגשת מילות פתיחה תלמודיות (אמר רבא, תנו רבנן)',
+      pattern: '^(?:אמר רבא|אמר אביי|תנו רבנן|תנא|איתמר|בעא מיניה|גמרא|משנה)\\b',
+      target_style_id: 'char-opening-talmud',
+      format: {
+        character_style_id: 'char-opening-talmud',
+        font_weight: 700
+      },
+      enabled: false
+    },
+    {
+      id: 'grep-section-markers',
+      name: 'הדגשת מספרי סעיפים ואותיות (אות א׳, סעיף ב׳)',
+      pattern: '(?:אות|סעיף|סימן|הלכה|ענף)\\s+[\\u05D0-\\u05EA]{1,3}[\'׳"]?',
+      target_style_id: 'char-section-marker',
+      format: {
+        character_style_id: 'char-section-marker',
+        font_weight: 700
+      },
+      enabled: false
+    },
+    {
+      id: 'grep-double-quotes-emphasis',
+      name: 'עיצוב מובאות במירכאות כפולות',
+      pattern: '״[^״]+״|"[^"\\s][^"]*"',
+      target_style_id: 'char-quoted',
+      format: {
+        character_style_id: 'char-quoted',
+        italic: true
+      },
+      enabled: false
+    }
+  ];
+}
+
+/**
+ * Default dual-apparatus footnotes configuration for Torah & Responsa books:
+ * - Apparatus 1 (`notes`): "מקורות וציונים" (Hebrew letters א, ב, ג in 2 columns)
+ * - Apparatus 2 (`biurim`): "ביאורים והרחבות" (Arabic numerals 1, 2, 3 in 1 wide column)
+ */
+export function getDefaultMultiApparatusConfigs(): FootnoteApparatusConfigJson[] {
+  return [
+    {
+      id: 'notes',
+      name: 'מדור א׳: מקורות וציונים',
+      numbering_style: 'HebrewGematria',
+      columns: 2,
+      column_gap_pt: 12.0,
+      max_height_ratio: 0.25,
+      draw_separator_rule: true,
+      separator_length_ratio: 0.33,
+      font_family: 'Frank Ruhl Libre',
+      font_size_pt: 8.5,
+      line_height_pt: 11.5
+    },
+    {
+      id: 'biurim',
+      name: 'מדור ב׳: ביאורים והרחבות',
+      numbering_style: 'ArabicNumerals',
+      columns: 1,
+      column_gap_pt: 12.0,
+      max_height_ratio: 0.45,
+      draw_separator_rule: true,
+      separator_length_ratio: 0.18,
+      font_family: 'Frank Ruhl Libre',
+      font_size_pt: 9.5,
+      line_height_pt: 13.0
+    }
+  ];
 }
 
 export interface TextSpanJson {
@@ -186,6 +296,7 @@ export function spanToSpanJson(span: TextSpan): TextSpanJson {
   if (fmt.characterStyleId != null) fmtJson.character_style_id = fmt.characterStyleId;
   if (fmt.fontFamily != null) fmtJson.font_family = fmt.fontFamily;
   if (fmt.fontSizePt != null) fmtJson.font_size_pt = fmt.fontSizePt;
+  if (fmt.fontScale != null) fmtJson.font_scale = fmt.fontScale;
   if (fmt.fontWeight != null) fmtJson.font_weight = fmt.fontWeight;
   if (fmt.italic != null) fmtJson.italic = fmt.italic;
   if (fmt.underline != null) fmtJson.underline = fmt.underline;
@@ -203,15 +314,78 @@ export function spanJsonToSpan(json: TextSpanJson): TextSpan {
   if (fmt.character_style_id != null) format.characterStyleId = fmt.character_style_id;
   if (fmt.font_family != null) format.fontFamily = fmt.font_family;
   if (fmt.font_size_pt != null) format.fontSizePt = fmt.font_size_pt;
+  if (fmt.font_scale != null) format.fontScale = fmt.font_scale;
   if (fmt.font_weight != null) format.fontWeight = fmt.font_weight;
   if (fmt.italic != null) format.italic = fmt.italic;
   if (fmt.underline != null) format.underline = fmt.underline;
   if (fmt.tracking_em != null) format.trackingEm = fmt.tracking_em;
+  if (fmt.color?.DeviceCmyk) {
+    const k = Math.min(1, Math.max(0, fmt.color.DeviceCmyk.k));
+    const gray = Math.round((1 - k) * 255);
+    format.color = `rgb(${gray}, ${gray}, ${gray})`;
+  } else if (fmt.color?.Rgb) {
+    const r = Math.round(fmt.color.Rgb.r * 255);
+    const g = Math.round(fmt.color.Rgb.g * 255);
+    const b = Math.round(fmt.color.Rgb.b * 255);
+    format.color = `rgb(${r}, ${g}, ${b})`;
+  }
   return {
     start: json.start,
     end: json.end,
     format
   };
+}
+
+/**
+ * Evaluates active Live GREP rules on a paragraph's text and returns merged TextSpans
+ * non-destructively (without modifying `paragraph.text`).
+ */
+export function evaluateLiveGrepSpansInUi(
+  text: string,
+  baseSpans: TextSpan[] | undefined,
+  grepRules: GrepRuleJson[] | undefined,
+  flowId?: string
+): TextSpan[] {
+  const result: TextSpan[] = baseSpans ? [...baseSpans] : [];
+  if (!text || !grepRules || grepRules.length === 0) {
+    return result;
+  }
+
+  for (const rule of grepRules) {
+    if (!rule.enabled || !rule.pattern.trim()) continue;
+    if (rule.scope_flow_id && flowId && rule.scope_flow_id !== flowId) continue;
+
+    try {
+      const regex = new RegExp(rule.pattern, 'gu');
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(text)) !== null) {
+        if (match[0].length === 0) {
+          regex.lastIndex++;
+          continue;
+        }
+        // Convert UTF-16 code-unit index to Unicode code-point index
+        const startChar = Array.from(text.slice(0, match.index)).length;
+        const matchCharLen = Array.from(match[0]).length;
+        const endChar = startChar + matchCharLen;
+        if (endChar > startChar) {
+          const spanFmt = spanJsonToSpan({
+            start: startChar,
+            end: endChar,
+            format: rule.format
+          }).format;
+          result.push({
+            start: startChar,
+            end: endChar,
+            format: spanFmt
+          });
+        }
+      }
+    } catch {
+      // Ignore invalid regex during live typing
+    }
+  }
+
+  return result.sort((a, b) => a.start - b.start);
 }
 
 
@@ -220,6 +394,7 @@ export type FlowTypeJson = 'Main' | 'CommentA' | 'CommentB' | 'Footnote';
 export interface FlowJson {
   id: string;
   flow_type: FlowTypeJson;
+  placement_role?: string;
   paragraphs: ParagraphNodeJson[];
 }
 
@@ -268,6 +443,8 @@ export interface DocumentRootJson {
   character_styles: unknown[];
   sections: SectionNodeJson[];
   multi_flow_anchors?: MultiFlowAnchorMapJson;
+  footnote_apparatuses?: FootnoteApparatusConfigJson[];
+  grep_rules?: GrepRuleJson[];
 }
 
 /**
@@ -392,17 +569,25 @@ export function documentStateToDocumentRoot(
   const defaultStyles = createDefaultParagraphStyles();
   const definedStyleIds = new Set(defaultStyles.map((s) => s.id));
 
+  const apparatusIds = new Set(
+    (state.footnoteApparatuses || []).map((a) => a.id)
+  );
+  apparatusIds.add('notes');
+  apparatusIds.add('footnotes');
+
   // Determine flow types
   const flowKeys = Object.keys(state.flows || {});
   const flows: FlowJson[] = [];
 
   for (const flowKey of flowKeys) {
-    if (isProse && flowKey !== 'gemara' && flowKey !== 'main') {
+    const paras = state.flows[flowKey] || [];
+    const isApparatusFlow = apparatusIds.has(flowKey) || state.customFlowMetadata?.[flowKey]?.placement === 'bottom';
+    if (isProse && flowKey !== 'gemara' && flowKey !== 'main' && !(isApparatusFlow && paras.length > 0)) {
       continue;
     }
-    const paras = state.flows[flowKey] || [];
     let flowId = flowKey;
     let flowType: FlowTypeJson = 'Main';
+    let placementRole: string | undefined;
 
     if (flowKey === 'gemara') {
       flowId = isProse ? 'main' : 'gemara';
@@ -413,9 +598,10 @@ export function documentStateToDocumentRoot(
     } else if (flowKey === 'tosafot') {
       flowId = 'tosafot';
       flowType = 'CommentB';
-    } else if (flowKey === 'notes') {
-      flowId = 'notes';
+    } else if (flowKey === 'notes' || isApparatusFlow) {
+      flowId = flowKey;
       flowType = 'Footnote';
+      placementRole = 'bottom_band';
     } else if (flowKey === 'main') {
       flowId = 'main';
       flowType = 'Main';
@@ -427,7 +613,7 @@ export function documentStateToDocumentRoot(
         flowKey === 'gemara' ? (isProse ? 'normal' : 'style-gemara-main') :
         flowKey === 'rashi' ? 'style-rashi-body' :
         flowKey === 'tosafot' ? 'style-tosafot-body' :
-        flowKey === 'notes' ? 'style-footnotes' :
+        (flowKey === 'notes' || isApparatusFlow) ? 'style-footnotes' :
         'default-body'
       );
 
@@ -476,6 +662,7 @@ export function documentStateToDocumentRoot(
     flows.push({
       id: flowId,
       flow_type: flowType,
+      placement_role: placementRole,
       paragraphs: convertedParas
     });
   }
@@ -582,7 +769,13 @@ export function documentStateToDocumentRoot(
         flows
       }
     ],
-    multi_flow_anchors: multiFlowAnchorsJson
+    multi_flow_anchors: multiFlowAnchorsJson,
+    footnote_apparatuses: state.footnoteApparatuses && state.footnoteApparatuses.length > 0
+      ? state.footnoteApparatuses
+      : undefined,
+    grep_rules: state.grepRules && state.grepRules.length > 0
+      ? state.grepRules
+      : undefined
   };
 }
 
@@ -682,7 +875,13 @@ export function documentRootToDocumentState(root: DocumentRootJson): MultiFlowDo
     flows: flowMap,
     settings: root.metadata?.document_settings,
     styles: Object.keys(stylesMap).length > 0 ? stylesMap : undefined,
-    multiFlowAnchors: multiFlowAnchors.length > 0 ? multiFlowAnchors : undefined
+    multiFlowAnchors: multiFlowAnchors.length > 0 ? multiFlowAnchors : undefined,
+    footnoteApparatuses: root.footnote_apparatuses && root.footnote_apparatuses.length > 0
+      ? root.footnote_apparatuses
+      : undefined,
+    grepRules: root.grep_rules && root.grep_rules.length > 0
+      ? root.grep_rules
+      : undefined
   };
 }
 
@@ -703,12 +902,23 @@ export function importResultToDocumentState(
   };
 
   flowMap[targetFlow] = [...importResult.paragraphs];
+  if (importResult.footnotes && importResult.footnotes.length > 0) {
+    flowMap.notes = [...importResult.footnotes];
+  }
+
+  const effectiveTemplate: TemplateType =
+    templateType === 'prose' && importResult.footnotes && importResult.footnotes.length > 0
+      ? 'notes'
+      : templateType;
 
   return {
     title: importResult.title || 'מסמך מיובא',
-    templateType,
+    templateType: effectiveTemplate,
     flows: flowMap,
-    settings: options?.settings
+    settings: options?.settings,
+    multiFlowAnchors: importResult.multiFlowAnchors && importResult.multiFlowAnchors.length > 0
+      ? [...importResult.multiFlowAnchors]
+      : undefined
   };
 }
 
