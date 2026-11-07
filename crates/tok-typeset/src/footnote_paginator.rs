@@ -192,7 +192,11 @@ impl DynamicFootnotePaginator {
                 }
 
                 let mut positioned = line.clone();
+                let dx = x_off - positioned.x_offset;
                 positioned.x_offset = x_off;
+                for g in &mut positioned.glyphs {
+                    g.x += dx;
+                }
                 positioned.width = col_width;
                 positioned.baseline_y = curr_y + positioned.height;
                 positioned.line_index = placed.len();
