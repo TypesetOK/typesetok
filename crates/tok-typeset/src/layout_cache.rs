@@ -156,6 +156,21 @@ impl ParagraphLayoutCache {
                 .hash(&mut hasher);
             overrides.is_frozen.hash(&mut hasher);
         }
+        for span in &p.spans {
+            span.start.hash(&mut hasher);
+            span.end.hash(&mut hasher);
+            span.format.character_style_id.hash(&mut hasher);
+            span.format.font_family.hash(&mut hasher);
+            if let Some(sz) = span.format.font_size_pt {
+                sz.to_bits().hash(&mut hasher);
+            }
+            if let Some(sc) = span.format.font_scale {
+                sc.to_bits().hash(&mut hasher);
+            }
+            span.format.font_weight.hash(&mut hasher);
+            span.format.italic.hash(&mut hasher);
+            span.format.underline.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
