@@ -13,7 +13,7 @@ export interface ExportOptions {
   bleed: boolean;
   cropMarks: boolean;
   registrationMarks: boolean;
-  colorProfile: 'fogra39' | 'fogra51' | 'iso-coated-v2';
+  colorProfile: 'fogra39' | 'fogra51' | 'iso-coated-v2' | 'gracol' | 'swop';
   fileName: string;
 }
 
@@ -205,7 +205,9 @@ export class ExportDialog {
     two.appendChild(group(t('exportProfile'), selectField(t('exportProfile'), [
       { value: 'fogra39', label: t('exportProfileFogra39') },
       { value: 'fogra51', label: t('exportProfileFogra51') },
-      { value: 'iso-coated-v2', label: t('exportProfileIsoCoated') }
+      { value: 'iso-coated-v2', label: t('exportProfileIsoCoated') },
+      { value: 'gracol', label: t('exportProfileGracol') },
+      { value: 'swop', label: t('exportProfileSwop') }
     ], o.colorProfile, (v) => (o.colorProfile = v as ExportOptions['colorProfile']), { 'data-focus-key': 'profile', disabled: o.format === 'pdf' })));
     form.appendChild(two);
     body.appendChild(form);
