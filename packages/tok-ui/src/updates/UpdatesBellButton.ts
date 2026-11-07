@@ -57,10 +57,12 @@ export class UpdatesBellButton {
 
     if (hasUnread) {
       this.badgeDot.classList.add('tok-visible');
+      this.badgeDot.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
       this.element.classList.add('tok-has-unread');
-      this.element.setAttribute('aria-label', `${t('whatsNewTitle')} (${t('whatsNewUnreadAria')})`);
+      this.element.setAttribute('aria-label', `${t('whatsNewTitle')} (${unreadCount} ${t('whatsNewUnreadAria')})`);
     } else {
       this.badgeDot.classList.remove('tok-visible');
+      this.badgeDot.textContent = '';
       this.element.classList.remove('tok-has-unread');
       this.element.setAttribute('aria-label', t('whatsNewTitle'));
     }
