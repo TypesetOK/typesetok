@@ -117,6 +117,8 @@ struct ItemMeta {
     font: u16,
     /// Byte offset of the item in the paragraph text.
     offset: u32,
+    /// Effective font size (pt) of this item (accounts for character span / GREP scaling).
+    font_size: f32,
 }
 
 impl TypesettingEngine {
@@ -478,12 +480,33 @@ impl TypesettingEngine {
                 .unwrap_or(u8::from(is_rtl))
         };
 
-        // 2. Build the Knuth-Plass stream: words split into same-level runs,
-        //    each shaped in its own direction, separated by glue.
+        // 2. Build the Knuth-Plass stream: words split into same-level & same-span runs,
+        //    each shaped in its own direction and character format, separated by glue.
         let mut fonts: Vec<String> = Vec::new();
         let space_font = font_slot(&mut fonts, session.family_of(session.space_choice()));
         let space_gid = session.space_glyph_id().unwrap_or(3);
         let base_space = font_size * SPACE_EM;
+
+        // Map byte offsets to active span index (if paragraph.spans is non-empty)
+        let span_at_byte: Vec<Option<usize>> = if paragraph.spans.is_empty() {
+            Vec::new()
+        } else {
+            let mut map = vec![None; text.len() + 1];
+            let mut char_idx = 0usize;
+            for (byte_idx, ch) in text.char_indices() {
+                let active_span = paragraph
+                    .spans
+                    .iter()
+                    .position(|s| char_idx >= s.start && char_idx < s.end);
+                for b in byte_idx..(byte_idx + ch.len_utf8()) {
+                    map[b] = active_span;
+                }
+                char_idx += 1;
+            }
+            map
+        };
+        let span_idx_at =
+            |byte: usize| -> Option<usize> { span_at_byte.get(byte).copied().flatten() };
 
         let est_items = (text.len() / 5).max(8) * 2;
         let mut items: Vec<LayoutItem> = Vec::with_capacity(est_items);
@@ -502,6 +525,7 @@ impl TypesettingEngine {
                     level: level_at(gap),
                     font: space_font,
                     offset: gap as u32,
+                    font_size,
                 });
             }
             let mut run_start = start;
@@ -510,15 +534,68 @@ impl TypesettingEngine {
                 .char_indices()
                 .map(|(i, _)| start + i)
                 .skip(1)
-                .filter(|&b| level_at(b) != level_at(b - 1))
+                .filter(|&b| {
+                    level_at(b) != level_at(b - 1) || span_idx_at(b) != span_idx_at(b - 1)
+                })
                 .chain(std::iter::once(end));
             for run_end in boundaries {
                 let level = level_at(run_start);
+                let span_opt = span_idx_at(run_start).and_then(|idx| paragraph.spans.get(idx));
+                let mut run_font_size = font_size;
+                let mut baseline_shift = 0.0_f32;
+                if let Some(sp) = span_opt {
+                    if let Some(sz) = sp.format.font_size_pt {
+                        if sz.is_finite() && sz > 0.0 {
+                            run_font_size = sz;
+                        }
+                    }
+                    if let Some(scale) = sp.format.font_scale {
+                        if scale.is_finite() && scale > 0.0 {
+                            run_font_size *= scale;
+                        }
+                    }
+                    if let Some(mv) = sp.format.masoretic_variant {
+                        run_font_size *= mv.font_size_scale();
+                        baseline_shift += mv.baseline_shift_em() * font_size;
+                    }
+                    if let Some(bs) = sp.format.baseline_shift_pt {
+                        if bs.is_finite() {
+                            baseline_shift += bs;
+                        }
+                    }
+                }
                 let (mut run, choice) =
-                    session.shape(&text[run_start..run_end], font_size, level % 2 == 1);
+                    session.shape(&text[run_start..run_end], run_font_size, level % 2 == 1);
                 for g in &mut run.glyphs {
                     g.cluster += run_start as u32;
+                    g.y_offset += baseline_shift;
                 }
+                let resolved_family_owned: Option<String> = if let Some(sp) = span_opt {
+                    let is_bold_span = sp.format.font_weight.is_some_and(|w| w >= 600);
+                    if let Some(ref fam) = sp.format.font_family {
+                        if is_bold_span
+                            && !fam.ends_with(" Bold")
+                            && (fam == "Frank Ruhl Libre" || fam == "David Libre")
+                        {
+                            Some(format!("{} Bold", fam))
+                        } else {
+                            Some(fam.clone())
+                        }
+                    } else if let Some(base_fam) = session.family_of(choice) {
+                        if is_bold_span
+                            && !base_fam.ends_with(" Bold")
+                            && (base_fam == "Frank Ruhl Libre" || base_fam == "David Libre")
+                        {
+                            Some(format!("{} Bold", base_fam))
+                        } else {
+                            Some(base_fam.to_string())
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    session.family_of(choice).map(ToString::to_string)
+                };
                 items.push(LayoutItem::Box {
                     width: run.total_width_pt,
                     text: text[run_start..run_end].to_string(),
@@ -526,8 +603,9 @@ impl TypesettingEngine {
                 });
                 meta.push(ItemMeta {
                     level,
-                    font: font_slot(&mut fonts, session.family_of(choice)),
+                    font: font_slot(&mut fonts, resolved_family_owned.as_deref()),
                     offset: run_start as u32,
+                    font_size: run_font_size,
                 });
                 run_start = run_end;
             }
@@ -557,6 +635,7 @@ impl TypesettingEngine {
             level: u8::from(is_rtl),
             font: space_font,
             offset: text.len() as u32,
+            font_size,
         });
 
         // 3. Run Knuth-Plass global line breaker matching the profile
@@ -588,11 +667,13 @@ impl TypesettingEngine {
 
             let mut line_glyphs: Vec<PositionedGlyph> = Vec::new();
             let mut glyph_fonts: Vec<u16> = Vec::new();
+            let mut glyph_sizes: Vec<f32> = Vec::new();
             for i in visual_order(&logical) {
                 match &items[i] {
                     LayoutItem::Box { glyphs, .. } => {
                         line_glyphs.extend(glyphs.iter().cloned());
                         glyph_fonts.extend(std::iter::repeat_n(meta[i].font, glyphs.len()));
+                        glyph_sizes.extend(std::iter::repeat_n(meta[i].font_size, glyphs.len()));
                     }
                     LayoutItem::Glue { .. } => {
                         line_glyphs.push(PositionedGlyph {
@@ -605,6 +686,7 @@ impl TypesettingEngine {
                             character: Some(' '),
                         });
                         glyph_fonts.push(meta[i].font);
+                        glyph_sizes.push(meta[i].font_size);
                     }
                     LayoutItem::Penalty { .. } => {}
                 }
@@ -668,15 +750,15 @@ impl TypesettingEngine {
             let glyph_boxes: Vec<GlyphBox> = justified
                 .glyphs
                 .into_iter()
-                .zip(glyph_fonts)
-                .map(|(g, font_index)| {
+                .zip(glyph_fonts.into_iter().zip(glyph_sizes))
+                .map(|(g, (font_index, glyph_font_size))| {
                     let b = GlyphBox {
                         glyph_id: g.glyph_id,
                         cluster: g.cluster,
                         x: current_x + g.x_offset,
                         y: g.y_offset,
                         width: g.x_advance,
-                        height: font_size,
+                        height: glyph_font_size,
                         character: g.character,
                         font_index,
                     };
@@ -844,6 +926,7 @@ impl TypesettingEngine {
             .collect();
 
         let default_style = tok_core::styles::ParagraphStyle::default();
+        let has_grep_rules = !doc.grep_rules.is_empty();
         let cached_lookup: Vec<(crate::layout_cache::ParagraphCacheKey, Option<Vec<LineBox>>)> = {
             let cache = self.paragraph_cache.read().unwrap();
             jobs.iter()
@@ -853,11 +936,17 @@ impl TypesettingEngine {
                         .iter()
                         .find(|s| s.id == p.style_id)
                         .unwrap_or(&default_style);
-                    let key = crate::layout_cache::ParagraphLayoutCache::make_key(
-                        p,
-                        style,
-                        content_width,
-                    );
+                    let key = if has_grep_rules {
+                        let mut p_eff = p.clone();
+                        p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
+                        crate::layout_cache::ParagraphLayoutCache::make_key(
+                            &p_eff,
+                            style,
+                            content_width,
+                        )
+                    } else {
+                        crate::layout_cache::ParagraphLayoutCache::make_key(p, style, content_width)
+                    };
                     let hit = cache.get(&key).map(|c| c.lines.clone());
                     (key, hit)
                 })
@@ -886,6 +975,14 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
+                    let mut p_eff;
+                    let p_ref = if has_grep_rules {
+                        p_eff = p.clone();
+                        p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
+                        &p_eff
+                    } else {
+                        p
+                    };
                     let base_style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
                     let resolved_style = p.effective_style(&doc.paragraph_styles);
                     let (font_family, font_size, line_height) = if base_style.is_some()
@@ -911,7 +1008,7 @@ impl TypesettingEngine {
                     {
                         let profile = MeasureProfile::uniform(content_width);
                         self.typeset_paragraph_shaped_with_style(
-                            p,
+                            p_ref,
                             Some(&resolved_style),
                             &font_family,
                             &profile,
@@ -925,7 +1022,7 @@ impl TypesettingEngine {
                         let profile = MeasureProfile::uniform(content_width);
                         Self::typeset_with_session_shaped_opts(
                             session,
-                            p,
+                            p_ref,
                             Some(&resolved_style),
                             &profile,
                             font_size,
@@ -1645,12 +1742,26 @@ impl TypesettingEngine {
         let mut sessions: std::collections::BTreeMap<String, ShapingSession<'_>> =
             std::collections::BTreeMap::new();
 
+        let has_grep_rules = !doc.grep_rules.is_empty();
         for flow in &first_sec.flows {
-            let flow_width = nominal_allocations
+            let base_flow_width = nominal_allocations
                 .iter()
                 .find(|a| a.flow_id == flow.id)
                 .map(|a| a.allocated_width_pt)
                 .unwrap_or(content_width);
+
+            let app_cfg = doc.find_apparatus(&flow.id.0);
+            let flow_width = if let Some(app) = app_cfg {
+                let cols = app.columns.max(1) as f32;
+                if cols > 1.0 {
+                    let total_gaps = (cols - 1.0) * app.column_gap_pt;
+                    ((base_flow_width - total_gaps) / cols).max(20.0)
+                } else {
+                    base_flow_width
+                }
+            } else {
+                base_flow_width
+            };
             flow_nominal_width.insert(flow.id.0.clone(), flow_width);
 
             let is_primary = flow_specs
@@ -1661,9 +1772,17 @@ impl TypesettingEngine {
 
             let mut lines = Vec::new();
             for p in &flow.paragraphs {
+                let mut p_eff;
+                let p_ref = if has_grep_rules {
+                    p_eff = p.clone();
+                    p_eff.spans = doc.effective_spans_for_paragraph(p, Some(&flow.id.0));
+                    &p_eff
+                } else {
+                    p
+                };
                 let style = p.effective_style(&doc.paragraph_styles);
 
-                let (font_family, font_size, line_height) = {
+                let (mut font_family, mut font_size, mut line_height) = {
                     let (font, sz, lh) = (
                         self.font_manager
                             .face_for(&style.font_family, style.font_weight),
@@ -1685,10 +1804,26 @@ impl TypesettingEngine {
                     }
                 };
 
+                if let Some(app) = app_cfg {
+                    if let Some(ref fam) = app.font_family {
+                        font_family = self.font_manager.face_for(fam, style.font_weight);
+                    }
+                    if let Some(sz) = app.font_size_pt {
+                        if sz > 0.0 {
+                            font_size = sz;
+                        }
+                    }
+                    if let Some(lh) = app.line_height_pt {
+                        if lh > 0.0 {
+                            line_height = lh;
+                        }
+                    }
+                }
+
                 para_lookup.insert(
                     p.id,
                     (
-                        p.clone(),
+                        p_ref.clone(),
                         style.clone(),
                         font_family.clone(),
                         font_size,
@@ -1696,8 +1831,9 @@ impl TypesettingEngine {
                     ),
                 );
 
-                let key =
-                    crate::layout_cache::ParagraphLayoutCache::make_key(p, &style, flow_width);
+                let key = crate::layout_cache::ParagraphLayoutCache::make_key(
+                    p_ref, &style, flow_width,
+                );
                 let cached_lines = {
                     let cache = self.paragraph_cache.read().unwrap();
                     cache.get(&key).map(|c| c.lines.clone())
@@ -1708,7 +1844,7 @@ impl TypesettingEngine {
                 } else if style.drop_cap.as_ref().is_some_and(|dc| dc.enabled) {
                     let profile = MeasureProfile::uniform(flow_width);
                     let computed = self.typeset_paragraph_shaped_with_style(
-                        p,
+                        p_ref,
                         Some(&style),
                         &font_family,
                         &profile,
@@ -1725,7 +1861,7 @@ impl TypesettingEngine {
                     let profile = MeasureProfile::uniform(flow_width);
                     let computed = Self::typeset_with_session_shaped_opts(
                         session,
-                        p,
+                        p_ref,
                         Some(&style),
                         &profile,
                         font_size,
