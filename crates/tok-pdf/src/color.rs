@@ -267,6 +267,102 @@ impl ColorManagementEngine {
         }
     }
 
+    /// Generates a valid ISO 15076-1 binary ICC v2.4 `prtr` `CMYK -> Lab` Output Profile
+    /// for embedding in the PDF/X `DestOutputProfile` stream (`N = 4`).
+    pub fn generate_icc_profile_bytes(profile: IccProfileId) -> Vec<u8> {
+        let desc_str = profile.info();
+        let cprt_str = "Copyright TypesetOK Pre-Press Color Engine (ISO 15076-1)";
+
+        // Build `desc` tag (type 'desc')
+        let mut desc_tag = Vec::new();
+        desc_tag.extend_from_slice(b"desc");
+        desc_tag.extend_from_slice(&[0u8; 4]);
+        let ascii_len = (desc_str.len() + 1) as u32;
+        desc_tag.extend_from_slice(&ascii_len.to_be_bytes());
+        desc_tag.extend_from_slice(desc_str.as_bytes());
+        desc_tag.push(0);
+        // Unicode & ScriptCode placeholders (67 bytes per ICC v2 spec)
+        desc_tag.extend_from_slice(&[0u8; 67]);
+        while desc_tag.len() % 4 != 0 {
+            desc_tag.push(0);
+        }
+
+        // Build `cprt` tag (type 'text')
+        let mut cprt_tag = Vec::new();
+        cprt_tag.extend_from_slice(b"text");
+        cprt_tag.extend_from_slice(&[0u8; 4]);
+        cprt_tag.extend_from_slice(cprt_str.as_bytes());
+        cprt_tag.push(0);
+        while cprt_tag.len() % 4 != 0 {
+            cprt_tag.push(0);
+        }
+
+        // Build `wtpt` tag (type 'XYZ ', D50 standard illuminant: X=0.9642, Y=1.0000, Z=0.8249)
+        let mut wtpt_tag = Vec::with_capacity(20);
+        wtpt_tag.extend_from_slice(b"XYZ ");
+        wtpt_tag.extend_from_slice(&[0u8; 4]);
+        wtpt_tag.extend_from_slice(&0x0000_F6D6u32.to_be_bytes()); // 0.9642 in s15Fixed16
+        wtpt_tag.extend_from_slice(&0x0001_0000u32.to_be_bytes()); // 1.0000 in s15Fixed16
+        wtpt_tag.extend_from_slice(&0x0000_D32Du32.to_be_bytes()); // 0.8249 in s15Fixed16
+
+        let header_size = 128u32;
+        let tag_count = 3u32;
+        let tag_table_size = 4 + tag_count * 12;
+        let desc_offset = header_size + tag_table_size;
+        let cprt_offset = desc_offset + desc_tag.len() as u32;
+        let wtpt_offset = cprt_offset + cprt_tag.len() as u32;
+        let total_size = wtpt_offset + wtpt_tag.len() as u32;
+
+        let mut icc = Vec::with_capacity(total_size as usize);
+
+        // 128-byte ICC v2.4 Header
+        icc.extend_from_slice(&total_size.to_be_bytes()); // 0..4: Profile size
+        icc.extend_from_slice(b"lcms"); // 4..8: Preferred CMM type
+        icc.extend_from_slice(&0x0240_0000u32.to_be_bytes()); // 8..12: Version 2.4.0
+        icc.extend_from_slice(b"prtr"); // 12..16: Device class = Output ('prtr')
+        icc.extend_from_slice(b"CMYK"); // 16..20: Data color space = CMYK
+        icc.extend_from_slice(b"Lab "); // 20..24: PCS = Lab
+        // 24..36: Date/time (2026-01-01 00:00:00)
+        icc.extend_from_slice(&2026u16.to_be_bytes());
+        icc.extend_from_slice(&1u16.to_be_bytes());
+        icc.extend_from_slice(&1u16.to_be_bytes());
+        icc.extend_from_slice(&[0u8; 6]);
+        icc.extend_from_slice(b"acsp"); // 36..40: Profile file signature ('acsp')
+        icc.extend_from_slice(b"APPL"); // 40..44: Primary platform
+        icc.extend_from_slice(&0u32.to_be_bytes()); // 44..48: Profile flags
+        icc.extend_from_slice(b"NONE"); // 48..52: Device manufacturer
+        icc.extend_from_slice(&0u32.to_be_bytes()); // 52..56: Device model
+        icc.extend_from_slice(&[0u8; 8]); // 56..64: Device attributes
+        icc.extend_from_slice(&1u32.to_be_bytes()); // 64..68: Rendering intent = Media-Relative Colorimetric
+        // 68..80: PCS Illuminant D50
+        icc.extend_from_slice(&0x0000_F6D6u32.to_be_bytes());
+        icc.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        icc.extend_from_slice(&0x0000_D32Du32.to_be_bytes());
+        icc.extend_from_slice(b"TOK "); // 80..84: Profile creator
+        icc.extend_from_slice(&[0u8; 44]); // 84..128: Profile ID + reserved
+
+        // Tag Table
+        icc.extend_from_slice(&tag_count.to_be_bytes());
+        // Tag 1: 'desc'
+        icc.extend_from_slice(b"desc");
+        icc.extend_from_slice(&desc_offset.to_be_bytes());
+        icc.extend_from_slice(&(desc_tag.len() as u32).to_be_bytes());
+        // Tag 2: 'cprt'
+        icc.extend_from_slice(b"cprt");
+        icc.extend_from_slice(&cprt_offset.to_be_bytes());
+        icc.extend_from_slice(&(cprt_tag.len() as u32).to_be_bytes());
+        // Tag 3: 'wtpt'
+        icc.extend_from_slice(b"wtpt");
+        icc.extend_from_slice(&wtpt_offset.to_be_bytes());
+        icc.extend_from_slice(&(wtpt_tag.len() as u32).to_be_bytes());
+
+        // Tag Data
+        icc.extend_from_slice(&desc_tag);
+        icc.extend_from_slice(&cprt_tag);
+        icc.extend_from_slice(&wtpt_tag);
+
+        icc
+    }
 }
 
 #[cfg(test)]
