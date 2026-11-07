@@ -131,6 +131,24 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[
     const pageWidth = pageBox.dimensions?.width || 595.28;
     const pageHeight = pageBox.dimensions?.height || 841.89;
 
+    // Identify footnote/apparatus frames to draw separator rules (33% rule above primary apparatus, 18% rule between apparatuses)
+    const footnoteFrameIdsOrdered = (pageBox.frames || [])
+      .filter((f) => {
+        const fid = (f.flow_id || '').toLowerCase();
+        const frid = (f.frame_id || '').toLowerCase();
+        return (
+          fid === 'notes' ||
+          fid === 'footnote' ||
+          fid === 'footnotes' ||
+          fid === 'heorot' ||
+          fid === 'biurim' ||
+          fid === 'mekorot' ||
+          frid.includes('_footnote_')
+        );
+      })
+      .sort((a, b) => a.rect.y - b.rect.y)
+      .map((f) => f.frame_id);
+
     const framesHtml = (pageBox.frames || []).map((frame) => {
       const leftPt = frame.rect.x;
       const topPt = frame.rect.y;
@@ -145,14 +163,27 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[
       const rawBaseFlowId = isExpansion ? flowId.replace(/_expansion$/, '') : flowId;
       const baseFlowId = (rawBaseFlowId === 'main' || rawBaseFlowId === 'primary') ? 'gemara' : rawBaseFlowId;
 
+      const fnOrderIdx = footnoteFrameIdsOrdered.indexOf(frame.frame_id);
+      const isFootnoteFrame =
+        fnOrderIdx >= 0 ||
+        baseFlowId === 'notes' ||
+        baseFlowId === 'footnote' ||
+        baseFlowId === 'heorot' ||
+        baseFlowId === 'biurim' ||
+        baseFlowId === 'mekorot';
+
       let flowClass = 'tok-frame-comm';
       if (baseFlowId === 'gemara' || baseFlowId === 'main' || baseFlowId === 'primary') {
         flowClass = 'tok-frame-gemara';
-      } else if (baseFlowId === 'notes' || baseFlowId === 'footnote' || baseFlowId === 'heorot') {
+      } else if (isFootnoteFrame) {
         flowClass = 'tok-frame-notes';
       } else if (isExpansion) {
         flowClass = 'tok-frame-comm tok-frame-expansion tok-frame-l-shape';
       }
+
+      const separatorRuleHtml = isFootnoteFrame && frame.lines && frame.lines.length > 0
+        ? `<div class="tok-footnote-separator-rule" data-rule-tier="${fnOrderIdx <= 0 ? 'primary' : 'inter-apparatus'}" style="position: absolute; top: 0; right: 0; width: ${fnOrderIdx <= 0 ? '33%' : '18%'}; height: ${fnOrderIdx <= 0 ? '0.75pt' : '0.5pt'}; background: var(--tok-ink-rule, #222);"></div>`
+        : '';
 
       const isPrimary = baseFlowId === 'gemara' || baseFlowId === 'main' || baseFlowId === 'primary';
 
@@ -190,6 +221,7 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[
              data-rect-h="${frame.rect.height}"
              style="position: absolute; left: ${leftPt.toFixed(2)}pt; top: ${topPt.toFixed(2)}pt; width: ${widthPt.toFixed(2)}pt; height: ${heightPt.toFixed(2)}pt; overflow: hidden;">
           <div class="tok-frame-inner" style="position: relative; width: 100%; height: 100%;">
+            ${separatorRuleHtml}
             ${linesHtml}
             ${emptyNotice}
           </div>
