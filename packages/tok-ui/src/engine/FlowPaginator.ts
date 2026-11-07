@@ -18,7 +18,14 @@ import { StoryParagraph } from 'tok-story-editor';
 import { PageDescriptor } from 'tok-viewer';
 import { toHebrewGematria } from '../gematria.js';
 import { isRectoPage, isRightHandPage } from '../components/SpreadCanvas.js';
-import { DocumentSettings, MultiFlowAnchorLink, MultiFlowItem } from '../types.js';
+import {
+  DocumentSettings,
+  FootnoteApparatusConfigData,
+  GrepRuleData,
+  MultiFlowAnchorLink,
+  MultiFlowItem
+} from '../types.js';
+import { evaluateLiveGrepSpansInUi } from './documentBridge.js';
 
 export type TemplateType = 'gemara' | 'mikraot' | 'prose' | 'notes' | 'bulletin' | 'blank';
 
@@ -43,6 +50,8 @@ export interface MultiFlowDocumentState {
   isDirty?: boolean;
   filePath?: string | null;
   multiFlowAnchors?: MultiFlowAnchorLink[];
+  footnoteApparatuses?: FootnoteApparatusConfigData[];
+  grepRules?: GrepRuleData[];
 }
 
 /** Pre-defined authentic sacred texts for initial templates */
@@ -418,7 +427,10 @@ function getDocDimensionsPt(doc?: MultiFlowDocumentState): { widthPt: number; he
   return { widthPt: 480, heightPt: 678 };
 }
 
-function renderParagraphHtml(p: StoryParagraph, defaultStyle: { fontSize?: string; lineHeight?: string; fontFamily?: string; textAlign?: string } = {}): string {
+function renderParagraphHtml(
+  p: StoryParagraph,
+  defaultStyle: { fontSize?: string; lineHeight?: string; fontFamily?: string; textAlign?: string; grepRules?: GrepRuleData[]; flowId?: string } = {}
+): string {
   const patch = p.patch || {};
   const styles: string[] = ['margin: 0 0 0.55em'];
 
@@ -450,6 +462,9 @@ function renderParagraphHtml(p: StoryParagraph, defaultStyle: { fontSize?: strin
   if (patch.firstLineIndentPt !== undefined) {
     styles.push(`text-indent: ${patch.firstLineIndentPt}pt`);
   }
+  if (patch.indentStartPt !== undefined) {
+    styles.push(`padding-inline-start: ${patch.indentStartPt}pt`);
+  }
 
   if (patch.spaceBeforePt !== undefined) {
     styles.push(`margin-top: ${patch.spaceBeforePt}pt`);
@@ -463,12 +478,19 @@ function renderParagraphHtml(p: StoryParagraph, defaultStyle: { fontSize?: strin
   }
 
   let text = p.text || '&nbsp;';
-  if (p.spans && p.spans.length > 0 && text !== '&nbsp;') {
+  const effectiveSpans = evaluateLiveGrepSpansInUi(
+    text === '&nbsp;' ? '' : text,
+    p.spans,
+    defaultStyle.grepRules,
+    defaultStyle.flowId
+  );
+  if (effectiveSpans.length > 0 && text !== '&nbsp;') {
     const chars = Array.from(text);
     const parts: string[] = [];
     let lastIndex = 0;
-    const sortedSpans = [...p.spans].sort((a, b) => a.start - b.start);
+    const sortedSpans = [...effectiveSpans].sort((a, b) => a.start - b.start);
     for (const span of sortedSpans) {
+      if (span.start < lastIndex) continue;
       if (span.start > lastIndex) {
         parts.push(chars.slice(lastIndex, span.start).join(''));
       }
@@ -479,8 +501,10 @@ function renderParagraphHtml(p: StoryParagraph, defaultStyle: { fontSize?: strin
       if (span.format.underline) spanStyle += 'text-decoration: underline;';
       if (span.format.fontFamily) spanStyle += `font-family: '${span.format.fontFamily}', serif;`;
       if (span.format.fontSizePt) spanStyle += `font-size: ${span.format.fontSizePt}pt;`;
+      else if (span.format.fontScale) spanStyle += `font-size: ${Math.round(span.format.fontScale * 100)}%;`;
       if (span.format.color) spanStyle += `color: ${span.format.color};`;
-      parts.push(`<span style="${spanStyle}">${spanChars}</span>`);
+      const styleIdClass = span.format.characterStyleId ? ` class="tok-char-${span.format.characterStyleId}"` : '';
+      parts.push(`<span${styleIdClass} style="${spanStyle}">${spanChars}</span>`);
       lastIndex = Math.max(lastIndex, span.end);
     }
     if (lastIndex < chars.length) {
@@ -637,21 +661,35 @@ export class FlowPaginator {
   private static paginateProse(doc: MultiFlowDocumentState, minPages: number): PageDescriptor[] {
     const paragraphs = doc.flows.gemara || [];
     const chunks = partitionParagraphs(paragraphs, CAPACITY.proseWordsPerPage);
-    const totalPages = Math.max(minPages, chunks.length, 1);
+    const apparatuses = this.getActiveApparatuses(doc);
+    const apparatusChunksMap: Record<string, StoryParagraph[][]> = {};
+    let maxApparatusPages = 0;
+    for (const app of apparatuses) {
+      const flowParas = doc.flows[app.id] || [];
+      if (flowParas.length > 0) {
+        const ch = partitionParagraphs(flowParas, 55);
+        apparatusChunksMap[app.id] = ch;
+        maxApparatusPages = Math.max(maxApparatusPages, ch.length);
+      }
+    }
+
+    const totalPages = Math.max(minPages, chunks.length, maxApparatusPages, 1);
     const pages: PageDescriptor[] = [];
     const { widthPt, heightPt } = getDocDimensionsPt(doc);
 
     for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
       const paras = chunks[pageIdx] || [];
       const gematria = toHebrewGematria(pageIdx + 1);
+      const apparatusBandsHtml = this.renderMultiApparatusBandsHtml(doc, apparatuses, apparatusChunksMap, pageIdx);
 
       const html = `
         <div class="tok-page-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; overflow: hidden;">
           <div class="tok-interactive-frame tok-frame-main" data-frame-id="frame-main-${pageIdx}" data-flow-id="gemara" style="flex: 1; min-height: 0;">
             <div class="tok-frame-text tok-frame-gemara" style="font-size: 13.5px; line-height: 1.6; text-align: justify;">
-              ${paras.map((p) => renderParagraphHtml(p, { fontSize: '13.5px', lineHeight: '1.6', textAlign: 'justify' })).join('')}
+              ${paras.map((p) => renderParagraphHtml(p, { fontSize: '13.5px', lineHeight: '1.6', textAlign: 'justify', grepRules: doc.grepRules, flowId: 'gemara' })).join('')}
             </div>
           </div>
+          ${apparatusBandsHtml}
         </div>
       `;
 
@@ -668,39 +706,122 @@ export class FlowPaginator {
   }
 
   /**
-   * Paginates a book with main text and bottom running footnotes.
+   * Returns configured footnote apparatuses or synthesizes a default apparatus when `notes` has paragraphs.
+   */
+  private static getActiveApparatuses(doc: MultiFlowDocumentState): FootnoteApparatusConfigData[] {
+    if (doc.footnoteApparatuses && doc.footnoteApparatuses.length > 0) {
+      return doc.footnoteApparatuses;
+    }
+    if (doc.flows.notes && doc.flows.notes.length > 0) {
+      return [
+        {
+          id: 'notes',
+          name: 'הערות שוליים',
+          numbering_style: 'HebrewGematria',
+          columns: 1,
+          column_gap_pt: 12,
+          max_height_ratio: 0.35,
+          draw_separator_rule: true,
+          separator_length_ratio: 0.33,
+          font_family: 'Frank Ruhl Libre',
+          font_size_pt: 9.5,
+          line_height_pt: 13.0
+        }
+      ];
+    }
+    return [];
+  }
+
+  /**
+   * Renders multi-apparatus footnote bands at the bottom of the page with separator rules
+   * (main separator rule 33% width above first apparatus, shorter 18% rule between apparatuses)
+   * and independent column count & typography per apparatus.
+   */
+  private static renderMultiApparatusBandsHtml(
+    doc: MultiFlowDocumentState,
+    apparatuses: FootnoteApparatusConfigData[],
+    apparatusChunksMap: Record<string, StoryParagraph[][]>,
+    pageIdx: number
+  ): string {
+    const activeBands: Array<{ app: FootnoteApparatusConfigData; paras: StoryParagraph[] }> = [];
+    for (const app of apparatuses) {
+      const paras = apparatusChunksMap[app.id]?.[pageIdx] || [];
+      if (paras.length > 0) {
+        activeBands.push({ app, paras });
+      }
+    }
+    if (activeBands.length === 0) return '';
+
+    return activeBands.map(({ app, paras }, idx) => {
+      const isPrimaryBand = idx === 0;
+      const ruleRatioPct = Math.round(((app.separator_length_ratio ?? (isPrimaryBand ? 0.33 : 0.18)) * 100));
+      const ruleHeightPx = isPrimaryBand ? '1px' : '0.75px';
+      const separatorHtml = app.draw_separator_rule !== false
+        ? `<div class="tok-footnote-separator-rule" data-apparatus-id="${app.id}" data-rule-tier="${isPrimaryBand ? 'primary' : 'inter-apparatus'}" style="width: ${ruleRatioPct}%; height: ${ruleHeightPx}; background: var(--tok-ink-rule, #333); margin: ${isPrimaryBand ? '8px' : '5px'} 0 4px auto;"></div>`
+        : '';
+      const cols = Math.max(1, app.columns || 1);
+      const colStyle = cols > 1
+        ? `column-count: ${cols}; column-gap: ${app.column_gap_pt || 12}pt;`
+        : '';
+      const fontSize = `${app.font_size_pt || 9.5}pt`;
+      const lineHeight = app.line_height_pt ? `${app.line_height_pt}pt` : '1.42';
+      const fontFamily = app.font_family ? `'${app.font_family}', serif` : undefined;
+
+      return `
+        <div class="tok-interactive-frame tok-frame-notes-box tok-apparatus-band"
+             data-frame-id="frame-${app.id}-${pageIdx}"
+             data-flow-id="${app.id}"
+             data-apparatus-columns="${cols}"
+             data-apparatus-numbering="${app.numbering_style}"
+             style="flex: none; padding-top: 2px;">
+          ${separatorHtml}
+          <div class="tok-frame-text tok-frame-notes" style="font-size: ${fontSize}; line-height: ${lineHeight}; ${fontFamily ? `font-family: ${fontFamily}; ` : ''}${colStyle}text-align: justify; color: var(--tok-ink-soft);">
+            ${paras.map((p) => renderParagraphHtml(p, { fontSize, lineHeight, fontFamily, textAlign: 'justify', grepRules: doc.grepRules, flowId: app.id })).join('')}
+          </div>
+        </div>
+      `;
+    }).join('\n');
+  }
+
+  /**
+   * Paginates a book with main text and bottom running footnotes (supporting multi-apparatus).
    */
   private static paginateWithFootnotes(
     doc: MultiFlowDocumentState,
     minPages: number
   ): PageDescriptor[] {
     const mainParas = doc.flows.gemara || [];
-    const noteParas = doc.flows.notes || [];
     const mainChunks = partitionParagraphs(mainParas, 160);
-    const noteChunks = partitionParagraphs(noteParas, 45);
-    const totalPages = Math.max(minPages, Math.max(mainChunks.length, noteChunks.length, 1));
+    const apparatuses = this.getActiveApparatuses(doc);
+    const apparatusChunksMap: Record<string, StoryParagraph[][]> = {};
+    let maxApparatusPages = 0;
+
+    for (const app of apparatuses) {
+      const flowParas = doc.flows[app.id] || [];
+      if (flowParas.length > 0) {
+        const ch = partitionParagraphs(flowParas, 45 * Math.max(1, app.columns || 1));
+        apparatusChunksMap[app.id] = ch;
+        maxApparatusPages = Math.max(maxApparatusPages, ch.length);
+      }
+    }
+
+    const totalPages = Math.max(minPages, Math.max(mainChunks.length, maxApparatusPages, 1));
     const pages: PageDescriptor[] = [];
     const { widthPt, heightPt } = getDocDimensionsPt(doc);
 
     for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
       const pMain = mainChunks[pageIdx] || [];
-      const pNotes = noteChunks[pageIdx] || [];
       const gematria = toHebrewGematria(pageIdx + 1);
+      const apparatusBandsHtml = this.renderMultiApparatusBandsHtml(doc, apparatuses, apparatusChunksMap, pageIdx);
 
       const html = `
-        <div class="tok-page-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; overflow: hidden; gap: 12px;">
+        <div class="tok-page-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; overflow: hidden; gap: 6px;">
           <div class="tok-interactive-frame tok-frame-main" data-frame-id="frame-main-${pageIdx}" data-flow-id="gemara" style="flex: 1; min-height: 0;">
             <div class="tok-frame-text tok-frame-gemara" style="font-size: 13.5px; line-height: 1.6; text-align: justify;">
-              ${pMain.map((p) => renderParagraphHtml(p, { fontSize: '13.5px', lineHeight: '1.6', textAlign: 'justify' })).join('')}
+              ${pMain.map((p) => renderParagraphHtml(p, { fontSize: '13.5px', lineHeight: '1.6', textAlign: 'justify', grepRules: doc.grepRules, flowId: 'gemara' })).join('')}
             </div>
           </div>
-          ${pNotes.length > 0 ? `
-            <div class="tok-interactive-frame tok-frame-notes-box" data-frame-id="frame-notes-${pageIdx}" data-flow-id="notes" style="flex: none; border-top: 1px solid var(--tok-ink-rule); padding-top: 8px;">
-              <div class="tok-frame-text tok-frame-notes" style="font-size: 9.5px; line-height: 1.45; text-align: justify; color: var(--tok-ink-soft);">
-                ${pNotes.map((p) => renderParagraphHtml(p, { fontSize: '9.5px', lineHeight: '1.45', textAlign: 'justify' })).join('')}
-              </div>
-            </div>
-          ` : ''}
+          ${apparatusBandsHtml}
         </div>
       `;
 
