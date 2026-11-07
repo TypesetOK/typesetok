@@ -98,11 +98,29 @@ impl TemplateSynthesizer {
                     .unwrap_or_else(FlowId::main)
             });
 
-        let spec = FlowGeometrySpec::new(id, 1).with_role(FlowPlacementRole::Primary);
-        template.flow_specs = vec![spec];
+        let spec = FlowGeometrySpec::new(id.clone(), 1).with_role(FlowPlacementRole::Primary);
+        let mut specs = vec![spec];
+        let mut has_bottom_band = false;
+        for f in &section.flows {
+            if f.id != id
+                && !f.paragraphs.is_empty()
+                && (f.flow_type == FlowType::Footnote
+                    || f.placement_role.as_deref() == Some("bottom_band"))
+            {
+                if template.footnote_flow_id.is_none() {
+                    template.footnote_flow_id = Some(f.id.clone());
+                }
+                has_bottom_band = true;
+                specs.push(
+                    FlowGeometrySpec::new(f.id.clone(), (specs.len() + 1) as u8)
+                        .with_role(FlowPlacementRole::BottomBand),
+                );
+            }
+        }
+        template.flow_specs = specs;
         template.nominal_proportions = vec![1.0];
         template.has_l_shape_expansion = false;
-        template.has_bottom_band = false;
+        template.has_bottom_band = has_bottom_band;
         Ok(())
     }
 
@@ -158,10 +176,28 @@ impl TemplateSynthesizer {
             specs.push(spec);
         }
 
+        let mut has_bottom_band = false;
+        for f in &section.flows {
+            if !specs.iter().any(|s| s.flow_id == f.id)
+                && !f.paragraphs.is_empty()
+                && (f.flow_type == FlowType::Footnote
+                    || f.placement_role.as_deref() == Some("bottom_band"))
+            {
+                if template.footnote_flow_id.is_none() {
+                    template.footnote_flow_id = Some(f.id.clone());
+                }
+                has_bottom_band = true;
+                specs.push(
+                    FlowGeometrySpec::new(f.id.clone(), (specs.len() + 1) as u8)
+                        .with_role(FlowPlacementRole::BottomBand),
+                );
+            }
+        }
+
         template.flow_specs = specs;
         template.nominal_proportions = normalized;
         template.has_l_shape_expansion = false;
-        template.has_bottom_band = false;
+        template.has_bottom_band = has_bottom_band;
         Ok(())
     }
 
@@ -311,19 +347,31 @@ impl TemplateSynthesizer {
         footnote_flow: &FlowId,
         column_flows: &[FlowId],
     ) -> Result<(), TemplateConstraintError> {
-        let cols_count = column_flows.len().max(1);
+        let non_fn_column_flows: Vec<FlowId> = column_flows
+            .iter()
+            .filter(|f_id| {
+                !section.flows.iter().any(|f| {
+                    f.id == **f_id
+                        && (f.flow_type == FlowType::Footnote
+                            || f.placement_role.as_deref() == Some("bottom_band"))
+                })
+            })
+            .cloned()
+            .collect();
+
+        let cols_count = non_fn_column_flows.len().max(1);
         let equal_prop = 1.0 / cols_count as f32;
         let mut specs = Vec::new();
         let mut proportions = Vec::new();
 
-        if column_flows.is_empty() {
+        if non_fn_column_flows.is_empty() {
             let spec = FlowGeometrySpec::new(primary_flow.clone(), 1)
                 .with_role(FlowPlacementRole::Primary)
                 .with_width_ratio(1.0);
             specs.push(spec);
             proportions.push(1.0);
         } else {
-            for (idx, f_id) in column_flows.iter().enumerate() {
+            for (idx, f_id) in non_fn_column_flows.iter().enumerate() {
                 let ratio = section
                     .flows
                     .iter()
