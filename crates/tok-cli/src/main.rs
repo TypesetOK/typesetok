@@ -122,8 +122,7 @@ fn convert_multi_flow_state_to_root(raw: RawMultiFlowState) -> DocumentRoot {
             .footnote_apparatuses
             .iter()
             .any(|a| a.id == flow_key || a.flow_id.as_deref() == Some(flow_key.as_str()));
-        let is_footnote_flow =
-            flow_key == "notes" || flow_key == "footnote" || is_apparatus;
+        let is_footnote_flow = flow_key == "notes" || flow_key == "footnote" || is_apparatus;
         if is_prose
             && flow_key != "gemara"
             && flow_key != "main"

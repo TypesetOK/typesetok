@@ -636,9 +636,7 @@ pub fn evaluate_live_grep_spans(
             r.enabled
                 && !r.pattern.is_empty()
                 && match (&r.scope_flow_id, flow_id) {
-                    (Some(scope), Some(fid)) if !scope.is_empty() && scope != "all" => {
-                        scope == fid
-                    }
+                    (Some(scope), Some(fid)) if !scope.is_empty() && scope != "all" => scope == fid,
                     (Some(scope), None) if !scope.is_empty() && scope != "all" => false,
                     _ => true,
                 }

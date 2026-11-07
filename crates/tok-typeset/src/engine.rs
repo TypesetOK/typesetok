@@ -492,16 +492,12 @@ impl TypesettingEngine {
             Vec::new()
         } else {
             let mut map = vec![None; text.len() + 1];
-            let mut char_idx = 0usize;
-            for (byte_idx, ch) in text.char_indices() {
+            for (char_idx, (byte_idx, ch)) in text.char_indices().enumerate() {
                 let active_span = paragraph
                     .spans
                     .iter()
                     .position(|s| char_idx >= s.start && char_idx < s.end);
-                for b in byte_idx..(byte_idx + ch.len_utf8()) {
-                    map[b] = active_span;
-                }
-                char_idx += 1;
+                map[byte_idx..byte_idx + ch.len_utf8()].fill(active_span);
             }
             map
         };
@@ -534,9 +530,7 @@ impl TypesettingEngine {
                 .char_indices()
                 .map(|(i, _)| start + i)
                 .skip(1)
-                .filter(|&b| {
-                    level_at(b) != level_at(b - 1) || span_idx_at(b) != span_idx_at(b - 1)
-                })
+                .filter(|&b| level_at(b) != level_at(b - 1) || span_idx_at(b) != span_idx_at(b - 1))
                 .chain(std::iter::once(end));
             for run_end in boundaries {
                 let level = level_at(run_start);
@@ -1831,9 +1825,8 @@ impl TypesettingEngine {
                     ),
                 );
 
-                let key = crate::layout_cache::ParagraphLayoutCache::make_key(
-                    p_ref, &style, flow_width,
-                );
+                let key =
+                    crate::layout_cache::ParagraphLayoutCache::make_key(p_ref, &style, flow_width);
                 let cached_lines = {
                     let cache = self.paragraph_cache.read().unwrap();
                     cache.get(&key).map(|c| c.lines.clone())

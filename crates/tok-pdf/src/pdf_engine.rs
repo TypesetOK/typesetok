@@ -1220,7 +1220,10 @@ mod tests {
     fn test_pdf_icc_output_intent_and_multi_apparatus_separator_rules() {
         use tok_typeset::geometry::{PhysicalRect, TextFrameBox};
 
-        let line_main = typeset("טקסט ראשי בעמוד עם שני מדורי הערות שוליים", "Noto Serif Hebrew");
+        let line_main = typeset(
+            "טקסט ראשי בעמוד עם שני מדורי הערות שוליים",
+            "Noto Serif Hebrew",
+        );
         let line_app1 = typeset("א. מקור ראשון במדור מקורות וציונים", "Noto Serif Hebrew");
         let line_app2 = typeset("1. ביאור ארוך במדור ביאורים והרחבות", "Noto Serif Hebrew");
 
@@ -1261,12 +1264,30 @@ mod tests {
 
         let bytes = PdfPrePressEngine::export_pdf(&[page], &options).unwrap();
         let s = String::from_utf8_lossy(&bytes);
-        assert!(s.contains("/DestOutputProfile"), "Must embed DestOutputProfile ICC stream");
-        assert!(s.contains("/N 4"), "ICC stream must specify N=4 CMYK components");
-        assert!(s.contains("GRACoL 2013"), "Must embed GRACoL 2013 OutputIntent info");
-        assert!(s.contains("CGATS TR 016"), "Must embed CGATS TR 016 OutputConditionIdentifier");
+        assert!(
+            s.contains("/DestOutputProfile"),
+            "Must embed DestOutputProfile ICC stream"
+        );
+        assert!(
+            s.contains("/N 4"),
+            "ICC stream must specify N=4 CMYK components"
+        );
+        assert!(
+            s.contains("GRACoL 2013"),
+            "Must embed GRACoL 2013 OutputIntent info"
+        );
+        assert!(
+            s.contains("CGATS TR 016"),
+            "Must embed CGATS TR 016 OutputConditionIdentifier"
+        );
         // Both separator line widths (0.5 w for primary apparatus, 0.35 w for secondary apparatus)
-        assert!(s.contains("0.5 w"), "Must draw primary footnote separator rule");
-        assert!(s.contains("0.35 w"), "Must draw inter-apparatus separator rule");
+        assert!(
+            s.contains("0.5 w"),
+            "Must draw primary footnote separator rule"
+        );
+        assert!(
+            s.contains("0.35 w"),
+            "Must draw inter-apparatus separator rule"
+        );
     }
 }

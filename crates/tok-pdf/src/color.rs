@@ -230,12 +230,7 @@ impl ColorManagementEngine {
         let allowed_cmy = (max_sum - color.k).max(0.0);
         if cmy_sum > 1e-5 {
             let scale = allowed_cmy / cmy_sum;
-            CmykColor::new(
-                color.c * scale,
-                color.m * scale,
-                color.y * scale,
-                color.k,
-            )
+            CmykColor::new(color.c * scale, color.m * scale, color.y * scale, color.k)
         } else {
             CmykColor::new(0.0, 0.0, 0.0, color.k.min(max_sum))
         }
@@ -322,7 +317,7 @@ impl ColorManagementEngine {
         icc.extend_from_slice(b"prtr"); // 12..16: Device class = Output ('prtr')
         icc.extend_from_slice(b"CMYK"); // 16..20: Data color space = CMYK
         icc.extend_from_slice(b"Lab "); // 20..24: PCS = Lab
-        // 24..36: Date/time (2026-01-01 00:00:00)
+                                        // 24..36: Date/time (2026-01-01 00:00:00)
         icc.extend_from_slice(&2026u16.to_be_bytes());
         icc.extend_from_slice(&1u16.to_be_bytes());
         icc.extend_from_slice(&1u16.to_be_bytes());
@@ -334,7 +329,7 @@ impl ColorManagementEngine {
         icc.extend_from_slice(&0u32.to_be_bytes()); // 52..56: Device model
         icc.extend_from_slice(&[0u8; 8]); // 56..64: Device attributes
         icc.extend_from_slice(&1u32.to_be_bytes()); // 64..68: Rendering intent = Media-Relative Colorimetric
-        // 68..80: PCS Illuminant D50
+                                                    // 68..80: PCS Illuminant D50
         icc.extend_from_slice(&0x0000_F6D6u32.to_be_bytes());
         icc.extend_from_slice(&0x0001_0000u32.to_be_bytes());
         icc.extend_from_slice(&0x0000_D32Du32.to_be_bytes());
@@ -411,21 +406,28 @@ mod tests {
     #[test]
     fn color_management_engine_enforces_tac_and_preserves_pure_black() {
         // Pure RGB black -> pure 100% K (0, 0, 0, 1)
-        let k_from_rgb = ColorManagementEngine::rgb_to_cmyk_managed(0.0, 0.0, 0.0, IccProfileId::Fogra39);
+        let k_from_rgb =
+            ColorManagementEngine::rgb_to_cmyk_managed(0.0, 0.0, 0.0, IccProfileId::Fogra39);
         assert_eq!(k_from_rgb, CmykColor::BLACK);
         assert!((k_from_rgb.total_ink_percent() - 100.0).abs() < 1e-3);
 
         // Dark RGB shadow (0.05, 0.04, 0.06) must obey FOGRA39 TAC <= 300% via GCR/UCR
-        let dark = ColorManagementEngine::rgb_to_cmyk_managed(0.05, 0.04, 0.06, IccProfileId::Fogra39);
+        let dark =
+            ColorManagementEngine::rgb_to_cmyk_managed(0.05, 0.04, 0.06, IccProfileId::Fogra39);
         assert!(
             dark.total_ink_percent() <= 300.0 + 1e-2,
             "FOGRA39 TAC must not exceed 300%, got {}",
             dark.total_ink_percent()
         );
-        assert!(dark.k > 0.70, "GCR must generate strong black channel, got {}", dark.k);
+        assert!(
+            dark.k > 0.70,
+            "GCR must generate strong black channel, got {}",
+            dark.k
+        );
 
         // Over-inked CMYK (1.0, 1.0, 1.0, 0.9 = 390%) must be clamped to <= 300%
-        let clamped = ColorManagementEngine::enforce_tac_limit(CmykColor::new(1.0, 1.0, 1.0, 0.9), 300.0);
+        let clamped =
+            ColorManagementEngine::enforce_tac_limit(CmykColor::new(1.0, 1.0, 1.0, 0.9), 300.0);
         assert!(clamped.total_ink_percent() <= 300.0 + 1e-2);
 
         // Valid ISO 15076-1 ICC profile header & tags
