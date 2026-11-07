@@ -148,8 +148,6 @@ pub struct DropCapConfig {
     /// Explicit font size (pt). If None, automatically scaled to fit `lines * line_height`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size_pt: Option<f32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub font_scale: Option<f32>,
 }
 
 impl Default for DropCapConfig {
@@ -300,6 +298,8 @@ pub struct CharacterStyle {
     pub name: String,
     pub font_family: Option<String>,
     pub font_size_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_scale: Option<f32>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
     pub tracking_em: Option<f32>,
@@ -307,8 +307,6 @@ pub struct CharacterStyle {
     pub baseline_shift_pt: Option<f32>,
     pub masoretic_variant: Option<MasoreticLetterVariant>,
     pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub font_scale: Option<f32>,
 }
 
 /// OpenType feature setting tag (e.g. "calt", "ss01", "ss04", "cv04") and value (0 or 1).
@@ -423,6 +421,9 @@ pub struct CharacterFormat {
     pub font_family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size_pt: Option<f32>,
+    /// Proportional font scale relative to paragraph font size (e.g. `0.8` = 80%).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_scale: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_weight: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -445,6 +446,250 @@ impl CharacterFormat {
     pub fn is_empty(&self) -> bool {
         *self == CharacterFormat::default()
     }
+
+    /// Merges `other` on top of `self`, returning a combined `CharacterFormat`.
+    pub fn merged_with(&self, other: &CharacterFormat) -> CharacterFormat {
+        CharacterFormat {
+            character_style_id: other
+                .character_style_id
+                .clone()
+                .or_else(|| self.character_style_id.clone()),
+            font_family: other
+                .font_family
+                .clone()
+                .or_else(|| self.font_family.clone()),
+            font_size_pt: other.font_size_pt.or(self.font_size_pt),
+            font_scale: other.font_scale.or(self.font_scale),
+            font_weight: other.font_weight.or(self.font_weight),
+            italic: other.italic.or(self.italic),
+            underline: other.underline.or(self.underline),
+            tracking_em: other.tracking_em.or(self.tracking_em),
+            color: other.color.clone().or_else(|| self.color.clone()),
+            baseline_shift_pt: other.baseline_shift_pt.or(self.baseline_shift_pt),
+            masoretic_variant: other.masoretic_variant.or(self.masoretic_variant),
+            opentype_features: other
+                .opentype_features
+                .clone()
+                .or_else(|| self.opentype_features.clone()),
+        }
+    }
+}
+
+/// Non-destructive Live GREP styling rule (מנוע GREP חי).
+///
+/// Evaluates a regular expression against paragraph text at layout/render time
+/// and dynamically applies a `CharacterStyle` or inline `CharacterFormat` without
+/// mutating the underlying document text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GrepRule {
+    pub id: String,
+    pub name: String,
+    pub pattern: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_style_id: Option<String>,
+    #[serde(default)]
+    pub format: CharacterFormat,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_flow_id: Option<String>,
+}
+
+impl GrepRule {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        pattern: impl Into<String>,
+        format: CharacterFormat,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            pattern: pattern.into(),
+            target_style_id: None,
+            format,
+            enabled: true,
+            scope_flow_id: None,
+        }
+    }
+
+    pub fn with_target_style(mut self, style_id: impl Into<String>) -> Self {
+        let id = style_id.into();
+        self.target_style_id = Some(id.clone());
+        if self.format.character_style_id.is_none() {
+            self.format.character_style_id = Some(id);
+        }
+        self
+    }
+
+    pub fn with_scope_flow(mut self, flow_id: impl Into<String>) -> Self {
+        self.scope_flow_id = Some(flow_id.into());
+        self
+    }
+
+    /// Resolves the effective `CharacterFormat` for this rule, combining any linked
+    /// `CharacterStyle` with the rule's direct `format` overrides.
+    pub fn effective_format(&self, char_styles: &[CharacterStyle]) -> CharacterFormat {
+        let style_id = self
+            .target_style_id
+            .as_deref()
+            .or(self.format.character_style_id.as_deref());
+        let mut base = CharacterFormat::default();
+        if let Some(sid) = style_id {
+            if let Some(cs) = char_styles.iter().find(|s| s.id == sid) {
+                base.character_style_id = Some(cs.id.clone());
+                base.font_family = cs.font_family.clone();
+                base.font_size_pt = cs.font_size_pt;
+                base.font_scale = cs.font_scale;
+                if let Some(bold) = cs.bold {
+                    base.font_weight = Some(if bold {
+                        FONT_WEIGHT_BOLD
+                    } else {
+                        FONT_WEIGHT_REGULAR
+                    });
+                }
+                base.italic = cs.italic;
+                base.tracking_em = cs.tracking_em;
+                base.color = cs.color.clone();
+                base.baseline_shift_pt = cs.baseline_shift_pt;
+                base.masoretic_variant = cs.masoretic_variant;
+                base.opentype_features = cs.opentype_features.clone();
+            }
+        }
+        base.merged_with(&self.format)
+    }
+
+    /// Standard Torah & Hebrew DTP presets for one-click activation.
+    pub fn builtin_presets() -> Vec<Self> {
+        vec![
+            Self::new(
+                "grep-parens-citations",
+                "הקטנת מראי מקומות בסוגריים (80%)",
+                r"\([^()\n]{1,120}\)",
+                CharacterFormat {
+                    font_scale: Some(0.80),
+                    color: Some(Color::DeviceCmyk {
+                        c: 0.0,
+                        m: 0.0,
+                        y: 0.0,
+                        k: 0.65,
+                    }),
+                    ..Default::default()
+                },
+            ),
+            Self::new(
+                "grep-acronyms-gershayim",
+                "הדגשת ראשי תיבות (גרשיים)",
+                r#"[\u0590-\u05FF]+(?:"|״|'')[\u0590-\u05FF]+"#,
+                CharacterFormat {
+                    font_weight: Some(FONT_WEIGHT_BOLD),
+                    ..Default::default()
+                },
+            ),
+            Self::new(
+                "grep-talmud-openings",
+                "הדגשת מילות פתיחה בגמרא (אמר רבא, תנו רבנן)",
+                r"^(?:אמר רבא|אמר אביי|תנו רבנן|איתמר|בעא מיניה|תא שמע|מתני׳|מתני'|גמ׳|גמ')\b",
+                CharacterFormat {
+                    font_weight: Some(FONT_WEIGHT_BOLD),
+                    ..Default::default()
+                },
+            ),
+            Self::new(
+                "grep-section-markers",
+                "הדגשת מספרי סעיפים ואותיות (אות א', סעיף ב')",
+                r"^(?:אות|סעיף|סימן|הלכה|ענף)\s+[\u05D0-\u05EA]{1,4}[׳'״.]?",
+                CharacterFormat {
+                    font_weight: Some(FONT_WEIGHT_BOLD),
+                    ..Default::default()
+                },
+            ),
+            Self::new(
+                "grep-double-quotes",
+                "עיצוב ציטוטים במירכאות כפולות",
+                r#"(?:"[^"\n]{1,200}"|״[^״\n]{1,200}״)"#,
+                CharacterFormat {
+                    italic: Some(true),
+                    ..Default::default()
+                },
+            ),
+        ]
+    }
+}
+
+/// Evaluates active Live GREP rules on `text` without mutating it, and merges
+/// the resulting spans with `existing_spans` (explicit `existing_spans` win over
+/// GREP rules where both specify the same property).
+pub fn evaluate_live_grep_spans(
+    text: &str,
+    existing_spans: &[crate::spans::TextSpan],
+    rules: &[GrepRule],
+    char_styles: &[CharacterStyle],
+    flow_id: Option<&str>,
+) -> Vec<crate::spans::TextSpan> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let active_rules: Vec<&GrepRule> = rules
+        .iter()
+        .filter(|r| {
+            r.enabled
+                && !r.pattern.is_empty()
+                && match (&r.scope_flow_id, flow_id) {
+                    (Some(scope), Some(fid)) if !scope.is_empty() && scope != "all" => {
+                        scope == fid
+                    }
+                    (Some(scope), None) if !scope.is_empty() && scope != "all" => false,
+                    _ => true,
+                }
+        })
+        .collect();
+
+    if active_rules.is_empty() {
+        return existing_spans.to_vec();
+    }
+
+    // Build byte-offset -> char-offset lookup table for O(log N) / O(1) conversion
+    let mut byte_to_char = vec![0usize; text.len() + 1];
+    let mut char_count = 0usize;
+    for (byte_idx, ch) in text.char_indices() {
+        byte_to_char[byte_idx] = char_count;
+        char_count += 1;
+        let next_byte = byte_idx + ch.len_utf8();
+        byte_to_char[next_byte] = char_count;
+    }
+
+    let mut combined_spans: Vec<crate::spans::TextSpan> = Vec::new();
+    for rule in active_rules {
+        let fmt = rule.effective_format(char_styles);
+        if fmt.is_empty() {
+            continue;
+        }
+        if let Ok(re) = regex::Regex::new(&rule.pattern) {
+            for mat in re.find_iter(text) {
+                let start_char = byte_to_char[mat.start()];
+                let end_char = byte_to_char[mat.end()];
+                if start_char < end_char {
+                    combined_spans.push(crate::spans::TextSpan::new(
+                        start_char,
+                        end_char,
+                        fmt.clone(),
+                    ));
+                }
+            }
+        }
+    }
+
+    if combined_spans.is_empty() {
+        return existing_spans.to_vec();
+    }
+
+    // Normalize GREP spans first, then layer explicit spans on top so user formatting wins
+    let mut normalized_grep = crate::spans::normalize_spans(combined_spans, char_count);
+    for exp in existing_spans {
+        normalized_grep.push(exp.clone());
+    }
+    crate::spans::normalize_spans(normalized_grep, char_count)
 }
 
 #[cfg(test)]
@@ -580,5 +825,30 @@ mod tests {
         let json = serde_json::to_string(&fmt).unwrap();
         let parsed: CharacterFormat = serde_json::from_str(&json).unwrap();
         assert_eq!(fmt, parsed);
+    }
+
+    #[test]
+    fn test_live_grep_rule_presets_and_non_destructive_evaluation() {
+        let presets = GrepRule::builtin_presets();
+        assert!(presets.len() >= 5);
+
+        let text = "אמר רבא כתבו הרמב\"ם והרשב\"א (שבת דף כג ע״א) בדין נר חנוכה.";
+        let spans = evaluate_live_grep_spans(text, &[], &presets, &[], Some("main"));
+
+        // Verify original text was not mutated and spans cover:
+        // 1. "אמר רבא" (chars 0..7) -> bold 700
+        // 2. "הרמב\"ם", "והרשב\"א", and "ע״א" -> bold 700
+        // 3. "(שבת דף כג ע״א)" -> font_scale 0.80 & gray CMYK
+        assert!(spans
+            .iter()
+            .any(|s| s.start == 0 && s.end == 7 && s.format.font_weight == Some(FONT_WEIGHT_BOLD)));
+        assert!(spans
+            .iter()
+            .any(|s| s.format.font_scale == Some(0.80) && s.format.color.is_some()));
+        let acronym_spans: Vec<_> = spans
+            .iter()
+            .filter(|s| s.start > 7 && s.format.font_weight == Some(FONT_WEIGHT_BOLD))
+            .collect();
+        assert_eq!(acronym_spans.len(), 3);
     }
 }
