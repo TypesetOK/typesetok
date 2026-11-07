@@ -37,8 +37,8 @@ pub use spans::{
     insert_range, is_canonical, normalize_spans, remove_range, spans_in_range, TextSpan,
 };
 pub use styles::{
-    AhaltermStretchMode, CharacterFormat, CharacterStyle, Color, DropCapConfig,
-    LastLineConstraintConfig, OpticalMarginConfig, ParagraphStyle, Progression, StylePatch,
-    TextAlignment,
+    evaluate_live_grep_spans, AhaltermStretchMode, CharacterFormat, CharacterStyle, Color,
+    DropCapConfig, GrepRule, LastLineConstraintConfig, OpticalMarginConfig, ParagraphStyle,
+    Progression, StylePatch, TextAlignment,
 };
 pub use transaction::{AtomicOperation, CompoundTransaction, TransactionStack};
