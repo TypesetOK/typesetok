@@ -155,21 +155,6 @@ export class UpdatesDrawer {
     // 4. Drawer Footer
     const foot = el('footer', 'tok-drawer-foot');
 
-    const checkBtn = button(t('whatsNewCheckUpdates'), {
-      className: 'tok-btn tok-btn-secondary',
-      icon: 'refresh',
-      attrs: { 'data-focus-key': 'check-net' },
-      onClick: () => {
-        if (this.callbacks.onCheckUpdates) {
-          this.callbacks.onCheckUpdates();
-        } else if (this.callbacks.onOpenSettings) {
-          this.hide();
-          this.callbacks.onOpenSettings();
-        }
-      }
-    });
-    foot.appendChild(checkBtn);
-
     foot.appendChild(el('span', 'tok-grow'));
 
     const closeBtn = button(t('whatsNewGotIt'), {
