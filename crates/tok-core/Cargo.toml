@@ -12,5 +12,6 @@ ropey = { workspace = true }
 thiserror = { workspace = true }
 unicode-normalization = { workspace = true }
 log = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
