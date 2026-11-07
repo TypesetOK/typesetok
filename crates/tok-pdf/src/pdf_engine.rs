@@ -9,6 +9,7 @@
 //! produced them.
 
 use crate::boxes::PrePressPageBoxes;
+use crate::color::{ColorManagementEngine, IccProfileId};
 use crate::font_subsetter::{fnv1a, FontSubsetter, SubsetFontResult, FNV_OFFSET};
 use crate::tounicode::ToUnicodeCMap;
 use pdf_writer::types::{CidFontType, FontFlags, OutputIntentSubtype, SystemInfo, TrappingStatus};
@@ -26,11 +27,13 @@ pub enum PdfXStandard {
 
 pub struct PdfExportOptions {
     pub standard: PdfXStandard,
+    pub color_profile: IccProfileId,
     pub title: String,
     pub author: String,
     pub bleed_pt: f32, // default 3mm = 8.504 pt
     pub slug_pt: f32,  // default 10mm = 28.346 pt
     pub draw_crop_marks: bool,
+    pub draw_registration_marks: bool,
     pub draw_page_numbers: bool,
     /// Font used for glyphs whose font the layout does not record (layouts
     /// built without font information, or text-only lines). Defaults to the
@@ -50,11 +53,13 @@ impl Default for PdfExportOptions {
     fn default() -> Self {
         Self {
             standard: PdfXStandard::PdfX1a2001,
+            color_profile: IccProfileId::Fogra39,
             title: "מסמך מעומד".to_string(),
             author: "TypesetOK".to_string(),
             bleed_pt: 8.504,
             slug_pt: 28.346,
             draw_crop_marks: true,
+            draw_registration_marks: false,
             draw_page_numbers: false,
             custom_font_data: None,
             creation_date: None,
@@ -518,6 +523,7 @@ impl PdfPrePressEngine {
                 p_box,
                 &page_boxes,
                 options.draw_crop_marks,
+                options.draw_registration_marks,
                 options.draw_page_numbers,
                 &embedded,
                 &registry,
@@ -561,15 +567,32 @@ impl PdfPrePressEngine {
         pages_node.kids(page_ids.iter().copied());
         pages_node.finish();
 
-        // 7. Catalog with OutputIntent (FOGRA39 for PDF/X)
+        // 7. Embedded ICC DestOutputProfile Stream (N = 4 CMYK components) & Catalog OutputIntent
+        let icc_profile_id = alloc();
+        let icc_raw = ColorManagementEngine::generate_icc_profile_bytes(options.color_profile);
+        if options.compress_streams {
+            let compressed_icc = miniz_oxide::deflate::compress_to_vec_zlib(&icc_raw, 6);
+            let mut icc_stream = pdf.stream(icc_profile_id, &compressed_icc);
+            icc_stream.filter(Filter::FlateDecode);
+            icc_stream.pair(Name(b"N"), 4i32);
+            icc_stream.finish();
+        } else {
+            let mut icc_stream = pdf.stream(icc_profile_id, &icc_raw);
+            icc_stream.pair(Name(b"N"), 4i32);
+            icc_stream.finish();
+        }
+
         let mut catalog = pdf.catalog(catalog_id);
         catalog.pages(pages_id);
         let mut catalog_intents = catalog.output_intents();
         let mut intent = catalog_intents.push();
         intent.subtype(OutputIntentSubtype::PDFX);
-        intent.output_condition_identifier(TextStr("FOGRA39"));
-        intent.info(TextStr("Coated FOGRA39 (ISO 12647-2:2004)"));
-        intent.registry_name(TextStr("http://www.color.org"));
+        intent.output_condition_identifier(TextStr(
+            options.color_profile.output_condition_identifier(),
+        ));
+        intent.info(TextStr(options.color_profile.info()));
+        intent.registry_name(TextStr(options.color_profile.registry_name()));
+        intent.dest_output_profile(icc_profile_id);
         intent.finish();
         catalog_intents.finish();
         catalog.finish();
@@ -656,10 +679,12 @@ impl PdfPrePressEngine {
         type0.finish();
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn page_content(
         p_box: &PageLayoutBox,
         page_boxes: &PrePressPageBoxes,
         draw_crop_marks: bool,
+        draw_registration_marks: bool,
         draw_page_numbers: bool,
         embedded: &[EmbeddedFont],
         registry: &FontRegistry<'_>,
@@ -670,6 +695,9 @@ impl PdfPrePressEngine {
         if draw_crop_marks {
             page_boxes.draw_crop_marks(&mut content);
         }
+        if draw_registration_marks {
+            page_boxes.draw_registration_marks(&mut content);
+        }
 
         // Set fill color to pure DeviceCMYK black (0 0 0 1 k)
         content.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
@@ -678,6 +706,35 @@ impl PdfPrePressEngine {
         let origin_x = page_boxes.trim_box[0];
         let origin_y = page_boxes.trim_box[1];
         let page_h = p_box.dimensions.height;
+
+        // Draw footnote apparatus separator rules (main rule above first apparatus, shorter rule between apparatuses)
+        let mut fn_frames: Vec<&tok_typeset::geometry::TextFrameBox> = p_box
+            .frames
+            .iter()
+            .filter(|f| {
+                !f.lines.is_empty()
+                    && (f.flow_id == "notes"
+                        || f.flow_id == "footnote"
+                        || f.flow_id == "sources"
+                        || f.flow_id == "biurim"
+                        || f.flow_id.contains("note")
+                        || f.flow_id.contains("apparatus"))
+            })
+            .collect();
+        fn_frames.sort_by(|a, b| a.rect.y.total_cmp(&b.rect.y));
+        for (app_idx, fn_frame) in fn_frames.iter().enumerate() {
+            let ratio = if app_idx == 0 { 0.33_f32 } else { 0.18_f32 };
+            let line_w = if app_idx == 0 { 0.5_f32 } else { 0.35_f32 };
+            let rule_len = (fn_frame.rect.width * ratio).max(24.0);
+            let rule_x_end = origin_x + fn_frame.rect.x + fn_frame.rect.width;
+            let rule_x_start = rule_x_end - rule_len;
+            let rule_y = origin_y + (page_h - fn_frame.rect.y) + 2.5;
+            content.set_line_width(line_w);
+            content.set_stroke_cmyk(0.0, 0.0, 0.0, 1.0);
+            content.move_to(rule_x_start, rule_y);
+            content.line_to(rule_x_end, rule_y);
+            content.stroke();
+        }
 
         for frame in &p_box.frames {
             for line in &frame.lines {
@@ -1157,5 +1214,59 @@ mod tests {
             "Must contain at least 2 text objects including folio, got {}",
             bt_count
         );
+    }
+
+    #[test]
+    fn test_pdf_icc_output_intent_and_multi_apparatus_separator_rules() {
+        use tok_typeset::geometry::{PhysicalRect, TextFrameBox};
+
+        let line_main = typeset("טקסט ראשי בעמוד עם שני מדורי הערות שוליים", "Noto Serif Hebrew");
+        let line_app1 = typeset("א. מקור ראשון במדור מקורות וציונים", "Noto Serif Hebrew");
+        let line_app2 = typeset("1. ביאור ארוך במדור ביאורים והרחבות", "Noto Serif Hebrew");
+
+        let page = PageLayoutBox {
+            page_index: 0,
+            page_number_gematria: "א".to_string(),
+            dimensions: PhysicalRect::new(0.0, 0.0, 481.89, 680.31),
+            frames: vec![
+                TextFrameBox {
+                    frame_id: "frame_0_main".to_string(),
+                    flow_id: "main".to_string(),
+                    rect: PhysicalRect::new(42.52, 51.02, 382.68, 420.0),
+                    lines: line_main,
+                },
+                TextFrameBox {
+                    frame_id: "frame_0_footnote_notes".to_string(),
+                    flow_id: "notes".to_string(),
+                    rect: PhysicalRect::new(42.52, 480.0, 382.68, 55.0),
+                    lines: line_app1,
+                },
+                TextFrameBox {
+                    frame_id: "frame_0_footnote_biurim".to_string(),
+                    flow_id: "biurim".to_string(),
+                    rect: PhysicalRect::new(42.52, 545.0, 382.68, 70.0),
+                    lines: line_app2,
+                },
+            ],
+            break_token: None,
+        };
+
+        let options = PdfExportOptions {
+            standard: PdfXStandard::PdfX4,
+            color_profile: IccProfileId::Gracol2013,
+            draw_registration_marks: true,
+            compress_streams: false,
+            ..Default::default()
+        };
+
+        let bytes = PdfPrePressEngine::export_pdf(&[page], &options).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(s.contains("/DestOutputProfile"), "Must embed DestOutputProfile ICC stream");
+        assert!(s.contains("/N 4"), "ICC stream must specify N=4 CMYK components");
+        assert!(s.contains("GRACoL 2013"), "Must embed GRACoL 2013 OutputIntent info");
+        assert!(s.contains("CGATS TR 016"), "Must embed CGATS TR 016 OutputConditionIdentifier");
+        // Both separator line widths (0.5 w for primary apparatus, 0.35 w for secondary apparatus)
+        assert!(s.contains("0.5 w"), "Must draw primary footnote separator rule");
+        assert!(s.contains("0.35 w"), "Must draw inter-apparatus separator rule");
     }
 }
