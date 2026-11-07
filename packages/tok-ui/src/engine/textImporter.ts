@@ -5,7 +5,8 @@
  * real documents (TXT, Markdown, DOCX) into the TypesetOK document pipeline.
  */
 
-import { StoryParagraph, TextSpan } from 'tok-story-editor';
+import { ParagraphStylePatch, StoryParagraph, TextSpan } from 'tok-story-editor';
+import { MultiFlowAnchorLink } from '../types';
 
 const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
@@ -51,6 +52,40 @@ export class DocumentImportError extends Error {
   }
 }
 
+export interface ImportedTableCell {
+  text: string;
+  spans?: TextSpan[];
+  widthPt?: number;
+  colSpan?: number;
+  isHeader?: boolean;
+  nestedTables?: ImportedTableData[];
+}
+
+export interface ImportedTableRow {
+  cells: ImportedTableCell[];
+  isHeader?: boolean;
+}
+
+export interface ImportedTableData {
+  id: string;
+  rows: ImportedTableRow[];
+  columnWidthsPt: number[];
+  columnRatios: number[];
+  hasBorders: boolean;
+  borderColor?: string;
+  borderWidthPt?: number;
+  isRtl: boolean;
+  nestingLevel: number;
+}
+
+export interface DocxArchiveParts {
+  documentXml: string;
+  footnotesXml?: string;
+  endnotesXml?: string;
+  numberingXml?: string;
+  stylesXml?: string;
+}
+
 export interface ImportOptions {
   fileName?: string;
   format?: SupportedImportFormat;
@@ -58,11 +93,19 @@ export interface ImportOptions {
   headingStylePrefix?: string;
   targetFlowId?: string;
   docxXml?: string;
+  footnotesXml?: string;
+  endnotesXml?: string;
+  numberingXml?: string;
+  stylesXml?: string;
+  footnoteNumbering?: 'hebrew' | 'numeric';
 }
 
 export interface ImportResult {
   title: string;
   paragraphs: StoryParagraph[];
+  footnotes?: StoryParagraph[];
+  tables?: ImportedTableData[];
+  multiFlowAnchors?: MultiFlowAnchorLink[];
   format: SupportedImportFormat;
   detectedLanguage: 'he' | 'en' | 'mixed';
   detectedDirection: 'rtl' | 'ltr';
@@ -109,13 +152,15 @@ export function cleanDocumentTitle(fileName?: string): string {
 export function createStoryParagraph(
   text: string,
   styleId = 'default-body',
-  spans?: TextSpan[]
+  spans?: TextSpan[],
+  patch?: ParagraphStylePatch
 ): StoryParagraph {
   return {
     id: generateCrockfordUlid(),
     styleId,
     text,
-    spans: spans && spans.length > 0 ? spans : undefined
+    spans: spans && spans.length > 0 ? spans : undefined,
+    patch: patch && Object.keys(patch).length > 0 ? patch : undefined
   };
 }
 
@@ -452,13 +497,55 @@ export async function decompressDeflateRawAsync(bytes: Uint8Array): Promise<Uint
   throw new Error('DecompressionStream or zlib is not available in current environment');
 }
 
-/**
- * Extracts raw uncompressed word/document.xml from a DOCX zip archive buffer.
- */
-export function extractDocxXml(raw: Uint8Array | ArrayBuffer, options?: ImportOptions): string {
-  if (options?.docxXml) {
-    return options.docxXml;
+function decompressZipEntryBytes(entryBytes: Uint8Array, compressionMethod: number, entryName: string): string {
+  if (compressionMethod === 0) {
+    return new TextDecoder('utf-8').decode(entryBytes);
   }
+  if (compressionMethod === 8) {
+    try {
+      let zlib: any = null;
+      if (typeof (globalThis as any).require === 'function') {
+        try { zlib = (globalThis as any).require('zlib'); } catch {}
+      }
+      const proc = (globalThis as any).process;
+      if (!zlib && proc && typeof proc.getBuiltinModule === 'function') {
+        try { zlib = proc.getBuiltinModule('node:zlib') || proc.getBuiltinModule('zlib'); } catch {}
+      }
+      if (zlib && typeof zlib.inflateRawSync === 'function') {
+        const inflated = zlib.inflateRawSync(entryBytes);
+        return new TextDecoder('utf-8').decode(inflated);
+      }
+      throw new Error('zlib decompression is not available in current environment');
+    } catch (e: any) {
+      throw new DocumentImportError(
+        'CORRUPTED_FILE',
+        `Failed to decompress ${entryName}: ${e?.message}`,
+        'שגיאה בפריסת תוכן ה-DOCX'
+      );
+    }
+  }
+  throw new DocumentImportError(
+    'UNSUPPORTED_FORMAT',
+    `Unsupported ZIP compression method: ${compressionMethod}`,
+    'שיטת דחיסה לא נתמכת בקובץ DOCX'
+  );
+}
+
+/**
+ * Extracts all relevant XML parts (`word/document.xml`, `word/footnotes.xml`,
+ * `word/endnotes.xml`, `word/numbering.xml`, `word/styles.xml`) from a DOCX zip archive buffer.
+ */
+export function extractDocxArchive(raw: Uint8Array | ArrayBuffer, options?: ImportOptions): DocxArchiveParts {
+  if (options?.docxXml) {
+    return {
+      documentXml: options.docxXml,
+      footnotesXml: options.footnotesXml,
+      endnotesXml: options.endnotesXml,
+      numberingXml: options.numberingXml,
+      stylesXml: options.stylesXml
+    };
+  }
+
   const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
   if (bytes.length < 30) {
     throw new DocumentImportError(
@@ -468,7 +555,6 @@ export function extractDocxXml(raw: Uint8Array | ArrayBuffer, options?: ImportOp
     );
   }
 
-  // Check PK\x03\x04 signature
   if (bytes[0] !== 0x50 || bytes[1] !== 0x4B || bytes[2] !== 0x03 || bytes[3] !== 0x04) {
     throw new DocumentImportError(
       'CORRUPTED_FILE',
@@ -477,19 +563,66 @@ export function extractDocxXml(raw: Uint8Array | ArrayBuffer, options?: ImportOp
     );
   }
 
-  let offset = 0;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const wantedEntries = new Set([
+    'word/document.xml',
+    'word/footnotes.xml',
+    'word/endnotes.xml',
+    'word/numbering.xml',
+    'word/styles.xml'
+  ]);
+  const extracted: Record<string, string> = {};
 
+  // 1. Try Central Directory first (handles data descriptors where local header compressedSize == 0)
+  let eocdOffset = -1;
+  const minEocdSearch = Math.max(0, bytes.length - 65557);
+  for (let i = bytes.length - 22; i >= minEocdSearch; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset !== -1) {
+    const cdCount = view.getUint16(eocdOffset + 10, true);
+    let cdOffset = view.getUint32(eocdOffset + 16, true);
+    for (let idx = 0; idx < cdCount && cdOffset + 46 <= bytes.length; idx++) {
+      if (view.getUint32(cdOffset, true) !== 0x02014b50) break;
+      const compressionMethod = view.getUint16(cdOffset + 10, true);
+      const compressedSize = view.getUint32(cdOffset + 20, true);
+      const fileNameLen = view.getUint16(cdOffset + 28, true);
+      const extraFieldLen = view.getUint16(cdOffset + 30, true);
+      const commentLen = view.getUint16(cdOffset + 32, true);
+      const localHeaderOffset = view.getUint32(cdOffset + 42, true);
+
+      const entryName = new TextDecoder('utf-8').decode(
+        bytes.subarray(cdOffset + 46, cdOffset + 46 + fileNameLen)
+      );
+
+      if (wantedEntries.has(entryName) && localHeaderOffset + 30 <= bytes.length) {
+        const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+        const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+        const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+        if (dataStart + compressedSize <= bytes.length) {
+          const entryBytes = bytes.subarray(dataStart, dataStart + compressedSize);
+          extracted[entryName] = decompressZipEntryBytes(entryBytes, compressionMethod, entryName);
+        }
+      }
+
+      cdOffset += 46 + fileNameLen + extraFieldLen + commentLen;
+    }
+  }
+
+  // 2. Fallback / supplement via Local File Headers scan
+  let offset = 0;
   while (offset + 30 <= bytes.length) {
     const sig = view.getUint32(offset, true);
     if (sig !== 0x04034b50) {
-      // End of local file headers or central directory reached
       break;
     }
 
     const compressionMethod = view.getUint16(offset + 8, true);
     const compressedSize = view.getUint32(offset + 18, true);
-    const uncompressedSize = view.getUint32(offset + 22, true);
     const fileNameLen = view.getUint16(offset + 26, true);
     const extraFieldLen = view.getUint16(offset + 28, true);
 
@@ -497,130 +630,894 @@ export function extractDocxXml(raw: Uint8Array | ArrayBuffer, options?: ImportOp
     const entryName = new TextDecoder('utf-8').decode(fileNameBytes);
     const dataStart = offset + 30 + fileNameLen + extraFieldLen;
 
-    if (entryName === 'word/document.xml') {
+    if (wantedEntries.has(entryName) && !extracted[entryName] && compressedSize > 0 && dataStart + compressedSize <= bytes.length) {
       const entryBytes = bytes.subarray(dataStart, dataStart + compressedSize);
-      if (compressionMethod === 0) {
-        // Stored uncompressed
-        return new TextDecoder('utf-8').decode(entryBytes);
-      } else if (compressionMethod === 8) {
-        // Deflated
-        try {
-          let zlib: any = null;
-          if (typeof (globalThis as any).require === 'function') {
-            try { zlib = (globalThis as any).require('zlib'); } catch {}
-          }
-          const proc = (globalThis as any).process;
-          if (!zlib && proc && typeof proc.getBuiltinModule === 'function') {
-            try { zlib = proc.getBuiltinModule('node:zlib') || proc.getBuiltinModule('zlib'); } catch {}
-          }
-
-          if (zlib && typeof zlib.inflateRawSync === 'function') {
-            const inflated = zlib.inflateRawSync(entryBytes);
-            return new TextDecoder('utf-8').decode(inflated);
-          }
-          throw new Error('zlib decompression is not available in current environment');
-        } catch (e: any) {
-          throw new DocumentImportError(
-            'CORRUPTED_FILE',
-            `Failed to decompress word/document.xml: ${e?.message}`,
-            'שגיאה בפריסת תוכן ה-DOCX'
-          );
-        }
-      } else {
-        throw new DocumentImportError(
-          'UNSUPPORTED_FORMAT',
-          `Unsupported ZIP compression method: ${compressionMethod}`,
-          'שיטת דחיסה לא נתמכת בקובץ DOCX'
-        );
-      }
+      extracted[entryName] = decompressZipEntryBytes(entryBytes, compressionMethod, entryName);
     }
 
+    if (compressedSize === 0 && (view.getUint16(offset + 6, true) & 0x08) !== 0) {
+      // Data descriptor with unknown local size — Central Directory already handled it
+      break;
+    }
     offset = dataStart + compressedSize;
   }
 
-  throw new DocumentImportError(
-    'INVALID_STRUCTURE',
-    'word/document.xml not found in DOCX package',
-    'לא נמצא תוכן מסמך תקין (word/document.xml) בתוך קובץ ה-DOCX'
-  );
+  const documentXml = extracted['word/document.xml'];
+  if (!documentXml) {
+    throw new DocumentImportError(
+      'INVALID_STRUCTURE',
+      'word/document.xml not found in DOCX package',
+      'לא נמצא תוכן מסמך תקין (word/document.xml) בתוך קובץ ה-DOCX'
+    );
+  }
+
+  return {
+    documentXml,
+    footnotesXml: options?.footnotesXml || extracted['word/footnotes.xml'],
+    endnotesXml: options?.endnotesXml || extracted['word/endnotes.xml'],
+    numberingXml: options?.numberingXml || extracted['word/numbering.xml'],
+    stylesXml: options?.stylesXml || extracted['word/styles.xml']
+  };
 }
 
 /**
- * Parses word/document.xml string into structured StoryParagraphs with formatting spans.
+ * Extracts raw uncompressed word/document.xml from a DOCX zip archive buffer.
  */
-export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult {
-  const pRegex = /<w:p(?:[\s\S]*?)<\/w:p>/g;
-  const paragraphs: StoryParagraph[] = [];
-  let match: RegExpExecArray | null;
+export function extractDocxXml(raw: Uint8Array | ArrayBuffer, options?: ImportOptions): string {
+  return extractDocxArchive(raw, options).documentXml;
+}
 
-  while ((match = pRegex.exec(xml)) !== null) {
-    const pXml = match[0];
+const HEBREW_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+const HEBREW_TENS = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
+const HEBREW_HUNDREDS = ['', 'ק', 'ר', 'ש', 'ת'];
 
-    // Determine paragraph style from <w:pStyle w:val="..."/>
-    let styleId = options?.defaultStyleId || 'default-body';
-    const styleMatch = /<w:pStyle[^>]*?w:val="([^"]+)"/i.exec(pXml);
-    if (styleMatch) {
-      const val = styleMatch[1].toLowerCase();
-      if (val.includes('heading1') || val.includes('heading 1') || val === '1') {
-        styleId = 'heading-1';
-      } else if (val.includes('heading2') || val.includes('heading 2') || val === '2') {
-        styleId = 'heading-2';
-      } else if (val.includes('heading3') || val.includes('heading 3') || val === '3') {
-        styleId = 'heading-3';
-      } else if (val.includes('quote') || val.includes('ציטוט')) {
-        styleId = 'blockquote';
+/**
+ * Formats a positive integer (1..999) into traditional Hebrew Gematria letters (א, ב, ... טו, טז ...).
+ */
+export function toHebrewListMarker(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return 'א';
+  let rem = Math.floor(n);
+  let out = '';
+  while (rem >= 400) {
+    out += 'ת';
+    rem -= 400;
+  }
+  if (rem >= 100) {
+    const h = Math.floor(rem / 100);
+    out += HEBREW_HUNDREDS[h] || '';
+    rem %= 100;
+  }
+  if (rem === 15) {
+    out += 'טו';
+  } else if (rem === 16) {
+    out += 'טז';
+  } else {
+    if (rem >= 10) {
+      const t = Math.floor(rem / 10);
+      out += HEBREW_TENS[t] || '';
+      rem %= 10;
+    }
+    if (rem > 0) {
+      out += HEBREW_ONES[rem] || '';
+    }
+  }
+  return out || 'א';
+}
+
+function toRomanMarker(n: number, upper = false): string {
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['m', 'cm', 'd', 'cd', 'c', 'xc', 'l', 'xl', 'x', 'ix', 'v', 'iv', 'i'];
+  let num = Math.max(1, Math.min(3999, Math.floor(n)));
+  let res = '';
+  for (let i = 0; i < vals.length; i++) {
+    while (num >= vals[i]) {
+      res += syms[i];
+      num -= vals[i];
+    }
+  }
+  return upper ? res.toUpperCase() : res;
+}
+
+function toAlphaMarker(n: number, upper = false): string {
+  const idx = ((Math.max(1, Math.floor(n)) - 1) % 26);
+  const ch = String.fromCharCode(97 + idx);
+  return upper ? ch.toUpperCase() : ch;
+}
+
+export interface DocxFootnoteEntry {
+  id: string;
+  text: string;
+  spans: TextSpan[];
+}
+
+/**
+ * Parses `word/footnotes.xml` (or `word/endnotes.xml`) into a lookup map by `w:id`.
+ * Skips separator/continuation footnotes (ids <= 0 or w:type="separator"/"continuationSeparator").
+ */
+export function parseDocxFootnotesXml(footnotesXml?: string): Map<string, DocxFootnoteEntry> {
+  const map = new Map<string, DocxFootnoteEntry>();
+  if (!footnotesXml) return map;
+
+  const fnRegex = /<w:(?:footnote|endnote)\b([^>]*)>([\s\S]*?)<\/w:(?:footnote|endnote)>/g;
+  let fnMatch: RegExpExecArray | null;
+
+  while ((fnMatch = fnRegex.exec(footnotesXml)) !== null) {
+    const attrs = fnMatch[1] || '';
+    const innerXml = fnMatch[2] || '';
+
+    const typeMatch = /w:type="([^"]+)"/i.exec(attrs);
+    if (typeMatch) {
+      const tVal = typeMatch[1].toLowerCase();
+      if (tVal.includes('separator') || tVal.includes('notice')) {
+        continue;
       }
     }
 
-    // Check for list item: <w:numPr>
-    if (/<w:numPr[\s>]/.test(pXml)) {
-      styleId = 'list-item';
+    const idMatch = /w:id="([^"]+)"/i.exec(attrs);
+    if (!idMatch) continue;
+    const idStr = idMatch[1].trim();
+    const idNum = parseInt(idStr, 10);
+    if (!Number.isNaN(idNum) && idNum <= 0) {
+      continue;
     }
 
-    // Parse runs <w:r>
-    const rRegex = /<w:r(?:[\s\S]*?)<\/w:r>/g;
-    let rMatch: RegExpExecArray | null;
-    let fullParaText = '';
-    const spans: TextSpan[] = [];
+    // Parse all paragraphs inside the footnote
+    const pRegex = /<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/g;
+    let pMatch: RegExpExecArray | null;
+    let combinedText = '';
+    const combinedSpans: TextSpan[] = [];
 
-    while ((rMatch = rRegex.exec(pXml)) !== null) {
-      const rXml = rMatch[0];
+    while ((pMatch = pRegex.exec(innerXml)) !== null) {
+      const pBody = pMatch[1];
+      const rRegex = /<w:r(?:\s[^>]*)?>([\s\S]*?)<\/w:r>/g;
+      let rMatch: RegExpExecArray | null;
+      let paraText = '';
+      const paraSpans: TextSpan[] = [];
 
-      // Extract run properties <w:rPr>
-      const isBold = /<w:b(?:\s|\/|>)/.test(rXml) && !/<w:b\s+w:val="(?:0|false|none)"/i.test(rXml);
-      const isItalic = /<w:i(?:\s|\/|>)/.test(rXml) && !/<w:i\s+w:val="(?:0|false|none)"/i.test(rXml);
-      const isUnderline = /<w:u(?:\s|\/|>)/.test(rXml) && !/<w:u\s+w:val="(?:0|false|none)"/i.test(rXml);
+      while ((rMatch = rRegex.exec(pBody)) !== null) {
+        const rBody = rMatch[1];
+        // Skip <w:footnoteRef/> marker run itself because we format our own canonical prefix
+        if (/<w:(?:footnoteRef|endnoteRef)\b/.test(rBody)) {
+          continue;
+        }
+        const isBold = /<w:b(?:\s|\/|>)/.test(rBody) && !/<w:b\s+w:val="(?:0|false|none)"/i.test(rBody);
+        const isItalic = /<w:i(?:\s|\/|>)/.test(rBody) && !/<w:i\s+w:val="(?:0|false|none)"/i.test(rBody);
+        const isUnderline = /<w:u(?:\s|\/|>)/.test(rBody) && !/<w:u\s+w:val="(?:0|false|none)"/i.test(rBody);
 
-      // Extract text <w:t>
-      const tRegex = /<w:t(?:[^>]*)>([\s\S]*?)<\/w:t>/g;
-      let tMatch: RegExpExecArray | null;
-      let runText = '';
-      while ((tMatch = tRegex.exec(rXml)) !== null) {
-        runText += decodeXmlEntities(tMatch[1]);
+        const tRegex = /<w:t(?:[^>]*)>([\s\S]*?)<\/w:t>/g;
+        let tMatch: RegExpExecArray | null;
+        let runText = '';
+        while ((tMatch = tRegex.exec(rBody)) !== null) {
+          runText += decodeXmlEntities(tMatch[1]);
+        }
+
+        if (runText) {
+          const start = paraText.length;
+          paraText += runText;
+          const end = paraText.length;
+          if (isBold || isItalic || isUnderline) {
+            paraSpans.push({
+              start,
+              end,
+              format: {
+                fontWeight: isBold ? 700 : undefined,
+                italic: isItalic ? true : undefined,
+                underline: isUnderline ? true : undefined
+              }
+            });
+          }
+        }
       }
 
-      if (runText) {
-        const start = fullParaText.length;
-        fullParaText += runText;
-        const end = fullParaText.length;
+      const cleanPara = paraText.replace(/[ \t]+/g, ' ').trim();
+      if (cleanPara) {
+        const baseOffset = combinedText ? combinedText.length + 1 : 0;
+        if (combinedText) combinedText += ' ';
+        const leadTrim = paraText.length - paraText.trimStart().length;
+        combinedText += cleanPara;
+        for (const sp of paraSpans) {
+          const s = Math.max(0, sp.start - leadTrim) + baseOffset;
+          const e = Math.min(combinedText.length, Math.max(s, sp.end - leadTrim + baseOffset));
+          if (e > s) {
+            combinedSpans.push({ start: s, end: e, format: sp.format });
+          }
+        }
+      }
+    }
 
-        if (isBold || isItalic || isUnderline) {
-          spans.push({
-            start,
-            end,
-            format: {
-              fontWeight: isBold ? 700 : undefined,
-              italic: isItalic ? true : undefined,
-              underline: isUnderline ? true : undefined
+    if (combinedText) {
+      map.set(idStr, {
+        id: idStr,
+        text: combinedText,
+        spans: combinedSpans
+      });
+    }
+  }
+
+  return map;
+}
+
+interface NumberingLevelDef {
+  ilvl: number;
+  start: number;
+  numFmt: string;
+  lvlText: string;
+  indentPt?: number;
+}
+
+interface NumberingRegistry {
+  abstractLevels: Map<string, Map<number, NumberingLevelDef>>;
+  numToAbstract: Map<string, string>;
+}
+
+/**
+ * Parses `word/numbering.xml` into abstract numbering definitions and numId mappings.
+ */
+export function parseDocxNumberingXml(numberingXml?: string): NumberingRegistry {
+  const abstractLevels = new Map<string, Map<number, NumberingLevelDef>>();
+  const numToAbstract = new Map<string, string>();
+  if (!numberingXml) return { abstractLevels, numToAbstract };
+
+  const absRegex = /<w:abstractNum\b[^>]*?w:abstractNumId="([^"]+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g;
+  let absMatch: RegExpExecArray | null;
+  while ((absMatch = absRegex.exec(numberingXml)) !== null) {
+    const absId = absMatch[1];
+    const absBody = absMatch[2];
+    const levels = new Map<number, NumberingLevelDef>();
+
+    const lvlRegex = /<w:lvl\b[^>]*?w:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>/g;
+    let lvlMatch: RegExpExecArray | null;
+    while ((lvlMatch = lvlRegex.exec(absBody)) !== null) {
+      const ilvl = parseInt(lvlMatch[1], 10) || 0;
+      const lvlBody = lvlMatch[2];
+      const startMatch = /<w:start\b[^>]*?w:val="(\d+)"/i.exec(lvlBody);
+      const fmtMatch = /<w:numFmt\b[^>]*?w:val="([^"]+)"/i.exec(lvlBody);
+      const txtMatch = /<w:lvlText\b[^>]*?w:val="([^"]*)"/i.exec(lvlBody);
+      const indMatch = /<w:ind\b[^>]*?(?:w:left|w:start|w:right)="(\d+)"/i.exec(lvlBody);
+
+      levels.set(ilvl, {
+        ilvl,
+        start: startMatch ? parseInt(startMatch[1], 10) || 1 : 1,
+        numFmt: fmtMatch ? fmtMatch[1] : 'decimal',
+        lvlText: txtMatch ? txtMatch[1] : `%${ilvl + 1}.`,
+        indentPt: indMatch ? Math.round((parseInt(indMatch[1], 10) / 20) * 10) / 10 : undefined
+      });
+    }
+    abstractLevels.set(absId, levels);
+  }
+
+  const numRegex = /<w:num\b[^>]*?w:numId="([^"]+)"[^>]*>([\s\S]*?)<\/w:num>/g;
+  let numMatch: RegExpExecArray | null;
+  while ((numMatch = numRegex.exec(numberingXml)) !== null) {
+    const numId = numMatch[1];
+    const numBody = numMatch[2];
+    const absRef = /<w:abstractNumId\b[^>]*?w:val="([^"]+)"/i.exec(numBody);
+    if (absRef) {
+      numToAbstract.set(numId, absRef[1]);
+    }
+  }
+
+  return { abstractLevels, numToAbstract };
+}
+
+function formatSingleLevelCounter(count: number, numFmt: string): string {
+  const fmt = (numFmt || 'decimal').toLowerCase();
+  if (fmt === 'bullet') return '•';
+  if (fmt.includes('hebrew')) return toHebrewListMarker(count);
+  if (fmt === 'lowerletter') return toAlphaMarker(count, false);
+  if (fmt === 'upperletter') return toAlphaMarker(count, true);
+  if (fmt === 'lowerroman') return toRomanMarker(count, false);
+  if (fmt === 'upperroman') return toRomanMarker(count, true);
+  return String(count);
+}
+
+/**
+ * Formats a hierarchical list item marker and returns `{ marker, indentPt }`.
+ */
+function advanceAndFormatListMarker(
+  numId: string,
+  ilvl: number,
+  registry: NumberingRegistry,
+  counters: Map<string, number[]>
+): { marker: string; indentPt: number } {
+  const absId = registry.numToAbstract.get(numId);
+  const absMap = absId ? registry.abstractLevels.get(absId) : undefined;
+  const lvlDef = absMap?.get(ilvl);
+
+  const counterKey = absId || numId;
+  let state = counters.get(counterKey);
+  if (!state) {
+    state = new Array(10).fill(0);
+    counters.set(counterKey, state);
+  }
+
+  // Ensure parent levels have at least their start value if skipped
+  for (let l = 0; l < ilvl; l++) {
+    if (state[l] === 0) {
+      state[l] = absMap?.get(l)?.start ?? 1;
+    }
+  }
+
+  // Increment current level
+  if (state[ilvl] === 0) {
+    state[ilvl] = lvlDef?.start ?? 1;
+  } else {
+    state[ilvl] += 1;
+  }
+
+  // Reset deeper levels
+  for (let l = ilvl + 1; l < state.length; l++) {
+    state[l] = 0;
+  }
+
+  const numFmt = lvlDef?.numFmt || 'decimal';
+  const indentPt = lvlDef?.indentPt ?? (ilvl + 1) * 18;
+
+  if (numFmt.toLowerCase() === 'bullet') {
+    return { marker: '•', indentPt };
+  }
+
+  let pattern = lvlDef?.lvlText || (ilvl > 0 ? Array.from({ length: ilvl + 1 }, (_, i) => `%${i + 1}`).join('.') + '.' : `%1.`);
+  pattern = pattern.replace(/%([1-9])/g, (_, dStr) => {
+    const lvlIdx = parseInt(dStr, 10) - 1;
+    const cVal = state![lvlIdx] || 1;
+    const lFmt = absMap?.get(lvlIdx)?.numFmt || numFmt;
+    return formatSingleLevelCounter(cVal, lFmt);
+  });
+
+  if (!pattern.trim()) {
+    pattern = `${formatSingleLevelCounter(state[ilvl], numFmt)}.`;
+  }
+
+  return { marker: pattern.trim(), indentPt };
+}
+
+/**
+ * Finds top-level `<w:p>` and `<w:tbl>` blocks in document order without matching `<w:p>` inside `<w:tbl>` twice.
+ */
+function extractTopLevelBodyBlocks(xml: string): Array<{ type: 'p' | 'tbl'; xml: string }> {
+  const bodyMatch = /<w:body\b[^>]*>([\s\S]*?)<\/w:body>/i.exec(xml);
+  const source = bodyMatch ? bodyMatch[1] : xml;
+  const blocks: Array<{ type: 'p' | 'tbl'; xml: string }> = [];
+
+  const tokenRegex = /<(\/?)w:(p|tbl)\b[^>]*?(\/?)>/g;
+  let tok: RegExpExecArray | null;
+  let currentType: 'p' | 'tbl' | null = null;
+  let depth = 0;
+  let startIdx = 0;
+
+  while ((tok = tokenRegex.exec(source)) !== null) {
+    const isClose = tok[1] === '/';
+    const tag = tok[2] as 'p' | 'tbl';
+    const isSelfClose = tok[3] === '/';
+
+    if (currentType === null) {
+      if (!isClose && !isSelfClose) {
+        currentType = tag;
+        depth = 1;
+        startIdx = tok.index;
+      }
+    } else if (tag === currentType) {
+      if (!isClose && !isSelfClose) {
+        depth++;
+      } else if (isClose) {
+        depth--;
+        if (depth === 0) {
+          const endIdx = tok.index + tok[0].length;
+          blocks.push({ type: currentType, xml: source.slice(startIdx, endIdx) });
+          currentType = null;
+        }
+      }
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Extracts direct `<w:tr>` rows of a `<w:tbl>` without matching `<w:tr>` of nested tables.
+ */
+function extractDirectSubElements(xml: string, tagName: 'tr' | 'tc'): string[] {
+  const results: string[] = [];
+  const inner = xml.replace(/^<w:tbl\b[^>]*>|^<w:tr\b[^>]*>/i, '').replace(/<\/w:tbl>\s*$|<\/w:tr>\s*$/i, '');
+  const tokenRegex = new RegExp(`<(\\/?)w:(${tagName}|tbl)\\b[^>]*?(\\/?)>`, 'g');
+  let tok: RegExpExecArray | null;
+  let tblDepth = 0;
+  let targetDepth = 0;
+  let startIdx = 0;
+
+  while ((tok = tokenRegex.exec(inner)) !== null) {
+    const isClose = tok[1] === '/';
+    const tag = tok[2];
+    const isSelfClose = tok[3] === '/';
+
+    if (tag === 'tbl') {
+      if (!isClose && !isSelfClose) tblDepth++;
+      else if (isClose) tblDepth = Math.max(0, tblDepth - 1);
+      continue;
+    }
+
+    if (tblDepth === 0 && tag === tagName) {
+      if (!isClose && !isSelfClose) {
+        if (targetDepth === 0) startIdx = tok.index;
+        targetDepth++;
+      } else if (isClose) {
+        targetDepth--;
+        if (targetDepth === 0) {
+          results.push(inner.slice(startIdx, tok.index + tok[0].length));
+        }
+      }
+    }
+  }
+  return results;
+}
+
+/**
+ * Parses a single `<w:p>` element and resolves inline footnote references.
+ */
+function parseDocxParagraphElement(
+  pXml: string,
+  options: ImportOptions | undefined,
+  footnoteLookup: Map<string, DocxFootnoteEntry>,
+  numberingRegistry: NumberingRegistry,
+  numberingCounters: Map<string, number[]>,
+  emittedFootnotes: StoryParagraph[],
+  anchorLinks: MultiFlowAnchorLink[],
+  nextFootnoteSeq: () => number
+): StoryParagraph | null {
+  let styleId = options?.defaultStyleId || 'default-body';
+  const styleMatch = /<w:pStyle[^>]*?w:val="([^"]+)"/i.exec(pXml);
+  if (styleMatch) {
+    const val = styleMatch[1].toLowerCase();
+    if (val.includes('heading1') || val.includes('heading 1') || val === '1' || val.includes('כותרת1')) {
+      styleId = 'heading-1';
+    } else if (val.includes('heading2') || val.includes('heading 2') || val === '2' || val.includes('כותרת2')) {
+      styleId = 'heading-2';
+    } else if (val.includes('heading3') || val.includes('heading 3') || val === '3' || val.includes('כותרת3')) {
+      styleId = 'heading-3';
+    } else if (val.includes('quote') || val.includes('ציטוט')) {
+      styleId = 'blockquote';
+    }
+  }
+
+  const patch: ParagraphStylePatch = {};
+
+  // Paragraph alignment <w:jc w:val="..."/>
+  const jcMatch = /<w:jc\b[^>]*?w:val="([^"]+)"/i.exec(pXml);
+  if (jcMatch) {
+    const jc = jcMatch[1].toLowerCase();
+    if (jc === 'center') patch.alignment = 'Center';
+    else if (jc === 'both' || jc === 'distribute' || jc === 'ThaiDistribute') patch.alignment = 'Justified';
+    else if (jc === 'left' || jc === 'end') patch.alignment = 'Left';
+    else if (jc === 'right' || jc === 'start') patch.alignment = 'Right';
+  }
+
+  // Paragraph direction <w:bidi/>
+  if (/<w:bidi(?:\s|\/|>)/.test(pXml) && !/<w:bidi\s+w:val="(?:0|false)"/i.test(pXml)) {
+    patch.direction = 'Rtl';
+  }
+
+  // Paragraph indentation <w:ind .../>
+  const indTagMatch = /<w:ind\b([^>]*)\/?>/i.exec(pXml);
+  if (indTagMatch) {
+    const indAttrs = indTagMatch[1];
+    const startDxa = /(?:w:start|w:right|w:left)="(\d+)"/i.exec(indAttrs);
+    const firstLineDxa = /w:firstLine="(\d+)"/i.exec(indAttrs);
+    if (startDxa) {
+      patch.indentStartPt = Math.round((parseInt(startDxa[1], 10) / 20) * 10) / 10;
+    }
+    if (firstLineDxa) {
+      patch.firstLineIndentPt = Math.round((parseInt(firstLineDxa[1], 10) / 20) * 10) / 10;
+    }
+  }
+
+  // Check for numbered/bulleted list item <w:numPr>
+  let listPrefix = '';
+  const numPrMatch = /<w:numPr\b[^>]*>([\s\S]*?)<\/w:numPr>/i.exec(pXml);
+  if (numPrMatch) {
+    styleId = 'list-item';
+    const numPrBody = numPrMatch[1];
+    const ilvlMatch = /<w:ilvl\b[^>]*?w:val="(\d+)"/i.exec(numPrBody);
+    const numIdMatch = /<w:numId\b[^>]*?w:val="([^"]+)"/i.exec(numPrBody);
+    const ilvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) || 0 : 0;
+    const numId = numIdMatch ? numIdMatch[1] : '1';
+    if (numId !== '0') {
+      const formatted = advanceAndFormatListMarker(numId, ilvl, numberingRegistry, numberingCounters);
+      listPrefix = `${formatted.marker} `;
+      if (patch.indentStartPt === undefined) {
+        patch.indentStartPt = formatted.indentPt;
+      }
+    }
+  }
+
+  const rRegex = /<w:r(?:\s[^>]*)?>([\s\S]*?)<\/w:r>/g;
+  let rMatch: RegExpExecArray | null;
+  let fullParaText = listPrefix;
+  const spans: TextSpan[] = [];
+  const pendingAnchorsForPara: Array<{ fnParaId: string; label: string }> = [];
+
+  if (listPrefix) {
+    spans.push({
+      start: 0,
+      end: listPrefix.trimEnd().length,
+      format: { fontWeight: 700 }
+    });
+  }
+
+  const useHebrewMarkers = (options?.footnoteNumbering ?? 'hebrew') === 'hebrew';
+
+  while ((rMatch = rRegex.exec(pXml)) !== null) {
+    const rXml = rMatch[1];
+
+    const isBold = /<w:b(?:\s|\/|>)/.test(rXml) && !/<w:b\s+w:val="(?:0|false|none)"/i.test(rXml);
+    const isItalic = /<w:i(?:\s|\/|>)/.test(rXml) && !/<w:i\s+w:val="(?:0|false|none)"/i.test(rXml);
+    const isUnderline = /<w:u(?:\s|\/|>)/.test(rXml) && !/<w:u\s+w:val="(?:0|false|none)"/i.test(rXml);
+
+    const tRegex = /<w:t(?:[^>]*)>([\s\S]*?)<\/w:t>/g;
+    let tMatch: RegExpExecArray | null;
+    let runText = '';
+    while ((tMatch = tRegex.exec(rXml)) !== null) {
+      runText += decodeXmlEntities(tMatch[1]);
+    }
+
+    if (runText) {
+      const start = fullParaText.length;
+      fullParaText += runText;
+      const end = fullParaText.length;
+
+      if (isBold || isItalic || isUnderline) {
+        spans.push({
+          start,
+          end,
+          format: {
+            fontWeight: isBold ? 700 : undefined,
+            italic: isItalic ? true : undefined,
+            underline: isUnderline ? true : undefined
+          }
+        });
+      }
+    }
+
+    // Check for <w:footnoteReference w:id="..."/> or <w:endnoteReference w:id="..."/>
+    const fnRefRegex = /<w:(?:footnoteReference|endnoteReference)\b[^>]*?w:id="([^"]+)"[^>]*\/?>/g;
+    let fnRefMatch: RegExpExecArray | null;
+    while ((fnRefMatch = fnRefRegex.exec(rXml)) !== null) {
+      const refId = fnRefMatch[1].trim();
+      const fnEntry = footnoteLookup.get(refId);
+      const seq = nextFootnoteSeq();
+      const markerLabel = useHebrewMarkers ? toHebrewListMarker(seq) : String(seq);
+      const inlineMarker = `[${markerLabel}]`;
+
+      const mStart = fullParaText.length;
+      fullParaText += inlineMarker;
+      const mEnd = fullParaText.length;
+      spans.push({
+        start: mStart,
+        end: mEnd,
+        format: {
+          characterStyleId: 'footnote-ref',
+          fontSizePt: 8.5,
+          fontWeight: 700
+        }
+      });
+
+      if (fnEntry) {
+        const fnPrefix = `${markerLabel}. `;
+        const fnFullText = fnPrefix + fnEntry.text;
+        const fnSpans: TextSpan[] = [
+          {
+            start: 0,
+            end: fnPrefix.trimEnd().length,
+            format: { fontWeight: 700 }
+          },
+          ...fnEntry.spans.map((sp) => ({
+            start: sp.start + fnPrefix.length,
+            end: sp.end + fnPrefix.length,
+            format: { ...sp.format }
+          }))
+        ];
+        const fnPara = createStoryParagraph(fnFullText, 'style-footnotes', fnSpans);
+        emittedFootnotes.push(fnPara);
+        pendingAnchorsForPara.push({ fnParaId: fnPara.id, label: markerLabel });
+      }
+    }
+  }
+
+  const leadSpaces = fullParaText.length - fullParaText.trimStart().length;
+  const trimmed = fullParaText.trim();
+  if (!trimmed) return null;
+
+  const adjustedSpans: TextSpan[] = [];
+  for (const sp of spans) {
+    const s = Math.max(0, sp.start - leadSpaces);
+    const e = Math.min(trimmed.length, sp.end - leadSpaces);
+    if (e > s) {
+      adjustedSpans.push({ start: s, end: e, format: sp.format });
+    }
+  }
+
+  const para = createStoryParagraph(trimmed, styleId, adjustedSpans, patch);
+  for (const anc of pendingAnchorsForPara) {
+    anchorLinks.push({
+      anchorId: `anc_${para.id}_${anc.fnParaId}`,
+      primaryFlowId: options?.targetFlowId || 'gemara',
+      primaryNodeId: para.id,
+      commentaryFlowId: 'notes',
+      commentaryNodeId: anc.fnParaId,
+      label: anc.label
+    });
+  }
+
+  return para;
+}
+
+/**
+ * Parses a `<w:tbl>` XML block (including nested `<w:tbl>` inside cells) into
+ * structured `ImportedTableData` and RTL tabular `StoryParagraph` rows.
+ */
+function parseDocxTableElement(
+  tblXml: string,
+  nestingLevel: number,
+  options: ImportOptions | undefined,
+  footnoteLookup: Map<string, DocxFootnoteEntry>,
+  numberingRegistry: NumberingRegistry,
+  numberingCounters: Map<string, number[]>,
+  emittedFootnotes: StoryParagraph[],
+  anchorLinks: MultiFlowAnchorLink[],
+  emittedTables: ImportedTableData[],
+  nextFootnoteSeq: () => number
+): { tableData: ImportedTableData; rowParagraphs: StoryParagraph[] } {
+  const tblPrMatch = /<w:tblPr\b[^>]*>([\s\S]*?)<\/w:tblPr>/i.exec(tblXml);
+  const tblPr = tblPrMatch ? tblPrMatch[1] : '';
+  const isRtl = !/<w:bidiVisual\s+w:val="(?:0|false)"/i.test(tblPr);
+  const hasBorders = /<w:tblBorders\b|<w:tcBorders\b/i.test(tblXml) && !/<w:top\s+w:val="none"/i.test(tblPr);
+
+  const gridCols: number[] = [];
+  const tblGridMatch = /<w:tblGrid\b[^>]*>([\s\S]*?)<\/w:tblGrid>/i.exec(tblXml);
+  if (tblGridMatch) {
+    const colRegex = /<w:gridCol\b[^>]*?w:w="(\d+)"/g;
+    let cMatch: RegExpExecArray | null;
+    while ((cMatch = colRegex.exec(tblGridMatch[1])) !== null) {
+      gridCols.push(Math.max(18, Math.round((parseInt(cMatch[1], 10) / 20) * 10) / 10));
+    }
+  }
+
+  const trList = extractDirectSubElements(tblXml, 'tr');
+  const rows: ImportedTableRow[] = [];
+  const rowParagraphs: StoryParagraph[] = [];
+  let maxCols = gridCols.length;
+
+  for (let rIdx = 0; rIdx < trList.length; rIdx++) {
+    const trXml = trList[rIdx];
+    const isHeaderRow = /<w:tblHeader(?:\s|\/|>)/.test(trXml) || rIdx === 0;
+    const tcList = extractDirectSubElements(trXml, 'tc');
+    maxCols = Math.max(maxCols, tcList.length);
+
+    const cells: ImportedTableCell[] = [];
+    const nestedRowParas: StoryParagraph[] = [];
+
+    for (let cIdx = 0; cIdx < tcList.length; cIdx++) {
+      const tcXml = tcList[cIdx];
+      const tcWMatch = /<w:tcW\b[^>]*?w:w="(\d+)"/i.exec(tcXml);
+      const widthPt = tcWMatch
+        ? Math.max(18, Math.round((parseInt(tcWMatch[1], 10) / 20) * 10) / 10)
+        : gridCols[cIdx];
+      const spanMatch = /<w:gridSpan\b[^>]*?w:val="(\d+)"/i.exec(tcXml);
+      const colSpan = spanMatch ? Math.max(1, parseInt(spanMatch[1], 10) || 1) : 1;
+
+      const cellBlocks = extractTopLevelBodyBlocks(tcXml);
+      const cellTexts: string[] = [];
+      const cellSpans: TextSpan[] = [];
+      const nestedTables: ImportedTableData[] = [];
+
+      for (const blk of cellBlocks) {
+        if (blk.type === 'p') {
+          const p = parseDocxParagraphElement(
+            blk.xml,
+            options,
+            footnoteLookup,
+            numberingRegistry,
+            numberingCounters,
+            emittedFootnotes,
+            anchorLinks,
+            nextFootnoteSeq
+          );
+          if (p && p.text) {
+            const offset = cellTexts.length > 0 ? cellTexts.join(' ').length + 1 : 0;
+            cellTexts.push(p.text);
+            if (p.spans) {
+              for (const sp of p.spans) {
+                cellSpans.push({
+                  start: sp.start + offset,
+                  end: sp.end + offset,
+                  format: sp.format
+                });
+              }
             }
+          }
+        } else if (blk.type === 'tbl') {
+          const nested = parseDocxTableElement(
+            blk.xml,
+            nestingLevel + 1,
+            options,
+            footnoteLookup,
+            numberingRegistry,
+            numberingCounters,
+            emittedFootnotes,
+            anchorLinks,
+            emittedTables,
+            nextFootnoteSeq
+          );
+          nestedTables.push(nested.tableData);
+          nestedRowParas.push(...nested.rowParagraphs);
+        }
+      }
+
+      cells.push({
+        text: cellTexts.join(' ').trim(),
+        spans: cellSpans.length > 0 ? cellSpans : undefined,
+        widthPt,
+        colSpan,
+        isHeader: isHeaderRow,
+        nestedTables: nestedTables.length > 0 ? nestedTables : undefined
+      });
+    }
+
+    rows.push({ cells, isHeader: isHeaderRow });
+
+    // Build a structured RTL tabular paragraph representing this table row
+    const delimiter = '  │  ';
+    let rowText = '';
+    const rowSpans: TextSpan[] = [];
+
+    for (let cIdx = 0; cIdx < cells.length; cIdx++) {
+      if (cIdx > 0) {
+        rowText += delimiter;
+      }
+      const cell = cells[cIdx];
+      const cellStart = rowText.length;
+      const cellContent = cell.text || '—';
+      rowText += cellContent;
+      const cellEnd = rowText.length;
+
+      if (isHeaderRow) {
+        rowSpans.push({
+          start: cellStart,
+          end: cellEnd,
+          format: { fontWeight: 700 }
+        });
+      } else if (cell.spans) {
+        for (const sp of cell.spans) {
+          rowSpans.push({
+            start: cellStart + sp.start,
+            end: Math.min(cellEnd, cellStart + sp.end),
+            format: sp.format
           });
         }
       }
     }
 
-    const trimmed = fullParaText.replace(/[ \t]+/g, ' ').trim();
-    if (trimmed) {
-      paragraphs.push(createStoryParagraph(trimmed, styleId, spans));
+    if (rowText.trim()) {
+      const rowPatch: ParagraphStylePatch = {
+        direction: isRtl ? 'Rtl' : 'Ltr',
+        alignment: 'Right',
+        indentStartPt: nestingLevel > 0 ? nestingLevel * 16 : 0,
+        spaceBeforePt: rIdx === 0 ? 4 : 1,
+        spaceAfterPt: rIdx === trList.length - 1 ? 4 : 1
+      };
+      const rowPara = createStoryParagraph(
+        rowText,
+        isHeaderRow ? 'table-header' : 'table-row',
+        rowSpans,
+        rowPatch
+      );
+      (rowPara as any).tableRowMeta = {
+        rowIndex: rIdx,
+        isHeader: isHeaderRow,
+        nestingLevel,
+        hasBorders,
+        cellCount: cells.length,
+        columnWidthsPt: cells.map((c) => c.widthPt || 100)
+      };
+      rowParagraphs.push(rowPara);
+    }
+
+    if (nestedRowParas.length > 0) {
+      rowParagraphs.push(...nestedRowParas);
+    }
+  }
+
+  const colCount = Math.max(1, maxCols);
+  const columnWidthsPt =
+    gridCols.length >= colCount
+      ? gridCols.slice(0, colCount)
+      : Array.from({ length: colCount }, (_, i) => rows[0]?.cells[i]?.widthPt || Math.round(450 / colCount));
+  const totalW = columnWidthsPt.reduce((a, b) => a + b, 0) || 1;
+  const columnRatios = columnWidthsPt.map((w) => Math.round((w / totalW) * 1000) / 1000);
+
+  const tableData: ImportedTableData = {
+    id: generateCrockfordUlid(),
+    rows,
+    columnWidthsPt,
+    columnRatios,
+    hasBorders,
+    isRtl,
+    nestingLevel
+  };
+  emittedTables.push(tableData);
+
+  return { tableData, rowParagraphs };
+}
+
+/**
+ * Parses word/document.xml (along with optional `footnotesXml` and `numberingXml`)
+ * into structured StoryParagraphs, linked footnotes, tables, and hierarchical numbered lists.
+ */
+export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult {
+  const footnoteLookup = parseDocxFootnotesXml(options?.footnotesXml);
+  if (options?.endnotesXml) {
+    const endnotes = parseDocxFootnotesXml(options.endnotesXml);
+    for (const [k, v] of endnotes.entries()) {
+      if (!footnoteLookup.has(k)) footnoteLookup.set(k, v);
+    }
+  }
+  const numberingRegistry = parseDocxNumberingXml(options?.numberingXml);
+  const numberingCounters = new Map<string, number[]>();
+
+  const paragraphs: StoryParagraph[] = [];
+  const emittedFootnotes: StoryParagraph[] = [];
+  const emittedTables: ImportedTableData[] = [];
+  const anchorLinks: MultiFlowAnchorLink[] = [];
+  let footnoteSeqCounter = 0;
+  const nextFootnoteSeq = () => ++footnoteSeqCounter;
+
+  const blocks = extractTopLevelBodyBlocks(xml);
+  for (const blk of blocks) {
+    if (blk.type === 'p') {
+      const p = parseDocxParagraphElement(
+        blk.xml,
+        options,
+        footnoteLookup,
+        numberingRegistry,
+        numberingCounters,
+        emittedFootnotes,
+        anchorLinks,
+        nextFootnoteSeq
+      );
+      if (p) paragraphs.push(p);
+    } else if (blk.type === 'tbl') {
+      const { rowParagraphs } = parseDocxTableElement(
+        blk.xml,
+        0,
+        options,
+        footnoteLookup,
+        numberingRegistry,
+        numberingCounters,
+        emittedFootnotes,
+        anchorLinks,
+        emittedTables,
+        nextFootnoteSeq
+      );
+      paragraphs.push(...rowParagraphs);
+    }
+  }
+
+  // Any remaining footnotes in word/footnotes.xml that were not explicitly referenced by w:footnoteReference
+  if (footnoteLookup.size > 0 && emittedFootnotes.length === 0) {
+    const useHebrewMarkers = (options?.footnoteNumbering ?? 'hebrew') === 'hebrew';
+    for (const [, entry] of footnoteLookup.entries()) {
+      const seq = nextFootnoteSeq();
+      const markerLabel = useHebrewMarkers ? toHebrewListMarker(seq) : String(seq);
+      const fnPrefix = `${markerLabel}. `;
+      const fnSpans: TextSpan[] = [
+        { start: 0, end: fnPrefix.trimEnd().length, format: { fontWeight: 700 } },
+        ...entry.spans.map((sp) => ({
+          start: sp.start + fnPrefix.length,
+          end: sp.end + fnPrefix.length,
+          format: { ...sp.format }
+        }))
+      ];
+      emittedFootnotes.push(createStoryParagraph(fnPrefix + entry.text, 'style-footnotes', fnSpans));
     }
   }
 
@@ -633,7 +1530,10 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
     );
   }
 
-  const allText = paragraphs.map((p) => p.text).join('\n');
+  const allText = [
+    ...paragraphs.map((p) => p.text),
+    ...emittedFootnotes.map((f) => f.text)
+  ].join('\n');
   const title = cleanDocumentTitle(options?.fileName);
   const detectedDirection = detectTextDirection(allText);
   const detectedLanguage = detectTextLanguage(allText);
@@ -642,23 +1542,37 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
   return {
     title,
     paragraphs,
+    footnotes: emittedFootnotes.length > 0 ? emittedFootnotes : undefined,
+    tables: emittedTables.length > 0 ? emittedTables : undefined,
+    multiFlowAnchors: anchorLinks.length > 0 ? anchorLinks : undefined,
     format: 'docx',
     detectedLanguage,
     detectedDirection,
     wordCount,
-    paragraphCount: paragraphs.length
+    paragraphCount: paragraphs.length,
+    metadata: {
+      footnoteCount: emittedFootnotes.length,
+      tableCount: emittedTables.length
+    }
   };
 }
 
 /**
- * Imports DOCX document buffer.
+ * Imports DOCX document buffer (extracting document.xml, footnotes.xml, numbering.xml, and styles.xml).
  */
 export function importDocx(
   content: Uint8Array | ArrayBuffer,
   options?: ImportOptions
 ): ImportResult {
-  const xml = extractDocxXml(content, options);
-  return parseDocxXml(xml, options);
+  const archive = extractDocxArchive(content, options);
+  return parseDocxXml(archive.documentXml, {
+    ...options,
+    docxXml: archive.documentXml,
+    footnotesXml: archive.footnotesXml,
+    endnotesXml: archive.endnotesXml,
+    numberingXml: archive.numberingXml,
+    stylesXml: archive.stylesXml
+  });
 }
 
 /**
