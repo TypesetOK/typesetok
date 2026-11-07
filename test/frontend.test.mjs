@@ -3861,3 +3861,50 @@ describe('Baseline guides follow the real text lines', () => {
     assert.ok(!canvas.includes('syncedTopPt'), 'the old single-grid sync is gone');
   });
 });
+
+
+describe('Sections 44-47: UI Cleanups, Blue Updates Badge & Dynamic Margin Guides', () => {
+  const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
+
+  test('Section 44: WelcomeModal sideHead has no duplicate import or open buttons', () => {
+    const welcome = read('packages/tok-ui/src/components/WelcomeModal.ts');
+    const sideHeadMatch = /const sideHead = el\('div', 'tok-recent-head'\);[\s\S]*?side\.appendChild\(sideHead\);/.exec(welcome);
+    assert.ok(sideHeadMatch, 'sideHead block must exist');
+    assert.ok(!sideHeadMatch[0].includes('importBtn'), 'sideHead must not contain importBtn');
+    assert.ok(!sideHeadMatch[0].includes('openBtn'), 'sideHead must not contain openBtn');
+    assert.ok(!sideHeadMatch[0].includes('headActions'), 'sideHead must not contain headActions');
+  });
+
+  test('Section 45: UpdatesDrawer footer does not contain checkBtn or check-net', () => {
+    const drawer = read('packages/tok-ui/src/components/UpdatesDrawer.ts');
+    assert.ok(!drawer.includes('whatsNewCheckUpdates'), 'UpdatesDrawer must not invoke whatsNewCheckUpdates');
+    assert.ok(!drawer.includes('check-net'), 'UpdatesDrawer must not have check-net focus key');
+    assert.ok(!drawer.includes('checkBtn'), 'UpdatesDrawer must not have checkBtn');
+  });
+
+  test('Section 46: UpdatesBellButton unread badge displays count and has blue styling', () => {
+    const bellBtn = read('packages/tok-ui/src/updates/UpdatesBellButton.ts');
+    assert.ok(bellBtn.includes('this.badgeDot.textContent = unreadCount'), 'UpdatesBellButton must display unread count');
+    assert.ok(bellBtn.includes('tok-has-unread'), 'UpdatesBellButton must toggle unread state');
+
+    const html = read('packages/tok-ui/src/index.html');
+    const badgeCssMatch = /\.tok-updates-unread-dot\s*\{([^}]+)\}/.exec(html);
+    assert.ok(badgeCssMatch, '.tok-updates-unread-dot CSS must exist');
+    assert.ok(badgeCssMatch[1].includes('#2563eb'), 'Unread indicator must have blue background #2563eb');
+    assert.ok(badgeCssMatch[1].includes('border-radius: 999px'), 'Unread indicator must be a pill badge');
+  });
+
+  test('Section 47: SpreadCanvas has dynamic margin guides connected to inspector values', () => {
+    const canvas = read('packages/tok-ui/src/components/SpreadCanvas.ts');
+    assert.ok(canvas.includes('setMargins('), 'SpreadCanvas must provide setMargins method');
+    assert.ok(canvas.includes('applyMarginGuideStyles('), 'SpreadCanvas must have applyMarginGuideStyles');
+    assert.ok(!canvas.includes("marginGuide.style.inset = '36px 38px 40px'"), 'Old hardcoded inset must be removed');
+
+    const app = read('packages/tok-ui/src/app.ts');
+    assert.ok(app.includes('this.canvas?.setMargins'), 'app.ts must wire onDocumentChange margins to canvas.setMargins');
+
+    const inspector = read('packages/tok-ui/src/components/ContextualInspector.ts');
+    assert.ok(inspector.includes("!/^[0-9.]$/.test(e.key)"), 'ContextualInspector must reject non-digit non-dot keys');
+    assert.ok(inspector.includes("input.value.replace(/[^0-9.]/g, '')"), 'ContextualInspector must sanitize input value');
+  });
+});

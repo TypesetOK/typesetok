@@ -537,6 +537,7 @@ export const strings: Translations = {
   restoreDraftBtn: { he: 'שחזר טיוטה', en: 'Restore Draft' },
   discardDraftBtn: { he: 'מחק טיוטה', en: 'Discard Draft' },
   settingsDocAutosave: { he: 'שמירה אוטומטית של המסמך', en: 'Continuous document autosave' },
+  settingsDocAutosaveEnable: { he: 'הפעלת שמירה רציפה ברקע', en: 'Enable continuous background autosave' },
     settingsDocAutosaveHelp: { he: 'שומר אוטומטית שינויים במסמך 2.5 שניות לאחר סיום ההקלדה ומגבה טיוטות', en: 'Automatically saves document changes 2.5 seconds after typing stops and backs up drafts' },
   settingsDone: { he: 'סיום', en: 'Done' },
   settingsCategories: { he: 'קטגוריות הגדרות', en: 'Settings categories' },

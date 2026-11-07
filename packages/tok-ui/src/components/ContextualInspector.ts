@@ -8,6 +8,7 @@ import { IconName } from '../icons';
 import { t, i18n } from '../i18n';
 import { el, icon, button, switchRow, segmented, selectField } from '../ui';
 import { DOCUMENT_FONTS, DEFAULT_DOCUMENT_FONT, FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR, getAvailableFonts } from '../fonts';
+import { UpdatesBellButton } from '../updates/UpdatesBellButton';
 
 /**
  * Parses a scrubber field such as "11.5 pt", "-3 מ"מ" or "12,5". Returns null when no
@@ -217,24 +218,44 @@ export class ContextualInspector {
       topBar.appendChild(expandBtn);
       this.element.appendChild(topBar);
 
-      const strip = el('div', 'tok-inspector-collapsed-strip');
-      strip.appendChild(icon('ruler', 18));
-      const vertLabel = el('span', 'tok-collapsed-vertical-title', undefined, t('inspInspectorTitle'));
-      strip.appendChild(vertLabel);
+      const strip = el('div', 'tok-inspector-collapsed-strip', {
+        title: `${t('inspInspectorTitle')} - ${t('inspExpand')}`,
+        role: 'button',
+        tabindex: '0'
+      });
+      const modeIconName: IconName = this.mode === 'text-edit' ? 'typography' : this.mode === 'text-frame' ? 'ruler' : 'pages';
+      const modeIndicator = el('div', 'tok-insp-mode-indicator');
+      modeIndicator.appendChild(icon(modeIconName, 18));
+      strip.appendChild(modeIndicator);
+      strip.addEventListener('click', () => this.toggleCollapse());
+      strip.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.toggleCollapse();
+        }
+      });
       this.element.appendChild(strip);
 
+      const foot = el('div', 'tok-inspector-footer');
+      if (this.callbacks.onOpenWhatsNew) {
+        const footWhatsNew = new UpdatesBellButton({
+          onClick: () => this.callbacks.onOpenWhatsNew?.(),
+          size: 16,
+          className: 'tok-btn tok-btn-ghost tok-insp-whatsnew-btn'
+        });
+        foot.appendChild(footWhatsNew.element);
+      }
       if (this.callbacks.onOpenSettings) {
-        const foot = el('div', 'tok-inspector-footer');
         const footSettings = el('button', 'tok-btn tok-btn-ghost tok-insp-settings-btn', {
           type: 'button',
           title: t('sidebarSettings'),
           'aria-label': t('sidebarSettings')
         });
-        footSettings.appendChild(icon('settings', 18));
+        footSettings.appendChild(icon('settings', 16));
         footSettings.addEventListener('click', () => this.callbacks.onOpenSettings?.());
         foot.appendChild(footSettings);
-        this.element.appendChild(foot);
       }
+      this.element.appendChild(foot);
       return;
     }
 
@@ -255,18 +276,20 @@ export class ContextualInspector {
     collapseBtn.addEventListener('click', () => this.toggleCollapse());
     topBar.appendChild(collapseBtn);
 
+    const titleWrap = el('div', 'tok-insp-header-title-wrap');
+    const modeIcon: IconName = this.mode === 'text-edit' ? 'typography' : this.mode === 'text-frame' ? 'ruler' : 'pages';
+    titleWrap.appendChild(icon(modeIcon, 14));
     const titleEl = el('span', 'tok-insp-header-title', undefined, t('inspInspectorTitle'));
-    topBar.appendChild(titleEl);
+    titleWrap.appendChild(titleEl);
+    topBar.appendChild(titleWrap);
 
     if (this.callbacks.onOpenWhatsNew) {
-      const whatsNewBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-whatsnew-btn', {
-        type: 'button',
-        title: t('whatsNewTitle'),
-        'aria-label': t('whatsNewTitle')
+      const bell = new UpdatesBellButton({
+        onClick: () => this.callbacks.onOpenWhatsNew?.(),
+        size: 16,
+        className: 'tok-btn tok-btn-ghost tok-insp-whatsnew-btn'
       });
-      whatsNewBtn.appendChild(icon('sparkle', 16));
-      whatsNewBtn.addEventListener('click', () => this.callbacks.onOpenWhatsNew?.());
-      topBar.appendChild(whatsNewBtn);
+      topBar.appendChild(bell.element);
     } else {
       topBar.appendChild(el('span', undefined, { style: 'width:28px;' }));
     }
@@ -789,11 +812,71 @@ export class ContextualInspector {
       commit(clampScrubberValue(parsed, min, max));
     });
 
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-      e.preventDefault();
-      const step = (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
-      commit(clampScrubberValue((parseScrubberValue(input.value) ?? lastVal) + step, min, max));
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Allow control and navigation keys
+      if (
+        e.key === 'Backspace' ||
+        e.key === 'Delete' ||
+        e.key === 'Tab' ||
+        e.key === 'Escape' ||
+        e.key === 'Enter' ||
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowRight' ||
+        e.key === 'Home' ||
+        e.key === 'End' ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey
+      ) {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const step = (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+          commit(clampScrubberValue((parseScrubberValue(input.value) ?? lastVal) + step, min, max));
+        }
+        return;
+      }
+
+      // Restrict input: allow only digits and decimal point
+      if (!/^[0-9.]$/.test(e.key)) {
+        e.preventDefault();
+        return;
+      }
+
+      // Prevent duplicate decimal points
+      if (e.key === '.') {
+        const val = input.value;
+        const selStart = input.selectionStart ?? 0;
+        const selEnd = input.selectionEnd ?? 0;
+        const selected = val.slice(selStart, selEnd);
+        if (val.includes('.') && !selected.includes('.')) {
+          e.preventDefault();
+        }
+      }
+    });
+
+    input.addEventListener('beforeinput', (e: any) => {
+      if (e.data) {
+        if (!/^[0-9.]+$/.test(e.data)) {
+          e.preventDefault();
+          return;
+        }
+        if (e.data.includes('.')) {
+          const val = input.value;
+          const selStart = input.selectionStart ?? 0;
+          const selEnd = input.selectionEnd ?? 0;
+          const selected = val.slice(selStart, selEnd);
+          if (val.includes('.') && !selected.includes('.')) {
+            e.preventDefault();
+          }
+        }
+      }
+    });
+
+    input.addEventListener('input', () => {
+      const sanitized = input.value.replace(/[^0-9.]/g, '').replace(/(\..*?)\./g, '$1');
+      if (input.value !== sanitized) {
+        input.value = sanitized;
+      }
     });
 
     return wrap;

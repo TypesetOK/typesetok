@@ -6,6 +6,295 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.34.11",
+    "releaseDate": "2026-11-07",
+    "importance": "patch",
+    "title": {
+      "he": "יישור קנבס בתצוגה משולבת, פס פקודות מורחב, שמירה בתיקיית פרויקטים, שימור שינוי שם והסבר שכבות",
+      "en": "Split View Canvas Centering, Comfortable Top Bar, Projects Folder Autosave, Persistent Renaming & Layer Guides"
+    },
+    "summary": {
+      "he": "שחרור גרסה 0.34.11 המשפר את נוחות העבודה ואמינות הנתונים: יישור ממורכז ואוטומטי של עמודי הקנבס במעבר לתצוגה משולבת (Split View) במקום בריחה שמאלה, הרחבת פס הפקודות העליון ל-50 פיקסלים בסטנדרט שולחני מרווח ונוח, מנגנון שמירה אוטומטי מלא של מסמכים בתיקיית הפרויקטים של התוכנה, שימור וסנכרון מלא של שינוי שם מסמך מול הקובץ הפיזי בדיסק, הוספת הסבר ברור ומצב חי בטאב השכבות, ותיקון כפילות כותרת השמירה האוטומטית בהגדרות.",
+      "en": "Release 0.34.11 improving workflow comfort and data persistence: automatic horizontal centering of canvas pages when entering split view preventing off-screen drift, comfortable 50px top command bar, continuous document auto-saving directly into the application Projects directory, persistent renaming synced to disk packages, clear layer explanations with live statuses, and Settings modal duplicate title fix."
+    },
+    "changes": [
+      {
+        "category": "fixes",
+        "text": {
+          "he": "מרכוז אוטומטי מלא של עמודי הקנבס בעת מעבר לתצוגה משולבת (Split View) ובגרירת מחיצת החלוקה",
+          "en": "Automatic horizontal canvas centering when switching to split view and resizing layout divider"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הרחבת גובה פס הפקודות העליון ל-50px ועיצוב מרווח ונוח לכל הפקדים",
+          "en": "Expand top system bar height to 50px providing comfortable and spacious desktop controls"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "שמירה אוטומטית מלאה של מסמכים בתיקיית הפרויקטים של התוכנה וזיהוי נתיב פרויקטים מובנה",
+          "en": "Integrated projects directory detection and continuous automatic saving of active documents"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "שימור קבוע של שם המסמך בעת עריכה וסנכרון שינוי השם עם הקובץ בדיסק",
+          "en": "Fix document rename reversion bug and sync rename with disk storage"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הוספת כרטיס הסבר מפורט ומצב חי (מוצג/נעול) לכל פריט במסך השכבות בסרגל הימני",
+          "en": "Add descriptive guide card and live state indicators in the right sidebar Layers panel"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "תיקון כפילות כותרת \"שמירה אוטומטית של מסמך\" במסך ההגדרות במראה",
+          "en": "Remove duplicate autosave section header in Settings modal appearance tab"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "split-view-center",
+        "icon": "split",
+        "title": {
+          "he": "מרכוז עמוד אוטומטי בתצוגה משולבת",
+          "en": "Automatic Page Centering in Split View"
+        },
+        "description": {
+          "he": "במעבר לתצוגה משולבת או שינוי גודל המחיצה, העמוד מתיישר אוטומטית למרכז שטח הקנבס שנותר לו ללא בריחה שמאלה מחוץ לחלון.",
+          "en": "When switching to split view or adjusting divider, pages automatically center in remaining viewport instead of drifting off-screen."
+        },
+        "badge": {
+          "he": "תצוגה משולבת",
+          "en": "Split View"
+        }
+      },
+      {
+        "id": "topbar-comfort",
+        "icon": "canvas",
+        "title": {
+          "he": "פס פקודות עליון מורחב, נוח ונגיש",
+          "en": "Spacious & Comfortable Top Command Bar"
+        },
+        "description": {
+          "he": "שורת הפקודות העליונה הורחבה לגובה 50 פיקסלים בסטנדרט שולחני מודרני עם כפתורים, שדות חיפוש וכותרת נוחים ללחיצה.",
+          "en": "Top command bar heightened to 50px conforming to spacious desktop UI with comfortable hit targets."
+        },
+        "badge": {
+          "he": "פס עליון",
+          "en": "Top Command Bar"
+        }
+      },
+      {
+        "id": "project-autosave",
+        "icon": "folder",
+        "title": {
+          "he": "שמירה אוטומטית רציפה בתיקיית הפרויקטים",
+          "en": "Continuous Autosave to Dedicated Projects Directory"
+        },
+        "description": {
+          "he": "כל מסמך חדש נשמר אוטומטית ברקע בתיקיית הפרויקטים של התוכנה (גם ללא צורך ב-Ctrl+Shift+S) ומעודכן ברשימת הפרויקטים האחרונים.",
+          "en": "Continuous autosave automatically writes new documents into the dedicated Projects folder and updates recent projects list."
+        },
+        "badge": {
+          "he": "תיקיית פרויקטים",
+          "en": "Projects Directory"
+        }
+      },
+      {
+        "id": "document-rename",
+        "icon": "file",
+        "title": {
+          "he": "שימור מלא של שינוי שם מסמך",
+          "en": "Persistent Document Renaming"
+        },
+        "description": {
+          "he": "שינוי שם מסמך (בלחיצה כפולה או F2) נשמר לצמיתות, מעדכן את שם הקובץ בדיסק, ואינו חוזר לשם הישן בעת ביצוע פעולה או שמירה.",
+          "en": "Renaming document titles updates the underlying physical file and remains permanently without reverting on subsequent actions."
+        },
+        "badge": {
+          "he": "שינוי שם",
+          "en": "Rename Document"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה נוכחית",
+      "en": "Current Version"
+    }
+  },
+  {
+    "version": "0.34.10",
+    "releaseDate": "2026-11-06",
+    "importance": "patch",
+    "title": {
+      "he": "פתיחה ישירה למסך הבית, פס עליון מעודכן, עיצוב סרגל שמאלי משודרג ומתקין חכם",
+      "en": "Direct Home Screen Launch, Standard System Titlebar, Refined Left Sidebar & Smart Installer"
+    },
+    "summary": {
+      "he": "שחרור גרסה 0.34.10 המשפר את חוויית השימוש: פתיחה ישירה ומיידית למסך הבית ללא הבהוב או פתיחת פרויקט מקדים, הרחבת הפס העליון וכפתורי החלון לסטנדרט תוכנות שולחניות (38px), העברת \"מה חדש\" בלעדית לסרגל השמאלי עם מנגנון הרחבה וכיווץ מעוצב ואלגנטי, ושדרוג מלא של המתקין: רישיון לקריאה בלבד ללא אפשרות הקלדה, שיוך בלעדי לקובצי tok והסרת tokbook, וזיהוי אוטומטי של התקנה קיימת לשדרוג מהיר ללא שלבים מיותרים.",
+      "en": "Release 0.34.10 improving core user experience: instant launch directly to the Home screen without flickering or opening prior projects, widened system titlebar and window buttons (38px), exclusive relocation of What's New into the left sidebar with a sleek expand/collapse rail, and comprehensive installer upgrades including read-only license display, unconditional .tok association, and smart update detection."
+    },
+    "changes": [
+      {
+        "category": "fixes",
+        "text": {
+          "he": "ביטול טעינת פרויקט זמני בעת הפעלת התוכנה ופתיחה ישירה של מסך הבית ללא הבהוב",
+          "en": "Eliminate pre-rendered dummy document on startup and launch directly to Home screen"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הרחבת הפס העליון ל-38px וכפתורי מזער/הגדל/סגור ל-48px בסטנדרט שולחני מלא",
+          "en": "Widen titlebar to 38px and caption buttons to 48px conforming to standard desktop OS conventions"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "העברת כפתור \"מה חדש\" עם נקודת התראה חיה מהפס העליון לסרגל השמאלי בלבד",
+          "en": "Move What's New trigger with live unread dot from top system bar to left sidebar exclusively"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "עיצוב מחדש של מצב כיווץ/הרחבה בסרגל השמאלי עם פס כלים קומפקטי ונקי",
+          "en": "Redesign left sidebar collapse/expand rail with compact icon controls and clean layout"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "נעילת תיבת הרישיון במתקין לקריאה בלבד ללא אפשרות הקלדה או שינוי טקסט",
+          "en": "Lock license agreement memo in installer to read-only preventing keyboard input"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "שיוך אוטומטי מלא לקובצי .tok במתקין והסרה מלאה של .tokbook",
+          "en": "Unconditional automatic association for .tok files and complete removal of .tokbook"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "זיהוי אוטומטי של התקנות קודמות במתקין ודילוג על שלבי קיצור הדרך לשדרוג מהיר",
+          "en": "Automatic previous installation detection skipping shortcut prompts for streamlined upgrades"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "הסרת כפתורי ייבוא ופתיחה כפולים מראש סרגל הפרויקטים האחרונים במסך הבית",
+          "en": "Remove redundant import and open buttons from recent projects sidebar header"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "הסרת כפתור בדיקת עדכונים מתחתית מגירת מה חדש בהתאם לסטנדרט התוכנה",
+          "en": "Remove check for updates button from What's New drawer footer"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "אינדיקטור עדכונים כחול עם מונה מספרי של שינויים שלא נקראו על כפתור העדכונים בסרגל הצד",
+          "en": "Blue update badge displaying unread changelog count on sidebar What's New button"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "חיבור חי של קווי עזר לשולי העמוד (Top, Bottom, Inside, Outside) לקנבס וחסימת תווים שאינם ספרות בשדות מספריים",
+          "en": "Real-time dynamic page margin guides reflecting inspector settings and numeric-only input restriction"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "home-screen-direct",
+        "icon": "brand",
+        "title": {
+          "he": "פתיחה ישירה וחלקה למסך הבית",
+          "en": "Direct & Instant Home Screen Launch"
+        },
+        "description": {
+          "he": "התוכנה נפתחת ישירות למסך הבית ללא הבהוב מקדים של פרויקט ריק, עם טעינה מיידית וללא פתיחה שגויה של פרויקטים ישנים.",
+          "en": "The application opens directly to the Home screen without project flashing, pre-rendering dummy documents, or unexpected document loads."
+        },
+        "badge": {
+          "he": "פתיחה ישירה",
+          "en": "Direct Launch"
+        }
+      },
+      {
+        "id": "standard-titlebar",
+        "icon": "maximize",
+        "title": {
+          "he": "פס עליון וכפתורי חלון בסטנדרט שולחני",
+          "en": "Desktop Standard Titlebar & Window Controls"
+        },
+        "description": {
+          "he": "הגבהת הפס העליון ל-38 פיקסלים וכפתורי איקס ומיזעור רחבים ונוחים (48 פיקסלים) התואמים את הסטנדרט המקובל בתוכנות שולחניות.",
+          "en": "Heightened system titlebar to 38px and broadened window buttons to 48px matching native desktop application conventions."
+        },
+        "badge": {
+          "he": "פס עליון מורחב",
+          "en": "Standard Titlebar"
+        }
+      },
+      {
+        "id": "left-sidebar-whatsnew",
+        "icon": "sparkle",
+        "title": {
+          "he": "עיצוב מלוטש לסרגל השמאלי והעברת \"מה חדש\"",
+          "en": "Refined Left Sidebar & Dedicated What's New Integration"
+        },
+        "description": {
+          "he": "מנגנון הרחבה וכיווץ מעוצב, נקי ואלגנטי ללא טקסט אנכי מעוות, עם שילוב כפתור \"מה חדש\" ונקודת התראה חיה בלעדית בסרגל השמאלי.",
+          "en": "Elegant and sleek sidebar expand/collapse rail with live unread update indicator badge, exclusive to the left properties sidebar."
+        },
+        "badge": {
+          "he": "סרגל שמאלי",
+          "en": "Left Sidebar"
+        }
+      },
+      {
+        "id": "installer-upgrades",
+        "icon": "layers",
+        "title": {
+          "he": "מתקין שולחני משודרג וזיהוי גרסה קיימת",
+          "en": "Upgraded Desktop Installer with Update Detection"
+        },
+        "description": {
+          "he": "רישיון מוגן מפני הקלדה, שיוך אוטומטי מוחלט לקובצי tok (ללא tokbook), וזיהוי אוטומטי של גרסה ישנה לקיצור תהליך השדרוג.",
+          "en": "Read-only license memo, unconditional native .tok file association, and smart previous version detection for accelerated installation flow."
+        },
+        "badge": {
+          "he": "שידרוג מתקין",
+          "en": "Modern Installer"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
+    }
+  },
+  {
     "version": "0.34.9",
     "releaseDate": "2026-11-06",
     "importance": "minor",
@@ -128,8 +417,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       }
     ],
     "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
     }
   },
   {

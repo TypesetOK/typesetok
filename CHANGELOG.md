@@ -5,9 +5,74 @@
 
 ---
 
+## [0.34.11] - 2026-11-07
+- **Importance**: patch
+- **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Title**: עברית: יישור קנבס בתצוגה משולבת, פס פקודות מורחב, שמירה בתיקיית פרויקטים, שימור שינוי שם והסבר שכבות | en: Split View Canvas Centering, Comfortable Top Bar, Projects Folder Autosave, Persistent Renaming & Layer Guides
+- **Summary**: עברית: שחרור גרסה 0.34.11 המשפר את נוחות העבודה ואמינות הנתונים: יישור ממורכז ואוטומטי של עמודי הקנבס במעבר לתצוגה משולבת (Split View) במקום בריחה שמאלה, הרחבת פס הפקודות העליון ל-50 פיקסלים בסטנדרט שולחני מרווח ונוח, מנגנון שמירה אוטומטי מלא של מסמכים בתיקיית הפרויקטים של התוכנה, שימור וסנכרון מלא של שינוי שם מסמך מול הקובץ הפיזי בדיסק, הוספת הסבר ברור ומצב חי בטאב השכבות, ותיקון כפילות כותרת השמירה האוטומטית בהגדרות. | en: Release 0.34.11 improving workflow comfort and data persistence: automatic horizontal centering of canvas pages when entering split view preventing off-screen drift, comfortable 50px top command bar, continuous document auto-saving directly into the application Projects directory, persistent renaming synced to disk packages, clear layer explanations with live statuses, and Settings modal duplicate title fix.
+
+### Highlights
+- [split-view-center] icon: split | badge: עברית: תצוגה משולבת, en: Split View
+  - Title: עברית: מרכוז עמוד אוטומטי בתצוגה משולבת | en: Automatic Page Centering in Split View
+  - Description: עברית: במעבר לתצוגה משולבת או שינוי גודל המחיצה, העמוד מתיישר אוטומטית למרכז שטח הקנבס שנותר לו ללא בריחה שמאלה מחוץ לחלון. | en: When switching to split view or adjusting divider, pages automatically center in remaining viewport instead of drifting off-screen.
+- [topbar-comfort] icon: canvas | badge: עברית: פס עליון, en: Top Command Bar
+  - Title: עברית: פס פקודות עליון מורחב, נוח ונגיש | en: Spacious & Comfortable Top Command Bar
+  - Description: עברית: שורת הפקודות העליונה הורחבה לגובה 50 פיקסלים בסטנדרט שולחני מודרני עם כפתורים, שדות חיפוש וכותרת נוחים ללחיצה. | en: Top command bar heightened to 50px conforming to spacious desktop UI with comfortable hit targets.
+- [project-autosave] icon: folder | badge: עברית: תיקיית פרויקטים, en: Projects Directory
+  - Title: עברית: שמירה אוטומטית רציפה בתיקיית הפרויקטים | en: Continuous Autosave to Dedicated Projects Directory
+  - Description: עברית: כל מסמך חדש נשמר אוטומטית ברקע בתיקיית הפרויקטים של התוכנה (גם ללא צורך ב-Ctrl+Shift+S) ומעודכן ברשימת הפרויקטים האחרונים. | en: Continuous autosave automatically writes new documents into the dedicated Projects folder and updates recent projects list.
+- [document-rename] icon: file | badge: עברית: שינוי שם, en: Rename Document
+  - Title: עברית: שימור מלא של שינוי שם מסמך | en: Persistent Document Renaming
+  - Description: עברית: שינוי שם מסמך (בלחיצה כפולה או F2) נשמר לצמיתות, מעדכן את שם הקובץ בדיסק, ואינו חוזר לשם הישן בעת ביצוע פעולה או שמירה. | en: Renaming document titles updates the underlying physical file and remains permanently without reverting on subsequent actions.
+
+### Changes
+- [fixes] עברית: מרכוז אוטומטי מלא של עמודי הקנבס בעת מעבר לתצוגה משולבת (Split View) ובגרירת מחיצת החלוקה | en: Automatic horizontal canvas centering when switching to split view and resizing layout divider
+- [improvements] עברית: הרחבת גובה פס הפקודות העליון ל-50px ועיצוב מרווח ונוח לכל הפקדים | en: Expand top system bar height to 50px providing comfortable and spacious desktop controls
+- [features] עברית: שמירה אוטומטית מלאה של מסמכים בתיקיית הפרויקטים של התוכנה וזיהוי נתיב פרויקטים מובנה | en: Integrated projects directory detection and continuous automatic saving of active documents
+- [fixes] עברית: שימור קבוע של שם המסמך בעת עריכה וסנכרון שינוי השם עם הקובץ בדיסק | en: Fix document rename reversion bug and sync rename with disk storage
+- [improvements] עברית: הוספת כרטיס הסבר מפורט ומצב חי (מוצג/נעול) לכל פריט במסך השכבות בסרגל הימני | en: Add descriptive guide card and live state indicators in the right sidebar Layers panel
+- [fixes] עברית: תיקון כפילות כותרת "שמירה אוטומטית של מסמך" במסך ההגדרות במראה | en: Remove duplicate autosave section header in Settings modal appearance tab
+
+---
+
+## [0.34.10] - 2026-11-06
+- **Importance**: patch
+- **Badge**: עברית: גרסה קודמת | en: Previous Version
+- **Title**: עברית: פתיחה ישירה למסך הבית, פס עליון מעודכן, עיצוב סרגל שמאלי משודרג ומתקין חכם | en: Direct Home Screen Launch, Standard System Titlebar, Refined Left Sidebar & Smart Installer
+- **Summary**: עברית: שחרור גרסה 0.34.10 המשפר את חוויית השימוש: פתיחה ישירה ומיידית למסך הבית ללא הבהוב או פתיחת פרויקט מקדים, הרחבת הפס העליון וכפתורי החלון לסטנדרט תוכנות שולחניות (38px), העברת "מה חדש" בלעדית לסרגל השמאלי עם מנגנון הרחבה וכיווץ מעוצב ואלגנטי, ושדרוג מלא של המתקין: רישיון לקריאה בלבד ללא אפשרות הקלדה, שיוך בלעדי לקובצי tok והסרת tokbook, וזיהוי אוטומטי של התקנה קיימת לשדרוג מהיר ללא שלבים מיותרים. | en: Release 0.34.10 improving core user experience: instant launch directly to the Home screen without flickering or opening prior projects, widened system titlebar and window buttons (38px), exclusive relocation of What's New into the left sidebar with a sleek expand/collapse rail, and comprehensive installer upgrades including read-only license display, unconditional .tok association, and smart update detection.
+
+### Highlights
+- [home-screen-direct] icon: brand | badge: עברית: פתיחה ישירה, en: Direct Launch
+  - Title: עברית: פתיחה ישירה וחלקה למסך הבית | en: Direct & Instant Home Screen Launch
+  - Description: עברית: התוכנה נפתחת ישירות למסך הבית ללא הבהוב מקדים של פרויקט ריק, עם טעינה מיידית וללא פתיחה שגויה של פרויקטים ישנים. | en: The application opens directly to the Home screen without project flashing, pre-rendering dummy documents, or unexpected document loads.
+- [standard-titlebar] icon: maximize | badge: עברית: פס עליון מורחב, en: Standard Titlebar
+  - Title: עברית: פס עליון וכפתורי חלון בסטנדרט שולחני | en: Desktop Standard Titlebar & Window Controls
+  - Description: עברית: הגבהת הפס העליון ל-38 פיקסלים וכפתורי איקס ומיזעור רחבים ונוחים (48 פיקסלים) התואמים את הסטנדרט המקובל בתוכנות שולחניות. | en: Heightened system titlebar to 38px and broadened window buttons to 48px matching native desktop application conventions.
+- [left-sidebar-whatsnew] icon: sparkle | badge: עברית: סרגל שמאלי, en: Left Sidebar
+  - Title: עברית: עיצוב מלוטש לסרגל השמאלי והעברת "מה חדש" | en: Refined Left Sidebar & Dedicated What's New Integration
+  - Description: עברית: מנגנון הרחבה וכיווץ מעוצב, נקי ואלגנטי ללא טקסט אנכי מעוות, עם שילוב כפתור "מה חדש" ונקודת התראה חיה בלעדית בסרגל השמאלי. | en: Elegant and sleek sidebar expand/collapse rail with live unread update indicator badge, exclusive to the left properties sidebar.
+- [installer-upgrades] icon: layers | badge: עברית: שידרוג מתקין, en: Modern Installer
+  - Title: עברית: מתקין שולחני משודרג וזיהוי גרסה קיימת | en: Upgraded Desktop Installer with Update Detection
+  - Description: עברית: רישיון מוגן מפני הקלדה, שיוך אוטומטי מוחלט לקובצי tok (ללא tokbook), וזיהוי אוטומטי של גרסה ישנה לקיצור תהליך השדרוג. | en: Read-only license memo, unconditional native .tok file association, and smart previous version detection for accelerated installation flow.
+
+### Changes
+- [fixes] עברית: ביטול טעינת פרויקט זמני בעת הפעלת התוכנה ופתיחה ישירה של מסך הבית ללא הבהוב | en: Eliminate pre-rendered dummy document on startup and launch directly to Home screen
+- [improvements] עברית: הרחבת הפס העליון ל-38px וכפתורי מזער/הגדל/סגור ל-48px בסטנדרט שולחני מלא | en: Widen titlebar to 38px and caption buttons to 48px conforming to standard desktop OS conventions
+- [improvements] עברית: העברת כפתור "מה חדש" עם נקודת התראה חיה מהפס העליון לסרגל השמאלי בלבד | en: Move What's New trigger with live unread dot from top system bar to left sidebar exclusively
+- [improvements] עברית: עיצוב מחדש של מצב כיווץ/הרחבה בסרגל השמאלי עם פס כלים קומפקטי ונקי | en: Redesign left sidebar collapse/expand rail with compact icon controls and clean layout
+- [fixes] עברית: נעילת תיבת הרישיון במתקין לקריאה בלבד ללא אפשרות הקלדה או שינוי טקסט | en: Lock license agreement memo in installer to read-only preventing keyboard input
+- [improvements] עברית: שיוך אוטומטי מלא לקובצי .tok במתקין והסרה מלאה של .tokbook | en: Unconditional automatic association for .tok files and complete removal of .tokbook
+- [features] עברית: זיהוי אוטומטי של התקנות קודמות במתקין ודילוג על שלבי קיצור הדרך לשדרוג מהיר | en: Automatic previous installation detection skipping shortcut prompts for streamlined upgrades
+- [fixes] עברית: הסרת כפתורי ייבוא ופתיחה כפולים מראש סרגל הפרויקטים האחרונים במסך הבית | en: Remove redundant import and open buttons from recent projects sidebar header
+- [fixes] עברית: הסרת כפתור בדיקת עדכונים מתחתית מגירת מה חדש בהתאם לסטנדרט התוכנה | en: Remove check for updates button from What's New drawer footer
+- [improvements] עברית: אינדיקטור עדכונים כחול עם מונה מספרי של שינויים שלא נקראו על כפתור העדכונים בסרגל הצד | en: Blue update badge displaying unread changelog count on sidebar What's New button
+- [features] עברית: חיבור חי של קווי עזר לשולי העמוד (Top, Bottom, Inside, Outside) לקנבס וחסימת תווים שאינם ספרות בשדות מספריים | en: Real-time dynamic page margin guides reflecting inspector settings and numeric-only input restriction
+
+---
+
 ## [0.34.9] - 2026-11-06
 - **Importance**: minor
-- **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Badge**: עברית: גרסה קודמת | en: Previous Version
 - **Title**: עברית: טיפוגרפיה מסורתית מקראית, מערך הערות רב-שכבתי, יחסי תזרימים דינמיים וסנכרון עיצוב חי | en: Biblical Masoretic Typography, Multi-Apparatus Footnotes, Dynamic Rabbinic Flow Ratios & Live Styling Pipeline
 - **Summary**: עברית: שחרור גרסה 0.34.9 המשלב תמיכה טיפוגרפית מלאה בטקסט מקראי ומסורתי (נון הפוכה, פסיק, מתג, טעמי המקרא וגליפים מקראיים ב-OpenType), פריסת הערות רב-שכבתית מקבילה (מספר מנגנוני הערות ופירושים נפרדים בתחתית העמוד), יחסי תזרימים גמישים לעימוד תלמודי ורבני רב-טורי, שימור עיצובים וטלאי טיפוגרפיה בעורך הרציף, וסנכרון מלא של צינור הסגנונות בין סרגל המאפיינים, סרגל הכלים והקנבס. | en: Release 0.34.9 delivering complete Masoretic biblical typography (Nun Hafukha, Paseq, Meteg, cantillation marks and biblical OpenType shaping variants), parallel multi-apparatus footnote layouts, flexible multi-flow column width proportions for Talmudic and rabbinic spreads, persistent typography patches in story DOM, and unified live styling pipeline across inspector, toolbar, and canvas.
 

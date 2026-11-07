@@ -77,6 +77,13 @@ interface FrameParams {
   text: string;
 }
 
+export interface CanvasMargins {
+  marginTopMm: number;
+  marginBottomMm: number;
+  marginInsideMm: number;
+  marginOutsideMm: number;
+}
+
 export interface SpreadCanvasCallbacks {
   onSelectionModeChange: (mode: SelectionMode, frame?: TextFrameData) => void;
   onRequestActionHud: (x: number, y: number, initialValues?: any) => void;
@@ -98,6 +105,12 @@ export class SpreadCanvas {
   private zoomPercent = 100;
   private hasAutoFitted = false;
   private showMargins = true;
+  private margins: CanvasMargins = {
+    marginTopMm: 18,
+    marginBottomMm: 22,
+    marginInsideMm: 20,
+    marginOutsideMm: 15
+  };
   private showBaseline = false;
   private activePageIndex = 0;
   private pages: PageDescriptor[] = [];
@@ -158,6 +171,15 @@ export class SpreadCanvas {
       this.scroller.setAttribute('aria-label', t('canvasAria'));
       if (this.pages.length) this.renderSpreads();
     });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => {
+        if (!this.programmaticScroll && this.pages.length > 0 && this.scroller.clientWidth > 0) {
+          this.centerActivePage(false);
+        }
+      });
+      ro.observe(this.scroller);
+    }
   }
 
   public destroy(): void {
@@ -235,14 +257,14 @@ export class SpreadCanvas {
    * Scrolls only the canvas so that the page is vertically centered (optional) and
    * horizontally fully visible.
    */
-  private revealPage(pageIndex: number, smooth: boolean, centerVertically: boolean): void {
+  public revealPage(pageIndex: number, smooth: boolean, centerVertically: boolean, centerHorizontally = true): void {
     const sheet = this.innerContainer.querySelector<HTMLElement>(`.tok-page-sheet[data-page-index="${pageIndex}"]`);
     if (!sheet) return;
     const s = sheet.getBoundingClientRect();
     const c = this.scroller.getBoundingClientRect();
     const margin = 16;
     let dx = 0;
-    if (s.width + 2 * margin >= c.width) {
+    if (centerHorizontally || s.width + 2 * margin >= c.width) {
       dx = s.left + s.width / 2 - (c.left + c.width / 2);
     } else if (s.left < c.left + margin) {
       dx = s.left - (c.left + margin);
@@ -258,6 +280,10 @@ export class SpreadCanvas {
       dy = Math.min(s.bottom - c.bottom + margin, s.top - c.top - margin);
     }
     if (dx || dy) this.scroller.scrollBy({ left: dx, top: dy, behavior: smooth ? 'smooth' : 'auto' });
+  }
+
+  public centerActivePage(smooth = false): void {
+    this.revealPage(this.activePageIndex, smooth, true, true);
   }
 
   private zoomHud!: HTMLElement;
@@ -299,6 +325,31 @@ export class SpreadCanvas {
     this.setZoom(z);
     this.callbacks.onZoomChange?.(this.zoomPercent);
     requestAnimationFrame(() => this.revealPage(this.activePageIndex, false, true));
+  }
+
+  public setMargins(margins: Partial<CanvasMargins>): void {
+    if (typeof margins.marginTopMm === 'number') this.margins.marginTopMm = margins.marginTopMm;
+    if (typeof margins.marginBottomMm === 'number') this.margins.marginBottomMm = margins.marginBottomMm;
+    if (typeof margins.marginInsideMm === 'number') this.margins.marginInsideMm = margins.marginInsideMm;
+    if (typeof margins.marginOutsideMm === 'number') this.margins.marginOutsideMm = margins.marginOutsideMm;
+    this.updateGuides();
+  }
+
+  public getMargins(): CanvasMargins {
+    return { ...this.margins };
+  }
+
+  public applyMarginGuideStyles(guideEl: HTMLElement, pageIndex: number): void {
+    const isRecto = isRectoPage(pageIndex);
+    const top = this.margins.marginTopMm;
+    const bottom = this.margins.marginBottomMm;
+    const left = isRecto ? this.margins.marginInsideMm : this.margins.marginOutsideMm;
+    const right = isRecto ? this.margins.marginOutsideMm : this.margins.marginInsideMm;
+    guideEl.style.top = `${top}mm`;
+    guideEl.style.bottom = `${bottom}mm`;
+    guideEl.style.left = `${left}mm`;
+    guideEl.style.right = `${right}mm`;
+    guideEl.style.inset = `${top}mm ${right}mm ${bottom}mm ${left}mm`;
   }
 
   public setBaselineGrid(pt: number, offsetPt?: number): void {
@@ -711,10 +762,10 @@ export class SpreadCanvas {
     // Guides (margin rectangle, baseline grid).
     const guides = el('div', 'tok-guides-layer', { 'aria-hidden': 'true', 'data-layer-id': 'guides' });
     const marginGuide = el('div', 'tok-guide-margin-rect');
-    marginGuide.style.inset = '36px 38px 40px';
+    this.applyMarginGuideStyles(marginGuide, page.pageIndex ?? position);
     guides.appendChild(marginGuide);
     const baseline = el('div', 'tok-guide-baseline');
-    baseline.style.inset = '36px 38px 40px';
+    this.applyMarginGuideStyles(baseline, page.pageIndex ?? position);
     guides.appendChild(baseline);
     sheet.appendChild(guides);
 
@@ -1297,6 +1348,11 @@ export class SpreadCanvas {
   private updateGuides(): void {
     this.innerContainer.querySelectorAll<HTMLElement>('.tok-guide-margin-rect').forEach((g) => {
       g.style.display = this.showMargins ? 'block' : 'none';
+      const sheet = g.closest<HTMLElement>('.tok-page-sheet');
+      if (sheet) {
+        const pageIndex = parseInt(sheet.dataset.pageIndex || '0', 10);
+        this.applyMarginGuideStyles(g, pageIndex);
+      }
     });
 
     const stepPx = (this.baselineGridPt * 96) / 72;
@@ -1314,10 +1370,11 @@ export class SpreadCanvas {
         return;
       }
       // Blank page: show a plain fixed grid inside the margins.
-      g.style.top = `${Math.max(0, offsetPx)}px`;
-      g.style.bottom = '40px';
-      g.style.left = '38px';
-      g.style.right = '36px';
+      const pageIndex = sheet ? parseInt(sheet.dataset.pageIndex || '0', 10) : 0;
+      this.applyMarginGuideStyles(g, pageIndex);
+      if (offsetPx > 0) {
+        g.style.top = `${Math.max(0, offsetPx)}px`;
+      }
       g.style.backgroundImage =
         `repeating-linear-gradient(to bottom, ${line} 0, ${line} 1px, transparent 1px, transparent ${stepPx}px)`;
     });

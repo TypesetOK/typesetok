@@ -7,7 +7,7 @@ import { CommandPalette, PaletteItem } from './components/CommandPalette';
 import { StatusBar } from './components/StatusBar';
 import { SpreadCanvas, isRightHandPage, isRectoPage, groupIntoSpreads } from './components/SpreadCanvas';
 import { ExportDialog, ExportOptions } from './components/ExportDialog';
-import { WelcomeModal, addRecentProject, updateProjectClosedTime, isDemoProject, purgeAllDemoProjects } from './components/WelcomeModal';
+import { WelcomeModal, addRecentProject, updateProjectClosedTime, removeRecentProject, isDemoProject, purgeAllDemoProjects } from './components/WelcomeModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AboutModal } from './components/AboutModal';
 import { UpdatesDrawer } from './components/UpdatesDrawer';
@@ -421,6 +421,19 @@ export class TypesetOkApp {
           const offset = settings.baselineOffsetPt !== undefined ? settings.baselineOffsetPt : this.documentState.settings.baselineOffsetPt;
           this.canvas?.setBaselineGrid(pt, offset);
         }
+        if (
+          settings.marginTopMm !== undefined ||
+          settings.marginBottomMm !== undefined ||
+          settings.marginInsideMm !== undefined ||
+          settings.marginOutsideMm !== undefined
+        ) {
+          this.canvas?.setMargins({
+            marginTopMm: this.documentState.settings.marginTopMm,
+            marginBottomMm: this.documentState.settings.marginBottomMm,
+            marginInsideMm: this.documentState.settings.marginInsideMm,
+            marginOutsideMm: this.documentState.settings.marginOutsideMm
+          });
+        }
         this.setDirty(true);
         this.scheduleRepaginate();
       },
@@ -507,6 +520,16 @@ export class TypesetOkApp {
       onOpenWhatsNew: () => this.openWhatsNew()
     });
     this.workbench.appendChild(this.inspector.element);
+
+    const initSettings = this.inspector.getDocumentSettings();
+    if (initSettings) {
+      this.canvas?.setMargins({
+        marginTopMm: initSettings.marginTopMm,
+        marginBottomMm: initSettings.marginBottomMm,
+        marginInsideMm: initSettings.marginInsideMm,
+        marginOutsideMm: initSettings.marginOutsideMm
+      });
+    }
 
     // 4. Status Bar (26px)
     this.statusBar = new StatusBar({
@@ -598,12 +621,23 @@ export class TypesetOkApp {
       this.checkStartupUpdatesPrompt();
     });
 
-    // 8. Initialize default multi-flow document state (Prose default)
-    this.documentState.flows = getDefaultFlowsForTemplate('prose');
-    this.structureBar.setFlows(getFlowsForTemplate('prose'));
-    this.activeFlowId = 'gemara';
-    this.storyEditor.loadStory(this.documentState.flows.gemara);
-    this.repaginateAndSync(true);
+    // 8. Startup file inspection and initial screen state
+    const win = window as any;
+    let initialStartupFile: string | null = null;
+    try {
+      if (win?.tokIpc?.getStartupFileSync) {
+        initialStartupFile = win.tokIpc.getStartupFileSync();
+      }
+    } catch {}
+
+    if (initialStartupFile) {
+      this.openProjectFile(initialStartupFile);
+    } else {
+      // Direct opening to Home Screen (Welcome screen) fundamentally without flashing a project
+      this.hasOpenDocument = false;
+      this.welcomeModal.setHasOpenDocument(false);
+      this.welcomeModal.show();
+    }
 
     // 8c. Continuous Autosave & Draft Recovery initialization
     this.initAutosave();
@@ -611,29 +645,18 @@ export class TypesetOkApp {
       this.checkDraftRecoveryOnStartup();
     });
 
-    // 9. Startup file inspection: if opened with a file argument, load it directly
-    const win = window as any;
     if (win?.tokIpc?.onOpenFile) {
       win.tokIpc.onOpenFile((file: string) => {
         if (file) this.openProjectFile(file);
       });
     }
 
-    if (win?.tokIpc?.getStartupFile) {
+    if (!initialStartupFile && win?.tokIpc?.getStartupFile) {
       win.tokIpc.getStartupFile().then((startupFile: string | null) => {
-        if (startupFile) {
+        if (startupFile && !this.hasOpenDocument) {
           this.openProjectFile(startupFile);
-        } else {
-          this.welcomeModal.setHasOpenDocument(false);
-          this.welcomeModal.show();
         }
-      }).catch(() => {
-        this.welcomeModal.setHasOpenDocument(false);
-        this.welcomeModal.show();
-      });
-    } else {
-      this.welcomeModal.setHasOpenDocument(false);
-      this.welcomeModal.show();
+      }).catch(() => {});
     }
   }
 
@@ -1756,6 +1779,7 @@ export class TypesetOkApp {
       const total = this.workbench.clientWidth;
       const w = Math.max(320, Math.min(total - 520, px));
       this.storyContainer.style.flex = `0 0 ${w}px`;
+      this.canvas.centerActivePage(false);
     };
     divider.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -1795,7 +1819,7 @@ export class TypesetOkApp {
   public get updatesDrawer(): UpdatesDrawer {
     if (!this.updatesDrawerInstance) {
       this.updatesDrawerInstance = new UpdatesDrawer({
-        onClose: () => {},
+        onClose: () => { if (!this.hasOpenDocument) { this.welcomeModal.setHasOpenDocument(false); this.welcomeModal.show(); } },
         onCheckUpdates: () => this.settingsModal.show('updates'),
         onOpenSettings: () => this.settingsModal.show('updates')
       });
@@ -2334,7 +2358,7 @@ export class TypesetOkApp {
         try {
           await win.tokIpc.saveDocument({ document: docRoot, filePath: targetPath });
           this.currentFilePath = targetPath;
-          this.documentTitle = baseName.replace(/\.tok$/i, '');
+          this.documentTitle = this.documentTitle || baseName.replace(/\.tok$/i, '');
           this.setDirty(false);
           this.showDocumentTitle(this.documentTitle, false);
           addRecentProject({
@@ -2417,6 +2441,12 @@ export class TypesetOkApp {
 
     if (newState.settings) {
       this.inspector.setDocumentSettings({ ...newState.settings, title: displayTitle });
+      this.canvas?.setMargins({
+        marginTopMm: newState.settings.marginTopMm,
+        marginBottomMm: newState.settings.marginBottomMm,
+        marginInsideMm: newState.settings.marginInsideMm,
+        marginOutsideMm: newState.settings.marginOutsideMm
+      });
     }
 
     const flowKeys = Object.keys(newState.flows);
@@ -2489,9 +2519,10 @@ export class TypesetOkApp {
       return;
     }
 
-    this.documentTitle = baseName;
+    const effectiveTitle = baseName.replace(/\.tok$/i, '');
+    this.documentTitle = effectiveTitle;
     this.setDirty(false);
-    this.showDocumentTitle(baseName, false);
+    this.showDocumentTitle(effectiveTitle, false);
     this.currentFilePath = filePath;
     if (this.pages.length === 0) {
       this.pages = [{
@@ -2745,6 +2776,12 @@ export class TypesetOkApp {
       this.panelOpenBeforeSplit = null;
     }
     if (mode !== 'canvas') this.updateStoryToolbar();
+    if (mode === 'split' || mode === 'canvas') {
+      requestAnimationFrame(() => {
+        this.canvas.fitToWindow();
+        this.canvas.centerActivePage(false);
+      });
+    }
   }
 
   public getViewMode(): ViewMode {
@@ -2878,7 +2915,21 @@ export class TypesetOkApp {
         if (this.currentFilePath && this.currentFilePath.toLowerCase().endsWith('.tok')) {
           return this.saveDocumentToFile(this.currentFilePath);
         } else {
-          return this.handleSystemAction('save-as');
+          const win = window as any;
+          if (win.tokIpc?.getProjectsDir) {
+            return Promise.resolve(win.tokIpc.getProjectsDir()).then((projectsDir: string) => {
+              if (projectsDir) {
+                const safeName = (this.documentTitle || 'document').replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';
+                const sep = projectsDir.includes('/') ? '/' : '\\';
+                const targetPath = `${projectsDir}${projectsDir.endsWith(sep) ? '' : sep}${safeName}.tok`;
+                return this.saveDocumentToFile(targetPath);
+              } else {
+                return this.handleSystemAction('save-as');
+              }
+            }).catch(() => this.handleSystemAction('save-as'));
+          } else {
+            return this.handleSystemAction('save-as');
+          }
         }
         break;
       }
@@ -3032,12 +3083,38 @@ export class TypesetOkApp {
     this.inspector?.setDocumentSettings({ title });
   }
 
-  public renameDocument(newTitle: string): void {
+  public async renameDocument(newTitle: string): Promise<void> {
     const trimmed = newTitle.trim();
     if (!trimmed || trimmed === this.documentTitle) return;
+    const oldTitle = this.documentTitle;
     this.documentTitle = trimmed;
     this.documentState.title = trimmed;
     this.showDocumentTitle(trimmed, true);
+
+    const win = window as any;
+    if (this.currentFilePath && win.tokIpc?.renameDocumentFile) {
+      const dir = this.currentFilePath.replace(/[^/\\]+$/, '');
+      const safeNewName = trimmed.replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';
+      const newPath = `${dir}${safeNewName}.tok`;
+      if (newPath !== this.currentFilePath) {
+        try {
+          const res = await win.tokIpc.renameDocumentFile({ oldPath: this.currentFilePath, newPath });
+          if (res?.success) {
+            removeRecentProject(oldTitle);
+            removeRecentProject(this.currentFilePath);
+            this.currentFilePath = newPath;
+            addRecentProject({
+              name: `${safeNewName}.tok`,
+              path: newPath,
+              pages: this.pages.length || 1,
+              lastSavedAt: new Date().toISOString()
+            });
+          }
+        } catch (e) {
+          console.warn('[TOK] Failed to rename physical file:', e);
+        }
+      }
+    }
     this.setDirty(true);
     this.showToast(tf('toastTitleRenamed', { title: trimmed }));
   }
@@ -3092,7 +3169,21 @@ export class TypesetOkApp {
       if (this.currentFilePath && this.currentFilePath.toLowerCase().endsWith('.tok')) {
         await this.saveDocumentToFile(this.currentFilePath, { silent: true });
       } else {
-        this.saveDraftRecovery();
+        const win = window as any;
+        let projectsDir: string | undefined;
+        if (win.tokIpc?.getProjectsDir) {
+          try {
+            projectsDir = await win.tokIpc.getProjectsDir();
+          } catch {}
+        }
+        if (projectsDir) {
+          const safeName = (this.documentTitle || 'document').replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';
+          const sep = projectsDir.includes('/') ? '/' : '\\';
+          const targetPath = `${projectsDir}${projectsDir.endsWith(sep) ? '' : sep}${safeName}.tok`;
+          await this.saveDocumentToFile(targetPath, { silent: true });
+        } else {
+          this.saveDraftRecovery();
+        }
       }
     } catch (err) {
       console.warn('[TOK] Autosave failure:', err);
