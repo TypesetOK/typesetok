@@ -122,6 +122,45 @@ export interface MultiFlowAnchorLink {
   cascadedPage?: number;
 }
 
+export type FootnoteNumberingStyle = 'HebrewGematria' | 'ArabicNumerals' | 'Symbols' | 'Unnumbered';
+
+export interface FootnoteApparatusConfigData {
+  id: string;
+  name: string;
+  numbering_style: FootnoteNumberingStyle;
+  columns: number;
+  column_gap_pt: number;
+  max_height_ratio: number;
+  draw_separator_rule: boolean;
+  separator_length_ratio?: number;
+  font_family?: string;
+  font_size_pt?: number;
+  line_height_pt?: number;
+}
+
+export interface GrepRuleData {
+  id: string;
+  name: string;
+  pattern: string;
+  target_style_id?: string;
+  format: {
+    character_style_id?: string;
+    font_family?: string;
+    font_size_pt?: number;
+    font_scale?: number;
+    font_weight?: number;
+    italic?: boolean;
+    underline?: boolean;
+    tracking_em?: number;
+    color?: {
+      DeviceCmyk?: { c: number; m: number; y: number; k: number };
+      Rgb?: { r: number; g: number; b: number };
+    };
+  };
+  enabled: boolean;
+  scope_flow_id?: string;
+}
+
 export interface HeightBalanceSettings {
   enabled: boolean;
   maxLineExpansionMm: number;
