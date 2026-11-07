@@ -2,8 +2,11 @@ import {
   SelectionMode,
   DocumentSettings,
   TextFrameData,
-  TypographySettings
+  TypographySettings,
+  FootnoteApparatusConfigData,
+  GrepRuleData
 } from '../types';
+import { getBuiltinGrepRules, getDefaultMultiApparatusConfigs } from '../engine/documentBridge';
 import { IconName } from '../icons';
 import { t, i18n } from '../i18n';
 import { el, icon, button, switchRow, segmented, selectField } from '../ui';
@@ -41,6 +44,8 @@ export interface InspectorCallbacks {
   onOpenSettings?: () => void;
   onOpenWhatsNew?: () => void;
   onToggleCollapse?: (collapsed: boolean) => void;
+  onGrepRulesChange?: (rules: GrepRuleData[]) => void;
+  onFootnoteApparatusesChange?: (apparatuses: FootnoteApparatusConfigData[]) => void;
 }
 
 const FLOW_COLORS: Record<string, string> = { gemara: '#1E4A9E', rashi: '#B45309', tosafot: '#15803D', notes: '#7C3AED' };
@@ -51,6 +56,8 @@ export class ContextualInspector {
   private mode: SelectionMode = 'zero';
   private callbacks: InspectorCallbacks;
   private isCollapsed = false;
+  private grepRules: GrepRuleData[] = getBuiltinGrepRules();
+  private footnoteApparatuses: FootnoteApparatusConfigData[] = [];
 
   private documentSettings: DocumentSettings = {
     title: 'מסמך ללא שם',
@@ -185,6 +192,35 @@ export class ContextualInspector {
     if (this.mode === 'text-frame' || this.mode === 'text-edit') {
       this.render();
     }
+  }
+
+  public setGrepRules(rules?: GrepRuleData[]): void {
+    const presets = getBuiltinGrepRules();
+    if (!rules || rules.length === 0) {
+      this.grepRules = presets;
+    } else {
+      const merged = [...rules];
+      for (const preset of presets) {
+        if (!merged.some((r) => r.id === preset.id)) {
+          merged.push(preset);
+        }
+      }
+      this.grepRules = merged;
+    }
+    this.render();
+  }
+
+  public getGrepRules(): GrepRuleData[] {
+    return [...this.grepRules];
+  }
+
+  public setFootnoteApparatuses(apparatuses?: FootnoteApparatusConfigData[]): void {
+    this.footnoteApparatuses = apparatuses ? [...apparatuses] : [];
+    this.render();
+  }
+
+  public getFootnoteApparatuses(): FootnoteApparatusConfigData[] {
+    return [...this.footnoteApparatuses];
   }
 
   private flowName(flowId: string): string {
@@ -407,6 +443,12 @@ export class ContextualInspector {
       })
     ));
     c.appendChild(gridCard);
+
+    // 4. Multi-Apparatus Footnotes
+    this.appendMultiApparatusCard(c);
+
+    // 5. Live GREP Rule Engine
+    this.appendLiveGrepCard(c);
 
     c.appendChild(el('div', 'tok-insp-spacer'));
 
@@ -674,6 +716,130 @@ export class ContextualInspector {
       this.callbacks.onTypographyChange({ shieldDivineNames: v });
     }));
     c.appendChild(sacredCard);
+
+    // 6. Live GREP Rule Engine & Multi-Apparatus Footnotes
+    this.appendLiveGrepCard(c);
+    this.appendMultiApparatusCard(c);
+  }
+
+  private appendMultiApparatusCard(c: HTMLElement): void {
+    const appCard = this.createCard(t('inspMultiApparatusTitle'));
+    appCard.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspMultiApparatusSub')));
+
+    const hasDual = this.footnoteApparatuses.length >= 2;
+    appCard.appendChild(button(t('inspMultiApparatusPresetDual'), {
+      className: `tok-btn tok-btn-block tok-btn-sm ${hasDual ? 'tok-btn-primary' : 'tok-btn-secondary'}`,
+      icon: 'layers',
+      iconSize: 14,
+      attrs: { 'data-action': 'enable-dual-apparatus' },
+      onClick: () => {
+        this.footnoteApparatuses = getDefaultMultiApparatusConfigs();
+        this.callbacks.onFootnoteApparatusesChange?.([...this.footnoteApparatuses]);
+        this.render();
+      }
+    }));
+
+    for (const app of this.footnoteApparatuses) {
+      const item = el('div', 'tok-apparatus-row', {
+        'data-apparatus-id': app.id,
+        style: 'display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--tok-border-subtle);border-radius:6px;margin-top:6px;'
+      });
+      const head = el('div', undefined, { style: 'display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;' });
+      head.appendChild(el('span', undefined, undefined, app.name));
+      const numBadge = app.numbering_style === 'HebrewGematria' ? 'א, ב, ג' : app.numbering_style === 'ArabicNumerals' ? '1, 2, 3' : '*';
+      head.appendChild(el('span', 'tok-badge', { style: 'font-size:10px;' }, `${numBadge} · ${app.columns} טורים`));
+      item.appendChild(head);
+
+      const controls = el('div', undefined, { style: 'display:flex;gap:6px;align-items:center;' });
+      const colToggle = button(app.columns === 2 ? '2 טורים' : 'טור 1', {
+        className: 'tok-btn tok-btn-sm',
+        attrs: { 'data-apparatus-cols-toggle': app.id },
+        onClick: () => {
+          app.columns = app.columns === 2 ? 1 : 2;
+          this.callbacks.onFootnoteApparatusesChange?.([...this.footnoteApparatuses]);
+          this.render();
+        }
+      });
+      const numToggle = button(app.numbering_style === 'HebrewGematria' ? 'אותיות' : 'ספרות', {
+        className: 'tok-btn tok-btn-sm',
+        attrs: { 'data-apparatus-num-toggle': app.id },
+        onClick: () => {
+          app.numbering_style = app.numbering_style === 'HebrewGematria' ? 'ArabicNumerals' : 'HebrewGematria';
+          this.callbacks.onFootnoteApparatusesChange?.([...this.footnoteApparatuses]);
+          this.render();
+        }
+      });
+      controls.appendChild(colToggle);
+      controls.appendChild(numToggle);
+      item.appendChild(controls);
+      appCard.appendChild(item);
+    }
+
+    c.appendChild(appCard);
+  }
+
+  private appendLiveGrepCard(c: HTMLElement): void {
+    const grepCard = this.createCard(t('inspLiveGrepTitle'));
+    grepCard.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspLiveGrepSub')));
+
+    for (const rule of this.grepRules) {
+      const row = switchRow(rule.name, rule.enabled, (enabled) => {
+        rule.enabled = enabled;
+        this.callbacks.onGrepRulesChange?.([...this.grepRules]);
+      }, { focusKey: `grep-${rule.id}` });
+      row.setAttribute('data-grep-rule-id', rule.id);
+      grepCard.appendChild(row);
+    }
+
+    const customWrap = el('div', 'tok-grep-custom-wrap', { style: 'display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:6px;border-top:1px solid var(--tok-border-subtle);' });
+    const patternInput = el('input', 'tok-input', {
+      type: 'text',
+      dir: 'ltr',
+      placeholder: 'Regex (e.g. \\([^()]+\\))',
+      'data-grep-custom-pattern': 'true'
+    });
+    const styleSelect = el('select', 'tok-input', { 'data-grep-custom-style': 'true' });
+    for (const opt of [
+      { id: 'parens-80', label: '80% גודל + אפור עדין (מראי מקומות)' },
+      { id: 'bold-700', label: 'הדגשה (Bold 700)' },
+      { id: 'rashi-font', label: 'גופן רש״י (Noto Rashi Hebrew)' }
+    ]) {
+      const o = el('option', undefined, { value: opt.id }, opt.label);
+      styleSelect.appendChild(o);
+    }
+    const addBtn = button(t('inspLiveGrepAddBtn'), {
+      className: 'tok-btn tok-btn-block tok-btn-sm',
+      icon: 'plus',
+      iconSize: 14,
+      attrs: { 'data-action': 'add-grep-rule' },
+      onClick: () => {
+        const pat = patternInput.value.trim();
+        if (!pat) return;
+        const mode = styleSelect.value;
+        const newRule: GrepRuleData = {
+          id: `grep-custom-${Date.now()}`,
+          name: `כלל מותאם: ${pat}`,
+          pattern: pat,
+          target_style_id: `char-custom-${mode}`,
+          format: mode === 'parens-80'
+            ? { character_style_id: 'char-citation-parens', font_scale: 0.80, color: { DeviceCmyk: { c: 0, m: 0, y: 0, k: 0.65 } } }
+            : mode === 'rashi-font'
+              ? { character_style_id: 'char-rashi', font_family: 'Noto Rashi Hebrew', font_weight: 700 }
+              : { character_style_id: 'char-bold', font_weight: 700 },
+          enabled: true
+        };
+        this.grepRules.push(newRule);
+        patternInput.value = '';
+        this.callbacks.onGrepRulesChange?.([...this.grepRules]);
+        this.render();
+      }
+    });
+    customWrap.appendChild(patternInput);
+    customWrap.appendChild(styleSelect);
+    customWrap.appendChild(addBtn);
+    grepCard.appendChild(customWrap);
+
+    c.appendChild(grepCard);
   }
 
   // =========================================================================
