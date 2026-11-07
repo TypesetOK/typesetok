@@ -98,8 +98,16 @@ pub struct FootnoteApparatusConfig {
     pub scope: NumberingScope,
     pub continuous_numbering: bool,
     pub separator_rule_width_pt: f32,
+    #[serde(default = "default_separator_length_ratio")]
+    pub separator_length_ratio: f32,
     pub space_above_pt: f32,
     pub max_band_height_ratio: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_family: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_height_pt: Option<f32>,
 }
 
 fn default_footnote_id() -> String {
@@ -110,6 +118,9 @@ fn default_one_u32() -> u32 {
 }
 fn default_column_gap_pt() -> f32 {
     12.0
+}
+fn default_separator_length_ratio() -> f32 {
+    0.33
 }
 
 impl Default for FootnoteApparatusConfig {
@@ -129,8 +140,12 @@ impl Default for FootnoteApparatusConfig {
             scope: NumberingScope::PerPage,
             continuous_numbering: false,
             separator_rule_width_pt: 0.5,
+            separator_length_ratio: 0.33,
             space_above_pt: 8.0,
             max_band_height_ratio: 0.35, // Footnotes may occupy up to 35% of page
+            font_family: None,
+            font_size_pt: None,
+            line_height_pt: None,
         }
     }
 }
@@ -179,6 +194,23 @@ impl FootnoteApparatusConfig {
     ) -> Self {
         self.marker_prefix = Some(prefix.into());
         self.marker_suffix = Some(suffix.into());
+        self
+    }
+
+    pub fn with_typography(
+        mut self,
+        font_family: impl Into<String>,
+        font_size_pt: f32,
+        line_height_pt: f32,
+    ) -> Self {
+        self.font_family = Some(font_family.into());
+        self.font_size_pt = Some(font_size_pt);
+        self.line_height_pt = Some(line_height_pt);
+        self
+    }
+
+    pub fn with_separator_ratio(mut self, ratio: f32) -> Self {
+        self.separator_length_ratio = ratio.clamp(0.0, 1.0);
         self
     }
 
