@@ -268,9 +268,10 @@ describe("What's New System - Full Test Suite", () => {
       assert.ok(modalSrc.includes('dismissMajorPrompt'), 'Must hook into dismissal logic');
     });
 
-    test('TopSystemBar includes unread bell button and quick menu entry', () => {
+    test('Left sidebar includes unread bell button and TopSystemBar includes quick menu entry', () => {
+      const inspSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/ContextualInspector.ts'), 'utf8');
+      assert.ok(inspSrc.includes('UpdatesBellButton'), 'Left sidebar must use UpdatesBellButton');
       const barSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/TopSystemBar.ts'), 'utf8');
-      assert.ok(barSrc.includes('UpdatesBellButton'), 'Must use UpdatesBellButton');
       assert.ok(barSrc.includes('menuWhatsNew'), 'Must declare menuWhatsNew quick action');
       assert.ok(barSrc.includes('open-whats-new'), 'Must dispatch open-whats-new action');
     });

@@ -1,4 +1,3 @@
-import { UpdatesBellButton } from '../updates/UpdatesBellButton';
 import { ViewMode } from '../types';
 import { t, i18n } from '../i18n';
 import { el, icon, iconButton, kbd, button } from '../ui';
@@ -151,8 +150,8 @@ export class TopSystemBar {
     input.className = 'tok-input tok-doc-title-input';
     input.setAttribute('aria-label', t('renameDocumentTooltip'));
     input.style.width = `${Math.max(120, currentTitle.length * 9 + 20)}px`;
-    input.style.height = '22px';
-    input.style.fontSize = '12px';
+    input.style.height = '26px';
+    input.style.fontSize = '13px';
     input.style.padding = '0 6px';
 
     let committed = false;
@@ -230,14 +229,14 @@ export class TopSystemBar {
     start.appendChild(views);
 
     const search = el('button', 'tok-search-pill', { type: 'button', 'aria-keyshortcuts': 'Control+K' });
-    search.appendChild(icon('search', 13));
+    search.appendChild(icon('search', 14));
     search.appendChild(el('span', undefined, undefined, t('topBarSearchPlaceholder')));
     search.appendChild(kbd('Ctrl K'));
     search.addEventListener('click', () => this.callbacks.onOpenCommandPalette());
     start.appendChild(search);
 
-    const undo = iconButton('undo', t('topBarUndo'), () => this.callbacks.onUndo?.(), { attrs: { 'aria-keyshortcuts': 'Control+Z' }, size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
-    const redo = iconButton('redo', t('topBarRedo'), () => this.callbacks.onRedo?.(), { attrs: { 'aria-keyshortcuts': 'Control+Y' }, size: 14, className: 'tok-btn tok-btn-ghost tok-btn-xs' });
+    const undo = iconButton('undo', t('topBarUndo'), () => this.callbacks.onUndo?.(), { attrs: { 'aria-keyshortcuts': 'Control+Z', style: 'width:28px;height:28px;padding:0;' }, size: 14, className: 'tok-btn tok-btn-ghost tok-btn-sm' });
+    const redo = iconButton('redo', t('topBarRedo'), () => this.callbacks.onRedo?.(), { attrs: { 'aria-keyshortcuts': 'Control+Y', style: 'width:28px;height:28px;padding:0;' }, size: 14, className: 'tok-btn tok-btn-ghost tok-btn-sm' });
     undo.disabled = true;
     undo.style.opacity = '0.4';
     redo.disabled = true;
@@ -251,13 +250,6 @@ export class TopSystemBar {
     start.appendChild(undo);
     start.appendChild(redo);
 
-    if (this.callbacks.onOpenWhatsNew) {
-      const bell = new UpdatesBellButton({
-        onClick: () => this.callbacks.onOpenWhatsNew?.()
-      });
-      start.appendChild(bell.element);
-    }
-
     this.element.appendChild(start);
 
     // ---- Center: Brand logo + "TypesetOK" + " - " + Project Title ----
@@ -268,7 +260,7 @@ export class TopSystemBar {
       'aria-label': `TypesetOK · ${t('topBarProjects')}`
     });
     const mark = el('span', 'tok-brand-mark', { 'aria-hidden': 'true' });
-    mark.appendChild(icon('brand', 13));
+    mark.appendChild(icon('brand', 15));
     brand.appendChild(mark);
     brand.appendChild(el('span', 'tok-brand-name', undefined, 'TypesetOK'));
     brand.addEventListener('click', () => this.callbacks.onOpenProjects?.());

@@ -38,6 +38,8 @@ export interface TokIpcBridge {
   // Document Storage & Typesetting
   saveDocument: (payload: { document: unknown; filePath: string }) => Promise<{ success: boolean; filePath: string }>;
   openDocument: (filePath: string) => Promise<unknown>;
+  renameDocumentFile: (payload: { oldPath: string; newPath: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  getProjectsDir: () => Promise<string>;
   typesetDocument: (payload: { document?: unknown; inputPath?: string } | unknown) => Promise<{ success: boolean; pages: any[] }>;
 
   // System & Utilities
@@ -47,6 +49,7 @@ export interface TokIpcBridge {
   showOpenDialog: (options?: { filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   showImportDialog: (options?: { filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   getStartupFile: () => Promise<string | null>;
+  getStartupFileSync: () => string | null;
   readImportFile: (filePath: string) => Promise<{
     fileName: string;
     filePath: string;
@@ -145,6 +148,12 @@ const tokIpc: TokIpcBridge = {
   openDocument: async (filePath: string) => {
     return await ipcRenderer.invoke('tok:open-document', filePath);
   },
+  renameDocumentFile: async (payload: { oldPath: string; newPath: string }) => {
+    return await ipcRenderer.invoke('tok:rename-document-file', payload);
+  },
+  getProjectsDir: async () => {
+    return await ipcRenderer.invoke('tok:get-projects-dir');
+  },
   typesetDocument: async (payload: { document?: unknown; inputPath?: string } | unknown) => {
     const normPayload = (payload && typeof payload === 'object' && ('document' in payload || 'inputPath' in payload))
       ? payload
@@ -170,6 +179,13 @@ const tokIpc: TokIpcBridge = {
   },
   getStartupFile: async () => {
     return await ipcRenderer.invoke('tok:get-startup-file');
+  },
+  getStartupFileSync: () => {
+    try {
+      return ipcRenderer.sendSync('tok:get-startup-file-sync') || null;
+    } catch {
+      return null;
+    }
   },
   readImportFile: async (filePath: string) => {
     return await ipcRenderer.invoke('tok:read-import-file', filePath);

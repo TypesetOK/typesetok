@@ -335,7 +335,7 @@ export class SettingsModal {
 
     const autosaveBox = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px' });
     const isAutosave = typeof localStorage !== 'undefined' ? localStorage.getItem('tok_autosave_enabled') !== 'false' : true;
-    autosaveBox.appendChild(switchRow(t('settingsDocAutosave'), isAutosave, (val) => {
+    autosaveBox.appendChild(switchRow(t('settingsDocAutosaveEnable'), isAutosave, (val) => {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('tok_autosave_enabled', String(val));
       }

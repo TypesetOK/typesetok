@@ -762,23 +762,44 @@ ipcMain.on('tok:get-install-language', (event) => {
   event.returnValue = isAppUrl(event.senderFrame?.url) ? readInstallRegistry().language : null;
 });
 
-/** The installer's projects folder, only if it still exists as a directory. */
-function getProjectsDir(): string | undefined {
-  const dir = readInstallRegistry().projectsDir;
-  try {
-    return dir && fs.statSync(dir).isDirectory() ? dir : undefined;
-  } catch {
-    return undefined;
+/** The installer's projects folder, falling back to ~/Documents/TypesetOK. Always ensures directory exists. */
+function getProjectsDir(): string {
+  const regDir = readInstallRegistry().projectsDir;
+  if (regDir) {
+    try {
+      if (!fs.existsSync(regDir)) fs.mkdirSync(regDir, { recursive: true });
+      if (fs.statSync(regDir).isDirectory()) return regDir;
+    } catch {}
   }
+  const defaultDir = path.join(app.getPath('documents'), 'TypesetOK');
+  try {
+    if (!fs.existsSync(defaultDir)) fs.mkdirSync(defaultDir, { recursive: true });
+  } catch {}
+  return defaultDir;
 }
 
 /** A bare file name (or nothing) opens in the projects folder; a full path the caller chose is kept. */
-function withProjectsDir(defaultPath?: string): string | undefined {
+function withProjectsDir(defaultPath?: string): string {
   const dir = getProjectsDir();
-  if (!dir) return defaultPath;
   if (!defaultPath) return dir;
   return path.basename(defaultPath) === defaultPath ? path.join(dir, defaultPath) : defaultPath;
 }
+
+handle('tok:get-projects-dir', () => getProjectsDir());
+handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPath?: string }) => {
+  const oldPath = requireString(payload?.oldPath, 'oldPath');
+  const newPath = requireString(payload?.newPath, 'newPath');
+  const resolvedOld = path.isAbsolute(oldPath) ? oldPath : path.resolve(oldPath);
+  const resolvedNew = path.isAbsolute(newPath) ? newPath : path.resolve(newPath);
+  if (fs.existsSync(resolvedOld)) {
+    const targetDir = path.dirname(resolvedNew);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    await fs.promises.rename(resolvedOld, resolvedNew);
+    logger.info(`[IPC] Renamed document file from ${resolvedOld} to ${resolvedNew}`);
+    return { success: true, filePath: resolvedNew };
+  }
+  return { success: false, error: 'Source file does not exist' };
+});
 
 handle('tok:get-recent-logs', () => logger.getRecentLogs(100));
 handle('tok:open-logs-folder', () => logger.openLogsFolder());
@@ -850,6 +871,10 @@ handle('tok:show-import-dialog', async (_, options?: { filters?: { name: string;
   });
   if (res.canceled || !res.filePaths.length) return null;
   return res.filePaths[0];
+});
+
+ipcMain.on('tok:get-startup-file-sync', (event) => {
+  event.returnValue = isAppUrl(event.senderFrame?.url) ? startupFilePath : null;
 });
 
 handle('tok:get-startup-file', () => startupFilePath);

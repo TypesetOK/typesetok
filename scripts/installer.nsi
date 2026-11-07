@@ -6,7 +6,7 @@
 
 ; build-installer.mjs passes /DVERSION=<package.json version>
 !ifndef VERSION
-  !define VERSION "0.34.9"
+  !define VERSION "0.34.10"
 !endif
 
 Name "TypesetOK"
@@ -61,14 +61,10 @@ Section "TypesetOK Application (Required)" SecApp
   CreateShortcut "$SMPROGRAMS\TypesetOK\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
   CreateShortcut "$DESKTOP\TypesetOK.lnk" "$INSTDIR\TypesetOK.exe"
 
-  ; File Associations (.tok and .tokbook)
+  ; File Association (.tok)
   WriteRegStr HKCR ".tok" "" "TypesetOK.Document"
   WriteRegStr HKCR "TypesetOK.Document" "" "TypesetOK Document"
   WriteRegStr HKCR "TypesetOK.Document\shell\open\command" "" '"$INSTDIR\TypesetOK.exe" "%1"'
-  
-  WriteRegStr HKCR ".tokbook" "" "TypesetOK.Book"
-  WriteRegStr HKCR "TypesetOK.Book" "" "TypesetOK Multi-Document Book"
-  WriteRegStr HKCR "TypesetOK.Book\shell\open\command" "" '"$INSTDIR\TypesetOK.exe" "%1"'
 
   ; Write Uninstaller
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -85,7 +81,5 @@ Section "Uninstall"
   RMDir /r "$SMPROGRAMS\TypesetOK"
   DeleteRegKey HKCR ".tok"
   DeleteRegKey HKCR "TypesetOK.Document"
-  DeleteRegKey HKCR ".tokbook"
-  DeleteRegKey HKCR "TypesetOK.Book"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\TypesetOK"
 SectionEnd

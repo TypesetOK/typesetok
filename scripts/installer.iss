@@ -7,7 +7,7 @@
 #define MyAppName "TypesetOK"
 ; build-installer.mjs passes /DMyAppVersion=<package.json version>
 #ifndef MyAppVersion
-  #define MyAppVersion "0.34.9"
+  #define MyAppVersion "0.34.10"
 #endif
 #define MyAppPublisher "TypesetOK Team"
 #define MyAppURL "https://github.com/TypesetOK/typesetok"
@@ -63,9 +63,6 @@ hebrew.LaunchProgram=הפעל את TypesetOK כעת
 hebrew.ShortcutsGroup=קיצורי דרך וסרגל המשימות
 hebrew.CreateDesktopIcon=צור קיצור דרך בשולחן העבודה
 hebrew.CreateTaskbarIcon=צור קיצור דרך בתפריט התחל והצמד לסרגל המשימות
-hebrew.AssociateTok=שייך קובצי מסמך (.tok) ל-TypesetOK
-hebrew.AssociateTokBook=שייך קובצי ספר (.tokbook) ל-TypesetOK
-hebrew.FileAssociations=שיוך סוגי קבצים
 hebrew.ProjectsDirTitle=בחירת תיקיית פרויקטים
 hebrew.ProjectsDirSubtitle=בחר את התיקייה שבה ייפתחו ויישמרו כל פרויקטי העימוד שלך כברירת מחדל.
 hebrew.ProjectsDirPrompt=תיקיית פרויקטים של TypesetOK:
@@ -75,9 +72,6 @@ english.LaunchProgram=Launch TypesetOK now
 english.ShortcutsGroup=Shortcuts and Taskbar
 english.CreateDesktopIcon=Create a desktop shortcut
 english.CreateTaskbarIcon=Create Start Menu and Taskbar shortcut
-english.AssociateTok=Associate TypesetOK document files (.tok)
-english.AssociateTokBook=Associate TypesetOK book files (.tokbook)
-english.FileAssociations=File Associations
 english.ProjectsDirTitle=Select Projects Directory
 english.ProjectsDirSubtitle=Choose the directory where all your typesetting projects will be saved and opened by default.
 english.ProjectsDirPrompt=TypesetOK Projects Directory:
@@ -85,8 +79,6 @@ english.ProjectsDirPrompt=TypesetOK Projects Directory:
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:ShortcutsGroup}"; Flags: unchecked
 Name: "taskbaricon"; Description: "{cm:CreateTaskbarIcon}"; GroupDescription: "{cm:ShortcutsGroup}"
-Name: "associatetok"; Description: "{cm:AssociateTok}"; GroupDescription: "{cm:FileAssociations}"
-Name: "associatetokbook"; Description: "{cm:AssociateTokBook}"; GroupDescription: "{cm:FileAssociations}"
 
 [Files]
 ; Core application files (always installed)
@@ -101,23 +93,17 @@ Source: "..\assets\fonts\NotoRashiHebrew-Bold.ttf"; DestDir: "{autofonts}"; Font
 Source: "..\assets\fonts\NotoSerifHebrew-Regular.ttf"; DestDir: "{autofonts}"; FontInstall: "Noto Serif Hebrew Regular"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Registry]
-; Associate .tok document
-Root: HKA; Subkey: "Software\Classes\.tok"; ValueType: string; ValueName: ""; ValueData: "TypesetOK.Document"; Flags: uninsdeletevalue; Tasks: associatetok
-Root: HKA; Subkey: "Software\Classes\TypesetOK.Document"; ValueType: string; ValueName: ""; ValueData: "TypesetOK Document"; Flags: uninsdeletekey; Tasks: associatetok
-Root: HKA; Subkey: "Software\Classes\TypesetOK.Document\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\resources\icon.ico,0"; Tasks: associatetok
-Root: HKA; Subkey: "Software\Classes\TypesetOK.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associatetok
-
-; Associate .tokbook multi-document book
-Root: HKA; Subkey: "Software\Classes\.tokbook"; ValueType: string; ValueName: ""; ValueData: "TypesetOK.Book"; Flags: uninsdeletevalue; Tasks: associatetokbook
-Root: HKA; Subkey: "Software\Classes\TypesetOK.Book"; ValueType: string; ValueName: ""; ValueData: "TypesetOK Multi-Document Book"; Flags: uninsdeletekey; Tasks: associatetokbook
-Root: HKA; Subkey: "Software\Classes\TypesetOK.Book\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\resources\icon.ico,0"; Tasks: associatetokbook
-Root: HKA; Subkey: "Software\Classes\TypesetOK.Book\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associatetokbook
+; Associate .tok document unconditionally (TypesetOK is the native document editor)
+Root: HKA; Subkey: "Software\Classes\.tok"; ValueType: string; ValueName: ""; ValueData: "TypesetOK.Document"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\TypesetOK.Document"; ValueType: string; ValueName: ""; ValueData: "TypesetOK Document"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\TypesetOK.Document\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\resources\icon.ico,0"
+Root: HKA; Subkey: "Software\Classes\TypesetOK.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\icon.ico"; Tasks: taskbaricon
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\icon.ico"; Tasks: taskbaricon
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\icon.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\icon.ico"; Check: DesktopIconCheck
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram}"; Flags: nowait postinstall skipifsilent
@@ -125,9 +111,57 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram}"; Flags: now
 [Code]
 var
   ProjectsDirPage: TInputDirWizardPage;
+  IsUpgradeInstall: Boolean;
+
+function DetectPreviousInstallation: Boolean;
+var
+  PrevVer: string;
+begin
+  Result := False;
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1', 'DisplayVersion', PrevVer) then
+    Result := True
+  else if RegQueryStringValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1', 'DisplayVersion', PrevVer) then
+    Result := True
+  else if RegKeyExists(HKEY_LOCAL_MACHINE, 'Software\TypesetOK') or RegKeyExists(HKEY_CURRENT_USER, 'Software\TypesetOK') then
+    Result := True
+  else if FileExists(ExpandConstant('{autopf}\{#MyAppName}\{#MyAppExeName}')) then
+    Result := True;
+end;
+
+function DesktopIconCheck: Boolean;
+begin
+  if IsUpgradeInstall then
+    Result := FileExists(ExpandConstant('{autodesktop}\{#MyAppName}.lnk')) or FileExists(ExpandConstant('{userdesktop}\{#MyAppName}.lnk'))
+  else
+    Result := WizardIsTaskSelected('desktopicon');
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+var
+  ExistingProjectsDir: string;
+begin
+  Result := False;
+  if IsUpgradeInstall then
+  begin
+    // In upgrade mode: skip shortcut selection (relies on user choice from initial install)
+    if PageID = wpSelectTasks then
+      Result := True
+    // Skip projects directory selection if already configured in registry
+    else if (ProjectsDirPage <> nil) and (PageID = ProjectsDirPage.ID) then
+    begin
+      if RegQueryStringValue(HKEY_CURRENT_USER, 'Software\TypesetOK', 'ProjectsDir', ExistingProjectsDir) and (ExistingProjectsDir <> '') then
+        Result := True;
+    end;
+  end;
+end;
 
 procedure InitializeWizard;
 begin
+  IsUpgradeInstall := DetectPreviousInstallation;
+
+  // Ensure the license agreement memo is strictly read-only and cannot be typed into
+  WizardForm.LicenseMemo.ReadOnly := True;
+
   // Set bold modern typography for welcome and finish screens
   WizardForm.WelcomeLabel1.Font.Size := 13;
   WizardForm.WelcomeLabel1.Font.Style := [fsBold];

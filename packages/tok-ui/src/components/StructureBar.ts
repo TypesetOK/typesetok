@@ -414,6 +414,11 @@ export class StructureBar {
   }
 
   private renderLayersView(container: HTMLElement): void {
+    const desc = el('div', 'tok-layers-desc', {
+      style: 'padding: 8px 10px; margin: 4px 6px 10px; font-size: 11.5px; line-height: 1.5; color: var(--tok-text-secondary); background: var(--tok-bg-surface-2); border-radius: 6px; border: 1px solid var(--tok-border-subtle);'
+    }, t('structureLayersDesc'));
+    container.appendChild(desc);
+
     for (const l of this.layers) {
       const row = el('div', 'tok-list-row');
 
@@ -436,6 +441,8 @@ export class StructureBar {
 
       const main = el('span', 'tok-list-main');
       main.appendChild(el('span', 'tok-list-title', undefined, l.name));
+      const subSpan = el('span', 'tok-list-sub', undefined, `${t(l.visible ? 'structureLayerVisible' : 'structureLayerHidden')} · ${t(l.locked ? 'structureLayerLocked' : 'structureLayerUnlocked')}`);
+      main.appendChild(subSpan);
       row.appendChild(main);
 
       const lock = iconButton(l.locked ? 'lock' : 'unlock', '', undefined, { size: 16, attrs: { style: 'width:28px;height:28px' } });

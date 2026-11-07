@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8'));
-const version = rootPkg.version || '0.34.9';
+const version = rootPkg.version || '0.34.10';
 const distDir = path.join(rootDir, 'dist');
 const bundleDir = path.join(distDir, `TypesetOK-v${version}-windows-x64`);
 
@@ -103,7 +103,7 @@ if (foundIscc) {
   console.log(`[BUILD-INSTALLER] Compiling with Inno Setup 6: ${foundIscc}`);
   console.log(`[BUILD-INSTALLER] Visual Theme: Windows 11 Fluent Dynamic Mode (No retro bevels)`);
   console.log(`[BUILD-INSTALLER] Components: Core App, System Hebrew Fonts, Layout Templates`);
-  console.log(`[BUILD-INSTALLER] File Associations: .tok (Document), .tokbook (Multi-Document Book)`);
+  console.log(`[BUILD-INSTALLER] File Associations: .tok (Document)`);
   
   const issFile = path.join(rootDir, 'scripts/installer.iss');
   execSync(`"${foundIscc}" "/DMyAppVersion=${version}" "${issFile}"`, { cwd: rootDir, stdio: 'inherit' });

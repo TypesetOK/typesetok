@@ -492,6 +492,7 @@ export class ThemeManager {
       compact: { top: '44px', input: '28px', panel: '216px', inspector: '280px', row: '30px' },
     }[this.settings.density];
     set('--tok-top-bar-height', density.top);
+    set('--tok-titlebar-height', density.top);
     set('--tok-input-height', density.input);
     set('--tok-structure-width', density.panel);
     set('--tok-inspector-width', density.inspector);
