@@ -364,6 +364,8 @@ pub struct DocumentRoot {
     pub footnote_apparatus: Option<crate::header::FootnoteApparatusConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub footnote_apparatuses: Vec<crate::header::FootnoteApparatusConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grep_rules: Vec<crate::styles::GrepRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependency_tracker: Option<crate::dependency::DocumentDependencyTracker>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -386,6 +388,7 @@ impl DocumentRoot {
             running_header: None,
             footnote_apparatus: None,
             footnote_apparatuses: Vec::new(),
+            grep_rules: Vec::new(),
             dependency_tracker: None,
             multi_flow_anchors: None,
         };
@@ -477,6 +480,35 @@ impl DocumentRoot {
         } else {
             index.to_string()
         }
+    }
+
+    pub fn with_grep_rules(mut self, rules: Vec<crate::styles::GrepRule>) -> Self {
+        self.grep_rules = rules;
+        self
+    }
+
+    pub fn add_grep_rule(&mut self, rule: crate::styles::GrepRule) {
+        if let Some(pos) = self.grep_rules.iter().position(|r| r.id == rule.id) {
+            self.grep_rules[pos] = rule;
+        } else {
+            self.grep_rules.push(rule);
+        }
+    }
+
+    /// Evaluates active non-destructive Live GREP rules against `paragraph` and merges
+    /// them with explicit `paragraph.spans`.
+    pub fn effective_spans_for_paragraph(
+        &self,
+        paragraph: &ParagraphNode,
+        flow_id: Option<&str>,
+    ) -> Vec<crate::spans::TextSpan> {
+        crate::styles::evaluate_live_grep_spans(
+            &paragraph.text,
+            &paragraph.spans,
+            &self.grep_rules,
+            &self.character_styles,
+            flow_id,
+        )
     }
 
     pub fn with_dependency_tracker(
