@@ -101,4 +101,32 @@ impl PrePressPageBoxes {
         content.line_to(x2, y2 + mark_offset + mark_len);
         content.stroke();
     }
+
+    /// Emits PDF vector content stream operators to draw registration crosshairs (צלבי רישום)
+    /// centered along all four slug edges using 100% all-plates registration ink.
+    pub fn draw_registration_marks(&self, content: &mut Content) {
+        let [x1, y1, x2, y2] = self.trim_box;
+        let mid_x = (x1 + x2) * 0.5;
+        let mid_y = (y1 + y2) * 0.5;
+        let offset = 11.34; // 4mm outside trim
+        let arm = 4.5;
+
+        content.set_line_width(0.25);
+        content.set_stroke_cmyk(0.0, 0.0, 0.0, 1.0);
+
+        let centers = [
+            (mid_x, y1 - offset),
+            (mid_x, y2 + offset),
+            (x1 - offset, mid_y),
+            (x2 + offset, mid_y),
+        ];
+        for (cx, cy) in centers {
+            content.move_to(cx - arm, cy);
+            content.line_to(cx + arm, cy);
+            content.stroke();
+            content.move_to(cx, cy - arm);
+            content.line_to(cx, cy + arm);
+            content.stroke();
+        }
+    }
 }
