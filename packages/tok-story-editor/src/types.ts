@@ -9,6 +9,7 @@ export interface CharacterFormat {
   characterStyleId?: string;
   fontFamily?: string;
   fontSizePt?: number;
+  fontScale?: number; // Relative font scale (e.g., 0.80 for 80% parenthetical citations)
   fontWeight?: number; // 400 = regular, 700 = bold
   italic?: boolean;
   underline?: boolean;
@@ -64,6 +65,7 @@ export function isFormatEmpty(fmt?: CharacterFormat | null): boolean {
     !fmt.characterStyleId &&
     !fmt.fontFamily &&
     fmt.fontSizePt === undefined &&
+    fmt.fontScale === undefined &&
     fmt.fontWeight === undefined &&
     !fmt.italic &&
     !fmt.underline &&
@@ -80,6 +82,7 @@ export function areFormatsEqual(a?: CharacterFormat | null, b?: CharacterFormat 
     a.characterStyleId === b.characterStyleId &&
     a.fontFamily === b.fontFamily &&
     a.fontSizePt === b.fontSizePt &&
+    a.fontScale === b.fontScale &&
     a.fontWeight === b.fontWeight &&
     Boolean(a.italic) === Boolean(b.italic) &&
     Boolean(a.underline) === Boolean(b.underline) &&
