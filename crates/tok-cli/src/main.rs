@@ -83,6 +83,10 @@ struct RawMultiFlowState {
     multi_flow_anchors: Option<tok_core::multi_flow_anchor::MultiFlowAnchorMap>,
     #[serde(default)]
     anchors: Option<tok_core::multi_flow_anchor::MultiFlowAnchorMap>,
+    #[serde(default, rename = "footnoteApparatuses")]
+    footnote_apparatuses: Vec<tok_core::header::FootnoteApparatusConfig>,
+    #[serde(default, rename = "grepRules")]
+    grep_rules: Vec<tok_core::styles::GrepRule>,
 }
 
 #[derive(serde::Deserialize)]
@@ -92,6 +96,8 @@ struct RawStoryPara {
     style_id: Option<String>,
     #[serde(default)]
     text: String,
+    #[serde(default)]
+    spans: Vec<tok_core::spans::TextSpan>,
 }
 
 fn convert_multi_flow_state_to_root(raw: RawMultiFlowState) -> DocumentRoot {
@@ -103,6 +109,8 @@ fn convert_multi_flow_state_to_root(raw: RawMultiFlowState) -> DocumentRoot {
         root.metadata.document_settings = Some(settings);
     }
     root.multi_flow_anchors = raw.multi_flow_anchors.or(raw.anchors);
+    root.footnote_apparatuses = raw.footnote_apparatuses;
+    root.grep_rules = raw.grep_rules;
     root.sections.clear();
 
     let is_prose = raw.template_type.as_deref() == Some("prose");
@@ -110,7 +118,17 @@ fn convert_multi_flow_state_to_root(raw: RawMultiFlowState) -> DocumentRoot {
     section.flows.clear();
 
     for (flow_key, paras) in raw.flows {
-        if is_prose && flow_key != "gemara" && flow_key != "main" {
+        let is_apparatus = root
+            .footnote_apparatuses
+            .iter()
+            .any(|a| a.id == flow_key || a.flow_id.as_deref() == Some(flow_key.as_str()));
+        let is_footnote_flow =
+            flow_key == "notes" || flow_key == "footnote" || is_apparatus;
+        if is_prose
+            && flow_key != "gemara"
+            && flow_key != "main"
+            && !(is_footnote_flow && !paras.is_empty())
+        {
             continue;
         }
         let (flow_id, flow_type) = match flow_key.as_str() {
@@ -125,6 +143,9 @@ fn convert_multi_flow_state_to_root(raw: RawMultiFlowState) -> DocumentRoot {
             "tosafot" => (FlowId::new("tosafot"), FlowType::CommentB),
             "notes" => (FlowId::new("notes"), FlowType::Footnote),
             "main" => (FlowId::main(), FlowType::Main),
+            other if is_apparatus || other.contains("note") => {
+                (FlowId::new(other), FlowType::Footnote)
+            }
             other => (FlowId::new(other), FlowType::Main),
         };
 
@@ -137,6 +158,9 @@ fn convert_multi_flow_state_to_root(raw: RawMultiFlowState) -> DocumentRoot {
             };
             let style = p.style_id.unwrap_or_else(|| "default-body".to_string());
             let mut node = ParagraphNode::new(next_idx.clone(), style, &p.text);
+            if !p.spans.is_empty() {
+                node = node.with_spans(p.spans);
+            }
             if let Some(ref id_str) = p.id {
                 if let Ok(node_id) = tok_core::id::NodeId::from_string(id_str) {
                     node.id = node_id;
@@ -329,7 +353,11 @@ fn load_document_input(
     }
 }
 
-fn handle_render_pdf(input: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_render_pdf(
+    input: &str,
+    output: &str,
+    extra_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("[TOK-CLI] Rendering document to Pre-Press PDF: {}", output);
     let (doc, manifest) = load_document_input(input, 30)?;
 
@@ -340,14 +368,59 @@ fn handle_render_pdf(input: &str, output: &str) -> Result<(), Box<dyn std::error
     let typeset_dur = start_typeset.elapsed();
     println!("  - Typeset {} pages in {:.2?}", pages.len(), typeset_dur);
 
+    let mut standard = PdfXStandard::PdfX1a2001;
+    let mut color_profile = tok_pdf::color::IccProfileId::Fogra39;
+    let mut bleed_pt = 8.504_f32;
+    let mut draw_crop_marks = true;
+    let mut draw_registration_marks = false;
+
+    let mut idx = 0;
+    while idx < extra_args.len() {
+        match extra_args[idx].as_str() {
+            "--standard" if idx + 1 < extra_args.len() => {
+                if extra_args[idx + 1].eq_ignore_ascii_case("pdfx4") {
+                    standard = PdfXStandard::PdfX4;
+                } else {
+                    standard = PdfXStandard::PdfX1a2001;
+                }
+                idx += 2;
+            }
+            "--profile" if idx + 1 < extra_args.len() => {
+                color_profile = tok_pdf::color::IccProfileId::from_id_str(&extra_args[idx + 1]);
+                idx += 2;
+            }
+            "--no-bleed" => {
+                bleed_pt = 0.0;
+                idx += 1;
+            }
+            "--no-crop-marks" => {
+                draw_crop_marks = false;
+                idx += 1;
+            }
+            "--registration-marks" => {
+                draw_registration_marks = true;
+                idx += 1;
+            }
+            _ => {
+                idx += 1;
+            }
+        }
+    }
+
     let start_pdf = Instant::now();
     let options = PdfExportOptions {
-        standard: PdfXStandard::PdfX1a2001,
+        standard,
+        color_profile,
         title: doc.root().metadata.title.clone(),
         author: doc.root().metadata.author.clone(),
-        bleed_pt: 8.504,
-        slug_pt: 28.346,
-        draw_crop_marks: true,
+        bleed_pt,
+        slug_pt: if draw_crop_marks || draw_registration_marks {
+            28.346
+        } else {
+            bleed_pt
+        },
+        draw_crop_marks,
+        draw_registration_marks,
         draw_page_numbers: true,
         custom_font_data: None,
         creation_date: Some(manifest.created_at.clone()),
@@ -366,8 +439,9 @@ fn handle_render_pdf(input: &str, output: &str) -> Result<(), Box<dyn std::error
     fs::write(output, &pdf_bytes)?;
     let pdf_dur = start_pdf.elapsed();
     println!(
-        "  - Emitted ISO PDF/X-1a ({} bytes) in {:.2?}",
+        "  - Emitted ISO PDF/X ({} bytes, profile: {}) in {:.2?}",
         pdf_bytes.len(),
+        color_profile.output_condition_identifier(),
         pdf_dur
     );
     println!("  [SUCCESS] Written PDF to: {}", output);
@@ -917,7 +991,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("Usage: tok-cli render-pdf <INPUT.tok | --demo> <OUTPUT.pdf>");
                 std::process::exit(1);
             }
-            handle_render_pdf(&args[2], &args[3])?;
+            handle_render_pdf(&args[2], &args[3], &args[4..])?;
         }
         "render-html" => {
             if args.len() < 4 {
