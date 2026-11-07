@@ -1,6 +1,6 @@
 {
   "name": "tok-ui",
-  "version": "0.34.10",
+  "version": "0.35.0",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "main": "dist/index.js",

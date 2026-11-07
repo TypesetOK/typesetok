@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name for release (e.g. v0.34.3)'
+        description: 'Tag name for release (e.g. v0.35.0)'
         required: false
-        default: 'v0.34.3'
+        default: 'v0.35.0'
 
 permissions:
   contents: write
@@ -205,40 +205,25 @@ jobs:
           prerelease: false
           files: release-assets/*
           body: |
-            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }} — שדרוג טיפוגרפי מתקדם, עימוד רב-תזרימי, וכלי טקסט עבריים
+            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }} — ייבוא DOCX מתקדם, ריבוי מדורי הערות במקביל, ניהול צבע ICC/PDF-X ומנוע GREP חי
 
             ### 🚀 מה חדש בגרסה ${{ needs.check-release.outputs.tag_name }}:
-            - **מנוע מצולעים ושבירת שורות משתנה (Polygon & Variable-Width Slicing):**
-              - תמיכה מלאה במסגרות טקסט לא-מלבניות (`VariableWidthPolygonEngine`) וחיתוך Scanline רציף.
-              - פריסת L-Shape דינמית לספיגת פירושים צמודים (L-shaped commentary absorption) ללא חפיפות גאומטריות.
-              - יישור עברי (Justification) מותאם לשורות ברוחב משתנה עם היסט שורות ואילוצי RTL מדויקים.
-            - **אותיות פתיחה עבריות (Hebrew Drop Caps & Sacred Opening Words):**
-              - שייפר אותיות פתיחה (`HebrewDropCapShaper`) עם חישוב מדויק של תיבות חוסמות לניקוד וטעמים.
-              - שילוב חלון אות פתיחה בתוך שבירת השורות של Knuth-Plass ויישור מושלם לשורת הבסיס.
-            - **מנוע קסקדת עוגנים רב-תזרימי דו-כיווני (Multi-Flow Anchor Cascade Engine):**
-              - מודל עוגנים דו-כיווני (`MultiFlowAnchorMap`) המקשר באופן דינמי בין טקסט מרכזי למפרשים.
-              - הוספת או עריכת טקסט בתזרים הראשי מקדמת ומאזנת אוטומטית את גלישת הפירושים המקושרים.
-              - הכללת `CoPaginationEngine` לתמיכה במספר תזרימים שרירותי (תלמוד, מקראות גדולות עם 4 מפרשים).
-              - איזון גבהי טורים משותף (Shared column height balancing) בין עמודים עוקבים.
-            - **כלי ניקוי טקסט עברי והדגשת דיבורי המתחיל (Hebrew Text Cleanup & Dibur HaMatchil):**
-              - מודאל ניקוי טקסט אינטראקטיבי (`TextCleanupModal`) עם תצוגה מקדימה וסטטיסטיקה חיה.
-              - זיהוי והדגשה אוטומטית של דיבורי המתחיל (Dibur HaMatchil auto-bolding).
-              - נרמול גרשיים, מרכאות, מקפים ושמות קודש תוך שימור מלא של מיקומי העיצוב (Span offsets).
-            - **יבוא מסמכים ואינטגרציית מערכת הפעלה:**
-              - שיוך קובצי `.tok` למערכת ההפעלה ופתיחה ישירה דרך דאבל-קליק או שורת הפקודה (CLI argv).
-              - יבוא ישיר ודקומפרסיה של מסמכי Word (.docx) לתוך מודל המסמך.
-              - שמירה על ממדי עמודים ושוליים מותאמים אישית בהפקת `PageLayoutBox` ובייצוא.
-            - **שיפורי ממשק משתמש ונגישות (UX & Accessibility):**
-              - סנכרון חי בזמן אמת של עריכת טקסט מול תצוגת הקנבס (`SpreadCanvas`).
-              - שינוי שם מסמך אינליין ב-`TopSystemBar` ורשימת הפרויקטים האחרונים.
-              - תיקון נעילת יציאה בדיאלוג שמירה בעת ביטול או סגירת חלון.
-              - ליטוש ערכות נושא ומניעת קריסת פקדים בתצוגה מפוצלת.
-
-            ### 📦 קבצים להורדה (Downloads):
-            - **מתקין רשמי למחשב (מומלץ):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-Setup.exe`
-            - **גרסה ניידת ללא התקנה (Portable):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-windows-desktop-app.zip`
-            - **CLI בלבד (Windows x64):** `tok-cli-${{ needs.check-release.outputs.tag_name }}-windows-x64.zip`
-            - **Workbench Source Bundle:** `typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz`
+            - **ייבוא DOCX מתקדם (הערות שוליים, טבלאות ורשימות ממוספרות):**
+              - חילוץ ישיר של הערות שוליים (`word/footnotes.xml`) וקישורן האוטומטי כעוגנים בטקסט הראשי.
+              - יבוא טבלאות מקוננות עם כיווניות RTL ותמיכה ברשימות ממוספרות היררכיות (`word/numbering.xml`).
+            - **ריבוי מדורי הערות שוליים עצמאיים במקביל (Parallel Multi-Apparatus Footnotes):**
+              - תמיכה מלאה במספר מדורי הערות מקבילים בתחתית העמוד (כגון מדור מקורות ב-2 טורים לצד מדור ביאורים בטור רחב).
+              - מספור, גופנים וסגנונות נפרדים לכל מדור, קווי הפרדה גאומטריים ואיזון גובה תקציבי פרופורציונלי.
+            - **מנוע ניהול צבע קדם-דפוס מקצועי ופרופילי ICC מוטמעים (ICC & PDF/X):**
+              - הפרדת צבע GCR/UCR תקנית עם הגבלת עומס דיו (TAC <= 300%) ושמירה קפדנית על טקסט שחור 100% K.
+              - תמיכה בפרופילי FOGRA39, FOGRA51, GRACoL 2013 ו-SWOP והטמעת DestOutputProfile תקני ב-PDF/X-1a ו-PDF/X-4.
+              - סימוני דפוס וצלבי חיתוך (Registration Marks) מדויקים בעמודי PDF.
+            - **מנוע חוקי GREP חי לעיצוב אוטומטי (Non-Destructive Live GREP Engine):**
+              - מנוע ביטויים רגולריים בזמן אמת בליבת Rust ובממשק המשתמש להחלת עיצובי תו ללא פגיעה בטקסט המקור.
+              - תבניות מובנות לספרי קודש: הקטנת מראי מקומות בסוגריים ל-80%, הדגשת ראשי תיבות ומילות פתיחה.
+            - **שיפורי חוויית משתמש וביצועים:**
+              - התאמות ממשק ומודאלים לעבודה שוטפת ונוחה.
+              - כיסוי בדיקות אוטומטי מלא לכלל רכיבי המערכת.
 
             ### 📦 קבצים להורדה (Downloads):
             - **מתקין רשמי למחשב (מומלץ):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-Setup.exe`
