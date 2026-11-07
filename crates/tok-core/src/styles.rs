@@ -148,6 +148,8 @@ pub struct DropCapConfig {
     /// Explicit font size (pt). If None, automatically scaled to fit `lines * line_height`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_scale: Option<f32>,
 }
 
 impl Default for DropCapConfig {
@@ -305,6 +307,8 @@ pub struct CharacterStyle {
     pub baseline_shift_pt: Option<f32>,
     pub masoretic_variant: Option<MasoreticLetterVariant>,
     pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_scale: Option<f32>,
 }
 
 /// OpenType feature setting tag (e.g. "calt", "ss01", "ss04", "cv04") and value (0 or 1).
