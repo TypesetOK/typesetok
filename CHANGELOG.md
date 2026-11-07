@@ -5,9 +5,37 @@
 
 ---
 
+## [0.35.0] - 2026-11-07
+- **Importance**: major
+- **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Title**: עברית: ייבוא DOCX מתקדם (הערות שוליים, טבלאות ורשימות), ריבוי מדורי הערות במקביל, ניהול צבע ICC/PDF-X ומנוע GREP חי | en: Advanced DOCX Import, Multi-Apparatus Footnotes, ICC Color Management & Live GREP Engine
+- **Summary**: עברית: שחרור גרסה 0.35.0 המשלים ארבע יכולות ליבה לעימוד ספרי קודש וספרות תורנית מקצועית: ייבוא מלא מקובצי Word כולל חילוץ הערות שוליים וקישורן לטקסט הראשי, טבלאות RTL ורשימות ממוספרות מקוננות; מערכת הערות שוליים רב-מדורית במקביל (כגון מדור מקורות ב-2 טורים ומדור ביאורים בטור רחב) עם איזון גובה דינמי וקווי הפרדה; מנוע ניהול צבע קדם-דפוס ופרופילי ICC (FOGRA39, FOGRA51, GRACoL, SWOP) עם הגבלת עומס דיו (TAC <= 300%) והטמעת OutputIntent תקני ב-PDF/X-1a ו-PDF/X-4; ומנוע חוקי GREP חי לעיצוב אוטומטי בזמן אמת ללא שינוי טקסט המקור. | en: Release 0.35.0 delivering four core capabilities: full DOCX import extracting footnotes, nested RTL tables, and numbered lists; parallel multi-apparatus footnotes with independent columns, numbering, proportional height budgeting, and separator rules; pre-press ICC color management (FOGRA39, FOGRA51, GRACoL, SWOP) with GCR/UCR TAC <= 300% and embedded PDF/X OutputIntent profiles; and a non-destructive Live GREP regex styling engine.
+
+### Highlights
+- [docx-advanced-import] icon: file | badge: עברית: ייבוא וורד מלא, en: Full DOCX Import
+  - Title: עברית: חילוץ הערות שוליים, טבלאות ורשימות ממוספרות מ-Word | en: DOCX Footnotes, Nested Tables & Numbered Lists Import
+  - Description: עברית: קריאה ישירה של word/footnotes.xml, word/numbering.xml וטבלאות מקוננות מקובץ ה-DOCX ושיבוצם האוטומטי בתזרימי המסמך עם עוגנים מקושרים. | en: Direct extraction of word/footnotes.xml, word/numbering.xml, and tables into linked document flows.
+- [multi-apparatus-footnotes] icon: layers | badge: עברית: רב-מדורי, en: Multi-Apparatus
+  - Title: עברית: ריבוי מערכות הערות שוליים עצמאיות במקביל | en: Parallel Multi-Apparatus Footnote Channels
+  - Description: עברית: תמיכה במדורי הערות מקבילים בתחתית העמוד (מדור מקורות באותיות ובשני טורים לצד מדור ביאורים במספרים ובטור אחד) עם חלוקת תקציב גובה וקווי הפרדה. | en: Independent bottom footnote apparatuses with custom columns, numbering schemes, dynamic height budgeting, and separator rules.
+- [icc-color-pdfx] icon: check | badge: עברית: קדם-דפוס ICC, en: ICC & PDF/X
+  - Title: עברית: ניהול צבע מקצועי ופרופילי ICC מוטמעים ב-PDF/X | en: Professional ICC Color Management & PDF/X OutputIntent
+  - Description: עברית: המרת RGB ל-CMYK בשיטת GCR/UCR עם הגבלת דיו ל-300%, שמירת טקסט שחור 100% K והטמעת פרופיל DestOutputProfile תקני (FOGRA39/51, GRACoL, SWOP). | en: GCR/UCR RGB-to-CMYK separation with 300% total ink limit, pure 100% K black text, and embedded ICC OutputIntent streams.
+- [live-grep-engine] icon: sparkle | badge: עברית: מנוע GREP חי, en: Live GREP Engine
+  - Title: עברית: מנוע ביטויים רגולריים (GREP) חי לעיצוב אוטומטי | en: Non-Destructive Live GREP Styling Engine
+  - Description: עברית: החלת סגנונות תו אוטומטית בזמן אמת (הקטנת מראי מקומות בסוגריים ל-80%, הדגשת ראשי תיבות ומילות פתיחה בגמרא) מבלי לשנות את טקסט המקור. | en: Real-time non-destructive regex styling for parenthetical citations, acronyms, and opening words.
+
+### Changes
+- [features] עברית: חילוץ אוטומטי של הערות שוליים (word/footnotes.xml), טבלאות מקוננות ורשימות ממוספרות (word/numbering.xml) בייבוא קובצי DOCX | en: Extract footnotes, nested tables, and hierarchical numbered lists from DOCX archives
+- [features] עברית: תמיכה בריבוי מדורי הערות שוליים עצמאיים במקביל עם מספור, כמות טורים, גופנים וקווי הפרדה ייחודיים לכל מדור | en: Support multiple parallel footnote apparatuses with per-apparatus columns, numbering, typography, and separator rules
+- [features] עברית: מנוע ניהול צבע קדם-דפוס בליבת ה-Rust התומך בפרופילי FOGRA39, FOGRA51, ISO Coated v2, GRACoL 2013 ו-SWOP עם הטמעת DestOutputProfile ב-PDF/X-1a ו-PDF/X-4 | en: Rust pre-press color management engine with GCR/UCR separation, 300% TAC enforcement, and embedded ICC profiles in PDF/X
+- [features] עברית: מנוע חוקי GREP חי בליבת ה-Rust ובממשק המשתמש עם תבניות מוכנות לעימוד תורני ויכולת הוספת כללי Regex מותאמים אישית | en: Live non-destructive GREP regex rule engine in Rust and UI inspector with built-in Torah typesetting presets
+
+---
+
 ## [0.34.11] - 2026-11-07
 - **Importance**: patch
-- **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Badge**: עברית: גרסה קודמת | en: Previous Version
 - **Title**: עברית: יישור קנבס בתצוגה משולבת, פס פקודות מורחב, שמירה בתיקיית פרויקטים, שימור שינוי שם והסבר שכבות | en: Split View Canvas Centering, Comfortable Top Bar, Projects Folder Autosave, Persistent Renaming & Layer Guides
 - **Summary**: עברית: שחרור גרסה 0.34.11 המשפר את נוחות העבודה ואמינות הנתונים: יישור ממורכז ואוטומטי של עמודי הקנבס במעבר לתצוגה משולבת (Split View) במקום בריחה שמאלה, הרחבת פס הפקודות העליון ל-50 פיקסלים בסטנדרט שולחני מרווח ונוח, מנגנון שמירה אוטומטי מלא של מסמכים בתיקיית הפרויקטים של התוכנה, שימור וסנכרון מלא של שינוי שם מסמך מול הקובץ הפיזי בדיסק, הוספת הסבר ברור ומצב חי בטאב השכבות, ותיקון כפילות כותרת השמירה האוטומטית בהגדרות. | en: Release 0.34.11 improving workflow comfort and data persistence: automatic horizontal centering of canvas pages when entering split view preventing off-screen drift, comfortable 50px top command bar, continuous document auto-saving directly into the application Projects directory, persistent renaming synced to disk packages, clear layer explanations with live statuses, and Settings modal duplicate title fix.
 
