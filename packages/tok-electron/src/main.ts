@@ -119,10 +119,67 @@ function requireString(value: unknown, name: string): string {
   return value;
 }
 
-/** Extracts and decompresses raw word/document.xml from DOCX zip buffer */
-function extractDocxXmlFromBuffer(buffer: Buffer): string | null {
-  if (buffer.length < 30) return null;
-  if (buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) return null;
+/** Extracts and decompresses XML parts from a DOCX zip buffer */
+function extractDocxPartsFromBuffer(buffer: Buffer): {
+  documentXml: string | null;
+  footnotesXml?: string;
+  endnotesXml?: string;
+  numberingXml?: string;
+  stylesXml?: string;
+} {
+  if (buffer.length < 30) return { documentXml: null };
+  if (buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+    return { documentXml: null };
+  }
+  const wanted = new Set([
+    'word/document.xml',
+    'word/footnotes.xml',
+    'word/endnotes.xml',
+    'word/numbering.xml',
+    'word/styles.xml'
+  ]);
+  const extracted: Record<string, string> = {};
+
+  // 1. Check Central Directory first
+  let eocdOffset = -1;
+  const minEocd = Math.max(0, buffer.length - 65557);
+  for (let i = buffer.length - 22; i >= minEocd; i--) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset !== -1) {
+    const cdCount = buffer.readUInt16LE(eocdOffset + 10);
+    let cdOffset = buffer.readUInt32LE(eocdOffset + 16);
+    for (let idx = 0; idx < cdCount && cdOffset + 46 <= buffer.length; idx++) {
+      if (buffer.readUInt32LE(cdOffset) !== 0x02014b50) break;
+      const compressionMethod = buffer.readUInt16LE(cdOffset + 10);
+      const compressedSize = buffer.readUInt32LE(cdOffset + 20);
+      const fileNameLen = buffer.readUInt16LE(cdOffset + 28);
+      const extraFieldLen = buffer.readUInt16LE(cdOffset + 30);
+      const commentLen = buffer.readUInt16LE(cdOffset + 32);
+      const localHeaderOffset = buffer.readUInt32LE(cdOffset + 42);
+      const fileName = buffer.toString('utf-8', cdOffset + 46, cdOffset + 46 + fileNameLen);
+
+      if (wanted.has(fileName) && localHeaderOffset + 30 <= buffer.length) {
+        const localNameLen = buffer.readUInt16LE(localHeaderOffset + 26);
+        const localExtraLen = buffer.readUInt16LE(localHeaderOffset + 28);
+        const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+        if (dataStart + compressedSize <= buffer.length) {
+          const entryBytes = buffer.subarray(dataStart, dataStart + compressedSize);
+          if (compressionMethod === 0) {
+            extracted[fileName] = entryBytes.toString('utf-8');
+          } else if (compressionMethod === 8) {
+            extracted[fileName] = zlib.inflateRawSync(entryBytes).toString('utf-8');
+          }
+        }
+      }
+      cdOffset += 46 + fileNameLen + extraFieldLen + commentLen;
+    }
+  }
+
+  // 2. Fallback scan of Local File Headers
   let offset = 0;
   while (offset + 30 <= buffer.length) {
     const sig = buffer.readUInt32LE(offset);
@@ -133,17 +190,25 @@ function extractDocxXmlFromBuffer(buffer: Buffer): string | null {
     const extraFieldLen = buffer.readUInt16LE(offset + 28);
     const fileName = buffer.toString('utf-8', offset + 30, offset + 30 + fileNameLen);
     const dataStart = offset + 30 + fileNameLen + extraFieldLen;
-    if (fileName === 'word/document.xml') {
+    if (wanted.has(fileName) && !extracted[fileName] && compressedSize > 0 && dataStart + compressedSize <= buffer.length) {
       const entryBytes = buffer.subarray(dataStart, dataStart + compressedSize);
       if (compressionMethod === 0) {
-        return entryBytes.toString('utf-8');
+        extracted[fileName] = entryBytes.toString('utf-8');
       } else if (compressionMethod === 8) {
-        return zlib.inflateRawSync(entryBytes).toString('utf-8');
+        extracted[fileName] = zlib.inflateRawSync(entryBytes).toString('utf-8');
       }
     }
+    if (compressedSize === 0 && (buffer.readUInt16LE(offset + 6) & 0x08) !== 0) break;
     offset = dataStart + compressedSize;
   }
-  return null;
+
+  return {
+    documentXml: extracted['word/document.xml'] || null,
+    footnotesXml: extracted['word/footnotes.xml'],
+    endnotesXml: extracted['word/endnotes.xml'],
+    numberingXml: extracted['word/numbering.xml'],
+    stylesXml: extracted['word/styles.xml']
+  };
 }
 
 /** Extracts file path from launch arguments or second-instance commandLine */
@@ -578,7 +643,27 @@ async function renderWithCli(kind: 'pdf' | 'html', payload: any): Promise<string
       throw new Error('Either inputPath or document must be provided for rendering');
     }
 
-    const { code, stdout, stderr } = await runCli([`render-${kind}`, inputPath, outputPath]);
+    const cliArgs: string[] = [`render-${kind}`, inputPath, outputPath];
+    if (kind === 'pdf') {
+      const opts = payload?.options || payload;
+      if (opts?.format) {
+        cliArgs.push('--standard', String(opts.format));
+      }
+      if (opts?.colorProfile) {
+        cliArgs.push('--profile', String(opts.colorProfile));
+      }
+      if (opts?.bleed === false) {
+        cliArgs.push('--no-bleed');
+      }
+      if (opts?.cropMarks === false) {
+        cliArgs.push('--no-crop-marks');
+      }
+      if (opts?.registrationMarks === true) {
+        cliArgs.push('--registration-marks');
+      }
+    }
+
+    const { code, stdout, stderr } = await runCli(cliArgs);
     if (code !== 0) {
       throw new Error(`tok-cli failed with code ${code}: ${stderr || stdout}`);
     }
@@ -890,10 +975,18 @@ handle('tok:read-import-file', async (_, filePath: string) => {
   const ext = path.extname(resolvedPath).toLowerCase();
   const isBinary = ext === '.docx';
   let docxXml: string | undefined;
+  let footnotesXml: string | undefined;
+  let endnotesXml: string | undefined;
+  let numberingXml: string | undefined;
+  let stylesXml: string | undefined;
   if (ext === '.docx') {
     try {
-      const xml = extractDocxXmlFromBuffer(buffer);
-      if (xml) docxXml = xml;
+      const parts = extractDocxPartsFromBuffer(buffer);
+      if (parts.documentXml) docxXml = parts.documentXml;
+      footnotesXml = parts.footnotesXml;
+      endnotesXml = parts.endnotesXml;
+      numberingXml = parts.numberingXml;
+      stylesXml = parts.stylesXml;
     } catch (err: any) {
       logger.warn(`[IPC] Failed to pre-extract docx XML: ${err?.message}`);
     }
@@ -905,6 +998,10 @@ handle('tok:read-import-file', async (_, filePath: string) => {
     size: stat.size,
     isBinary,
     docxXml,
+    footnotesXml,
+    endnotesXml,
+    numberingXml,
+    stylesXml,
     dataBase64: buffer.toString('base64'),
     text: docxXml || (isBinary ? undefined : buffer.toString('utf-8'))
   };
