@@ -517,7 +517,38 @@ export class TypesetOkApp {
         this.showToast(tf('toastAlignApplied', { type: alignType }));
       },
       onOpenSettings: () => this.settingsModal.show(),
-      onOpenWhatsNew: () => this.openWhatsNew()
+      onOpenWhatsNew: () => this.openWhatsNew(),
+      onGrepRulesChange: (rules) => {
+        this.documentState.grepRules = rules;
+        this.setDirty(true);
+        this.scheduleRepaginate();
+      },
+      onFootnoteApparatusesChange: (apparatuses) => {
+        this.documentState.footnoteApparatuses = apparatuses;
+        for (const app of apparatuses) {
+          if (!this.documentState.flows[app.id]) {
+            this.documentState.flows[app.id] = [];
+          }
+        }
+        const baseFlows = getFlowsForTemplate(this.documentState.templateType);
+        for (const app of apparatuses) {
+          if (!baseFlows.some((f) => f.id === app.id)) {
+            baseFlows.push({
+              id: app.id,
+              name: app.name,
+              color: '#7C3AED',
+              role: `מדור הערות (${app.columns} טורים)`,
+              wordCount: 0,
+              isActive: false,
+              layoutPlacement: 'bottom'
+            });
+          }
+        }
+        this.structureBar.setFlows(baseFlows);
+        this.inspector.setFlows(baseFlows);
+        this.setDirty(true);
+        this.scheduleRepaginate();
+      }
     });
     this.workbench.appendChild(this.inspector.element);
 
@@ -1248,7 +1279,7 @@ export class TypesetOkApp {
       console.log('[TOK] Exporting real document to PDF:', { title: docRoot.metadata.title, options });
 
       this.statusBar?.setBusy(true, 'מייצא ל-PDF...');
-      win.tokIpc.renderPdf({ document: docRoot, outputPath: options.fileName })
+      win.tokIpc.renderPdf({ document: docRoot, outputPath: options.fileName, options })
         .then(() => {
           this.statusBar?.setBusy(false);
           this.showToast(t('toastExportDone'));
@@ -2573,7 +2604,13 @@ export class TypesetOkApp {
       if (win.tokIpc?.readImportFile) {
         const fileInfo = await win.tokIpc.readImportFile(targetPath);
         if (fileInfo.docxXml) {
-          result = parseDocxXml(fileInfo.docxXml, { fileName: fileInfo.fileName });
+          result = parseDocxXml(fileInfo.docxXml, {
+            fileName: fileInfo.fileName,
+            footnotesXml: fileInfo.footnotesXml,
+            endnotesXml: fileInfo.endnotesXml,
+            numberingXml: fileInfo.numberingXml,
+            stylesXml: fileInfo.stylesXml
+          });
         } else if (fileInfo.isBinary) {
           const binStr = atob(fileInfo.dataBase64);
           const len = binStr.length;
@@ -2655,8 +2692,11 @@ export class TypesetOkApp {
     this.documentState = importResultToDocumentState(result, templateType);
     this.activeFlowId = 'gemara';
     this.storyEditor.loadStory(this.documentState.flows.gemara);
-    this.structureBar.setFlows(getFlowsForTemplate(templateType));
-    this.inspector.setFlows(getFlowsForTemplate(templateType));
+    const activeTemplate = this.documentState.templateType;
+    this.structureBar.setFlows(getFlowsForTemplate(activeTemplate));
+    this.inspector.setFlows(getFlowsForTemplate(activeTemplate));
+    this.inspector.setGrepRules(this.documentState.grepRules);
+    this.inspector.setFootnoteApparatuses(this.documentState.footnoteApparatuses);
     this.activePageIndex = 0;
     this.structureBar.setActivePage(0);
     this.repaginateAndSync(true);
