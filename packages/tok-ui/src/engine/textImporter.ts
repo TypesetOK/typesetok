@@ -5,7 +5,7 @@
  * real documents (TXT, Markdown, DOCX) into the TypesetOK document pipeline.
  */
 
-import { ParagraphStylePatch, StoryParagraph, TextSpan } from 'tok-story-editor';
+import { ParagraphStylePatch, StoryParagraph, TextSpan, CharacterFormat, isFormatEmpty } from 'tok-story-editor';
 import { MultiFlowAnchorLink } from '../types';
 
 const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -78,6 +78,35 @@ export interface ImportedTableData {
   nestingLevel: number;
 }
 
+export interface DocxStyleDefinition {
+  id: string;
+  name: string;
+  type: 'paragraph' | 'character' | 'table' | 'numbering';
+  isDefault?: boolean;
+  basedOn?: string;
+  nextStyleId?: string;
+  paragraphPatch?: ParagraphStylePatch;
+  characterFormat?: CharacterFormat;
+}
+
+export interface ImportedFieldLink {
+  paragraphId?: string;
+  text: string;
+  url: string;
+  fieldType: 'HYPERLINK' | 'REF' | 'PAGEREF' | 'OTHER';
+  start?: number;
+  end?: number;
+  isExternal?: boolean;
+}
+
+export interface DocxFieldInfo {
+  type: 'HYPERLINK' | 'REF' | 'PAGEREF' | 'PAGE' | 'NUMPAGES' | 'DATE' | 'OTHER';
+  targetUrl?: string;
+  isExternal?: boolean;
+  targetAnchor?: string;
+  rawInstruction: string;
+}
+
 export interface DocxArchiveParts {
   documentXml: string;
   footnotesXml?: string;
@@ -106,6 +135,8 @@ export interface ImportResult {
   footnotes?: StoryParagraph[];
   tables?: ImportedTableData[];
   multiFlowAnchors?: MultiFlowAnchorLink[];
+  styles?: Record<string, DocxStyleDefinition>;
+  links?: ImportedFieldLink[];
   format: SupportedImportFormat;
   detectedLanguage: 'he' | 'en' | 'mixed';
   detectedDirection: 'rtl' | 'ltr';

@@ -433,6 +433,7 @@ impl CharacterStyle {
             baseline_shift_pt: self.baseline_shift_pt,
             masoretic_variant: self.masoretic_variant,
             opentype_features: self.opentype_features.clone(),
+            link_url: None,
         }
     }
 }
@@ -570,6 +571,8 @@ pub struct CharacterFormat {
     pub masoretic_variant: Option<MasoreticLetterVariant>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_url: Option<String>,
 }
 
 impl CharacterFormat {
@@ -601,6 +604,10 @@ impl CharacterFormat {
                 .opentype_features
                 .clone()
                 .or_else(|| self.opentype_features.clone()),
+            link_url: other
+                .link_url
+                .clone()
+                .or_else(|| self.link_url.clone()),
         }
     }
 

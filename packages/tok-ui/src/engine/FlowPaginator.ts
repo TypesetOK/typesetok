@@ -503,8 +503,10 @@ function renderParagraphHtml(
       if (span.format.fontSizePt) spanStyle += `font-size: ${span.format.fontSizePt}pt;`;
       else if (span.format.fontScale) spanStyle += `font-size: ${Math.round(span.format.fontScale * 100)}%;`;
       if (span.format.color) spanStyle += `color: ${span.format.color};`;
+      if (span.format.linkUrl) spanStyle += 'cursor: pointer;';
       const styleIdClass = span.format.characterStyleId ? ` class="tok-char-${span.format.characterStyleId}"` : '';
-      parts.push(`<span${styleIdClass} style="${spanStyle}">${spanChars}</span>`);
+      const hrefAttr = span.format.linkUrl ? ` data-href="${span.format.linkUrl.replace(/"/g, '&quot;')}"` : '';
+      parts.push(`<span${styleIdClass}${hrefAttr} style="${spanStyle}">${spanChars}</span>`);
       lastIndex = Math.max(lastIndex, span.end);
     }
     if (lastIndex < chars.length) {

@@ -137,6 +137,7 @@ export interface CharacterFormatJson {
   underline?: boolean;
   tracking_em?: number;
   color?: ColorJson;
+  link_url?: string;
 }
 
 export type FootnoteApparatusConfigJson = FootnoteApparatusConfigData;
@@ -782,6 +783,7 @@ export function spanToSpanJson(span: TextSpan): TextSpanJson {
   if (fmt.italic != null) fmtJson.italic = fmt.italic;
   if (fmt.underline != null) fmtJson.underline = fmt.underline;
   if (fmt.trackingEm != null) fmtJson.tracking_em = fmt.trackingEm;
+  if (fmt.linkUrl != null) fmtJson.link_url = fmt.linkUrl;
   return {
     start: span.start,
     end: span.end,
@@ -800,6 +802,7 @@ export function spanJsonToSpan(json: TextSpanJson): TextSpan {
   if (fmt.italic != null) format.italic = fmt.italic;
   if (fmt.underline != null) format.underline = fmt.underline;
   if (fmt.tracking_em != null) format.trackingEm = fmt.tracking_em;
+  if (fmt.link_url != null) format.linkUrl = fmt.link_url;
   if (fmt.color?.DeviceCmyk) {
     const k = Math.min(1, Math.max(0, fmt.color.DeviceCmyk.k));
     const gray = Math.round((1 - k) * 255);

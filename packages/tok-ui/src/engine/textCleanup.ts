@@ -17,7 +17,8 @@ function isFormatEmpty(fmt?: CharacterFormat | null): boolean {
     !fmt.italic &&
     !fmt.underline &&
     fmt.trackingEm === undefined &&
-    !fmt.color
+    !fmt.color &&
+    !fmt.linkUrl
   );
 }
 
@@ -32,7 +33,8 @@ function areFormatsEqual(a?: CharacterFormat | null, b?: CharacterFormat | null)
     Boolean(a.italic) === Boolean(b.italic) &&
     Boolean(a.underline) === Boolean(b.underline) &&
     a.trackingEm === b.trackingEm &&
-    a.color === b.color
+    a.color === b.color &&
+    a.linkUrl === b.linkUrl
   );
 }
 

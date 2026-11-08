@@ -15,6 +15,7 @@ export interface CharacterFormat {
   underline?: boolean;
   trackingEm?: number;
   color?: string;
+  linkUrl?: string;
 }
 
 export interface TextSpan {
@@ -70,7 +71,8 @@ export function isFormatEmpty(fmt?: CharacterFormat | null): boolean {
     !fmt.italic &&
     !fmt.underline &&
     fmt.trackingEm === undefined &&
-    !fmt.color
+    !fmt.color &&
+    !fmt.linkUrl
   );
 }
 
@@ -84,10 +86,11 @@ export function areFormatsEqual(a?: CharacterFormat | null, b?: CharacterFormat 
     a.fontSizePt === b.fontSizePt &&
     a.fontScale === b.fontScale &&
     a.fontWeight === b.fontWeight &&
-    Boolean(a.italic) === Boolean(b.italic) &&
+    Boolean(a.italic) === Boolean(a.italic) &&
     Boolean(a.underline) === Boolean(b.underline) &&
     a.trackingEm === b.trackingEm &&
-    a.color === b.color
+    a.color === b.color &&
+    a.linkUrl === b.linkUrl
   );
 }
 
