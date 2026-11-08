@@ -1,6 +1,6 @@
 {
   "name": "tok-viewer",
-  "version": "0.35.0",
+  "version": "0.35.2",
   "license": "SEE LICENSE IN LICENSE.md",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
