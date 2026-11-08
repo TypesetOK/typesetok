@@ -4152,4 +4152,18 @@ describe('Torah Heading Auto-Numbering Engine & IPC Integration', () => {
     assert.ok(main.includes("handle('tok:delete-heading'"), 'main must handle tok:delete-heading');
     assert.ok(main.includes("handle('tok:recalculate-heading-numbers'"), 'main must handle tok:recalculate-heading-numbers');
   });
+
+  test('Issue #28 Regression: ContextualInspector is instantiated before setFlows is invoked in TokApp', () => {
+    const appTs = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/app.ts'), 'utf-8');
+    const inspectorInitIdx = appTs.indexOf('this.inspector = new ContextualInspector');
+    const firstSetFlowsIdx = appTs.indexOf('this.inspector.setFlows(');
+
+    assert.ok(inspectorInitIdx > 0, 'ContextualInspector must be instantiated in app.ts');
+    assert.ok(firstSetFlowsIdx > 0, 'inspector.setFlows must be called in app.ts');
+    assert.ok(
+      inspectorInitIdx < firstSetFlowsIdx,
+      `Regression Issue #28: this.inspector must be instantiated before this.inspector.setFlows() is called (found inspector at ${inspectorInitIdx}, first setFlows at ${firstSetFlowsIdx})`
+    );
+  });
 });
+
