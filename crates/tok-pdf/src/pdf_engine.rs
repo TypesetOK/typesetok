@@ -1299,4 +1299,54 @@ mod tests {
             "Must draw inter-apparatus separator rule"
         );
     }
+
+    #[test]
+    fn test_pdf_export_blank_verso_page_has_no_text_streams_but_retains_crop_marks() {
+        let lines = typeset("שלום עולם", "Noto Serif Hebrew");
+        let page1 = PageLayoutBox {
+            page_index: 0,
+            page_number_gematria: "א׳".to_string(),
+            dimensions: PhysicalRect::a4_portrait(),
+            frames: vec![TextFrameBox {
+                frame_id: "main_0".to_string(),
+                flow_id: "main".to_string(),
+                rect: PhysicalRect::new(42.52, 42.52, 382.68, 500.0),
+                lines,
+            }],
+            break_token: None,
+            is_blank: false,
+        };
+        let page2_blank = PageLayoutBox {
+            page_index: 1,
+            page_number_gematria: "ב׳".to_string(),
+            dimensions: PhysicalRect::a4_portrait(),
+            frames: Vec::new(),
+            break_token: None,
+            is_blank: true,
+        };
+
+        let options = PdfExportOptions {
+            standard: PdfXStandard::PdfX4,
+            draw_registration_marks: true,
+            compress_streams: false,
+            ..Default::default()
+        };
+
+        let bytes = PdfPrePressEngine::export_pdf(&[page1, page2_blank], &options).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        // Both pages must be present in the PDF page tree
+        let page_count = s.matches("/Type /Page\n").count() + s.matches("/Type /Page\r").count();
+        assert_eq!(
+            page_count, 2,
+            "PDF page tree must contain exactly 2 pages (recto + blank verso)"
+        );
+        // Only page 1 has text stream (BT ... ET)
+        let bt_count = s.matches("BT\n").count() + s.matches("BT\r").count();
+        assert_eq!(bt_count, 1, "Only non-blank page must have a text block");
+        // Registration marks (e.g. crop mark path commands 'm' and 'l') should be drawn
+        assert!(
+            s.contains(" m\n") || s.contains(" l\n"),
+            "Must contain crop mark vector paths"
+        );
+    }
 }
