@@ -765,7 +765,10 @@ export interface DocxFootnoteEntry {
  * Parses `word/footnotes.xml` (or `word/endnotes.xml`) into a lookup map by `w:id`.
  * Skips separator/continuation footnotes (ids <= 0 or w:type="separator"/"continuationSeparator").
  */
-export function parseDocxFootnotesXml(footnotesXml?: string): Map<string, DocxFootnoteEntry> {
+export function parseDocxFootnotesXml(
+  footnotesXml?: string,
+  styleRegistry?: Map<string, DocxStyleDefinition>
+): Map<string, DocxFootnoteEntry> {
   const map = new Map<string, DocxFootnoteEntry>();
   if (!footnotesXml) return map;
 
@@ -811,9 +814,31 @@ export function parseDocxFootnotesXml(footnotesXml?: string): Map<string, DocxFo
         if (/<w:(?:footnoteRef|endnoteRef)\b/.test(rBody)) {
           continue;
         }
+
+        let baseFormat: CharacterFormat = {};
+        const rStyleMatch = /<w:rStyle\b[^>]*?w:val="([^"]+)"/i.exec(rBody);
+        let charStyleId: string | undefined;
+        if (rStyleMatch) {
+          charStyleId = rStyleMatch[1].trim();
+          const def = styleRegistry?.get(charStyleId);
+          if (def?.characterFormat) {
+            baseFormat = { ...def.characterFormat };
+          }
+        }
+
         const isBold = /<w:b(?:\s|\/|>)/.test(rBody) && !/<w:b\s+w:val="(?:0|false|none)"/i.test(rBody);
         const isItalic = /<w:i(?:\s|\/|>)/.test(rBody) && !/<w:i\s+w:val="(?:0|false|none)"/i.test(rBody);
         const isUnderline = /<w:u(?:\s|\/|>)/.test(rBody) && !/<w:u\s+w:val="(?:0|false|none)"/i.test(rBody);
+        const szMatch = /<w:(?:sz|szCs)\b[^>]*?w:val="(\d+)"/i.exec(rBody);
+        const colorMatch = /<w:color\b[^>]*?w:val="([0-9a-fA-F]{6}|auto)"/i.exec(rBody);
+
+        const format: CharacterFormat = { ...baseFormat };
+        if (charStyleId) format.characterStyleId = charStyleId;
+        if (isBold) format.fontWeight = 700;
+        if (isItalic) format.italic = true;
+        if (isUnderline) format.underline = true;
+        if (szMatch) format.fontSizePt = Math.round((parseInt(szMatch[1], 10) / 2) * 10) / 10;
+        if (colorMatch && colorMatch[1].toLowerCase() !== 'auto') format.color = `#${colorMatch[1]}`;
 
         const tRegex = /<w:t(?:[^>]*)>([\s\S]*?)<\/w:t>/g;
         let tMatch: RegExpExecArray | null;
@@ -826,15 +851,11 @@ export function parseDocxFootnotesXml(footnotesXml?: string): Map<string, DocxFo
           const start = paraText.length;
           paraText += runText;
           const end = paraText.length;
-          if (isBold || isItalic || isUnderline) {
+          if (!isFormatEmpty(format)) {
             paraSpans.push({
               start,
               end,
-              format: {
-                fontWeight: isBold ? 700 : undefined,
-                italic: isItalic ? true : undefined,
-                underline: isUnderline ? true : undefined
-              }
+              format
             });
           }
         }
