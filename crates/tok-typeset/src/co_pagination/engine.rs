@@ -823,6 +823,7 @@ impl CoPaginationEngine {
                 ),
                 frames,
                 break_token: None,
+                is_blank: false,
             };
 
             total_gemara_lines += tentative_gemara_lines.len();

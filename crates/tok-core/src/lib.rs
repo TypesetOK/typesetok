@@ -34,7 +34,7 @@ pub use outline::{
     DocumentHierarchyNode, DocumentOutline, HierarchyLevel, LevelNumberingRule,
     OutlineNumberingConfig,
 };
-pub use overrides::LayoutLockOverrides;
+pub use overrides::{LayoutLockOverrides, PageBreakMode};
 pub use reference::{CrossReferenceNode, CrossReferenceRegistry, ReferenceKind, ReferenceTarget};
 pub use spans::{
     insert_range, is_canonical, normalize_spans, remove_range, spans_in_range, TextSpan,

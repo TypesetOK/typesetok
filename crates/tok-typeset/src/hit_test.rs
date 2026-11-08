@@ -361,6 +361,7 @@ mod tests {
             dimensions: PhysicalRect::a4_portrait(),
             frames: vec![frame],
             break_token: None,
+            is_blank: false,
         }
     }
 

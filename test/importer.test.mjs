@@ -11,6 +11,9 @@ import {
   parseDocxXml,
   importDocx,
   importDocument,
+  parseDocxStylesXml,
+  mapDocxStyleId,
+  parseDocxFieldInstruction,
   detectTextDirection,
   detectTextLanguage,
   cleanDocumentTitle,
@@ -515,6 +518,321 @@ describe('Phase 3 Import: Text, Markdown and DOCX Importers', () => {
       const restored = documentRootToDocumentState(rootJson);
       assert.equal(restored.footnoteApparatuses?.length, 2);
       assert.equal(restored.grepRules?.length, rules.length);
+    });
+
+    it('[Section 5.1] parses word/styles.xml, resolving custom paragraph and character styles with basedOn inheritance', () => {
+      const stylesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="BaseTorah">
+    <w:name w:val="סגנון בסיס תורני"/>
+    <w:pPr>
+      <w:jc w:val="both"/>
+      <w:bidi/>
+      <w:ind w:start="720" w:firstLine="360"/>
+      <w:spacing w:before="120" w:after="60" w:line="280"/>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Frank Ruhl Libre" w:cs="Frank Ruhl Libre"/>
+      <w:sz w:val="24"/>
+      <w:color w:val="1A1A1A"/>
+    </w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="CommentaryDerived">
+    <w:name w:val="פירוש משני נגזר"/>
+    <w:basedOn w:val="BaseTorah"/>
+    <w:pPr>
+      <w:ind w:start="1080"/>
+      <w:spacing w:before="80"/>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Noto Rashi Hebrew" w:cs="Noto Rashi Hebrew"/>
+      <w:sz w:val="20"/>
+    </w:rPr>
+  </w:style>
+  <w:style w:type="character" w:styleId="CustomCharHighlight">
+    <w:name w:val="הדגשה תורנית"/>
+    <w:rPr>
+      <w:b/>
+      <w:sz w:val="22"/>
+      <w:color w:val="880000"/>
+    </w:rPr>
+  </w:style>
+</w:styles>`;
+
+      const registry = parseDocxStylesXml(stylesXml);
+      assert.equal(registry.size, 3);
+
+      const base = registry.get('BaseTorah');
+      assert(base);
+      assert.equal(base.name, 'סגנון בסיס תורני');
+      assert.equal(base.paragraphPatch?.alignment, 'Justified');
+      assert.equal(base.paragraphPatch?.direction, 'Rtl');
+      assert.equal(base.paragraphPatch?.indentStartPt, 36);
+      assert.equal(base.paragraphPatch?.firstLineIndentPt, 18);
+      assert.equal(base.paragraphPatch?.spaceBeforePt, 6);
+      assert.equal(base.paragraphPatch?.spaceAfterPt, 3);
+      assert.equal(base.paragraphPatch?.fontFamily, 'Frank Ruhl Libre');
+      assert.equal(base.paragraphPatch?.fontSizePt, 12);
+      assert.equal(base.paragraphPatch?.color, '#1A1A1A');
+
+      const derived = registry.get('CommentaryDerived');
+      assert(derived);
+      assert.equal(derived.name, 'פירוש משני נגזר');
+      assert.equal(derived.paragraphPatch?.alignment, 'Justified', 'Derived style must inherit base alignment');
+      assert.equal(derived.paragraphPatch?.direction, 'Rtl', 'Derived style must inherit base direction');
+      assert.equal(derived.paragraphPatch?.indentStartPt, 54, 'Derived style must override indentStartPt (1080/20)');
+      assert.equal(derived.paragraphPatch?.firstLineIndentPt, 18, 'Derived style must inherit base firstLineIndentPt');
+      assert.equal(derived.paragraphPatch?.spaceBeforePt, 4, 'Derived style must override spaceBeforePt (80/20)');
+      assert.equal(derived.paragraphPatch?.spaceAfterPt, 3, 'Derived style must inherit base spaceAfterPt');
+      assert.equal(derived.paragraphPatch?.fontFamily, 'Noto Rashi Hebrew', 'Derived style must override fontFamily');
+      assert.equal(derived.paragraphPatch?.fontSizePt, 10, 'Derived style must override fontSizePt (20/2)');
+      assert.equal(derived.paragraphPatch?.color, '#1A1A1A', 'Derived style must inherit base color');
+
+      const charStyle = registry.get('CustomCharHighlight');
+      assert(charStyle);
+      assert.equal(charStyle.name, 'הדגשה תורנית');
+      assert.equal(charStyle.characterFormat?.fontWeight, 700);
+      assert.equal(charStyle.characterFormat?.fontSizePt, 11);
+      assert.equal(charStyle.characterFormat?.color, '#880000');
+    });
+
+    it('[Section 5.1] parses field instructions from w:fldSimple (HYPERLINK, REF, PAGEREF)', () => {
+      // 1. Quoted external URL
+      const link1 = parseDocxFieldInstruction('HYPERLINK "https://www.hebrewbooks.org/1234"');
+      assert.equal(link1.type, 'HYPERLINK');
+      assert.equal(link1.targetUrl, 'https://www.hebrewbooks.org/1234');
+      assert.equal(link1.isExternal, true);
+
+      // 2. Encoded entity URL with target window
+      const link2 = parseDocxFieldInstruction('HYPERLINK &quot;https://sefaria.org/Berakhot.2a&quot; \\t &quot;_blank&quot;');
+      assert.equal(link2.type, 'HYPERLINK');
+      assert.equal(link2.targetUrl, 'https://sefaria.org/Berakhot.2a');
+      assert.equal(link2.isExternal, true);
+
+      // 3. Internal bookmark anchor via \\l
+      const link3 = parseDocxFieldInstruction('HYPERLINK \\l "siman_aleph"');
+      assert.equal(link3.type, 'HYPERLINK');
+      assert.equal(link3.targetUrl, '#siman_aleph');
+      assert.equal(link3.targetAnchor, 'siman_aleph');
+      assert.equal(link3.isExternal, false);
+
+      // 4. External URL combined with internal bookmark anchor
+      const link4 = parseDocxFieldInstruction('HYPERLINK "http://example.com/page" \\l "anchor_here"');
+      assert.equal(link4.type, 'HYPERLINK');
+      assert.equal(link4.targetUrl, 'http://example.com/page#anchor_here');
+      assert.equal(link4.isExternal, true);
+
+      // 5. REF cross reference
+      const ref1 = parseDocxFieldInstruction('REF chapter_one \\h');
+      assert.equal(ref1.type, 'REF');
+      assert.equal(ref1.targetUrl, '#chapter_one');
+      assert.equal(ref1.isExternal, false);
+
+      // 6. PAGEREF
+      const pageRef = parseDocxFieldInstruction('PAGEREF page_target \\h');
+      assert.equal(pageRef.type, 'PAGEREF');
+      assert.equal(pageRef.targetUrl, '#page_target');
+      assert.equal(pageRef.isExternal, false);
+    });
+
+    it('[Section 5.1] imports DOCX with custom styles from word/styles.xml and field hyperlinks from w:fldSimple', () => {
+      function buildDocxPackage(entries) {
+        const parts = [];
+        for (const [entryName, xmlContent] of Object.entries(entries)) {
+          const xmlBuffer = Buffer.from(xmlContent, 'utf-8');
+          const deflated = zlib.deflateRawSync(xmlBuffer);
+          const nameBuf = Buffer.from(entryName, 'utf-8');
+          const header = Buffer.alloc(30);
+          header.writeUInt32LE(0x04034b50, 0);
+          header.writeUInt16LE(20, 4);
+          header.writeUInt16LE(0, 6);
+          header.writeUInt16LE(8, 8);
+          header.writeUInt16LE(0, 10);
+          header.writeUInt16LE(0, 12);
+          header.writeUInt32LE(0x12345678, 14);
+          header.writeUInt32LE(deflated.length, 18);
+          header.writeUInt32LE(xmlBuffer.length, 22);
+          header.writeUInt16LE(nameBuf.length, 26);
+          header.writeUInt16LE(0, 28);
+          parts.push(header, nameBuf, deflated);
+        }
+        return Buffer.concat(parts);
+      }
+
+      const stylesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="TorahHeading">
+    <w:name w:val="כותרת תורנית מותאמת"/>
+    <w:pPr>
+      <w:jc w:val="center"/>
+      <w:bidi/>
+      <w:spacing w:before="240" w:after="120"/>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Taamey Frank" w:cs="Taamey Frank"/>
+      <w:b/>
+      <w:sz w:val="32"/>
+      <w:color w:val="331100"/>
+    </w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="CustomCommentary">
+    <w:name w:val="פירוש עמוק"/>
+    <w:pPr>
+      <w:jc w:val="both"/>
+      <w:bidi/>
+      <w:ind w:start="360" w:firstLine="240"/>
+      <w:spacing w:before="100" w:after="50"/>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Frank Ruhl Libre" w:cs="Frank Ruhl Libre"/>
+      <w:sz w:val="22"/>
+      <w:color w:val="222222"/>
+    </w:rPr>
+  </w:style>
+  <w:style w:type="character" w:styleId="TorahHighlight">
+    <w:name w:val="ציטוט מקור"/>
+    <w:rPr>
+      <w:b/>
+      <w:color w:val="990000"/>
+    </w:rPr>
+  </w:style>
+</w:styles>`;
+
+      const documentXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="TorahHeading"/>
+      </w:pPr>
+      <w:r><w:t>שער הביאורים וההערות</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="CustomCommentary"/>
+        <!-- Local override for indentation -->
+        <w:ind w:start="500"/>
+      </w:pPr>
+      <w:r><w:t>זהו ביאור מקיף, המסתמך על </w:t></w:r>
+      <w:fldSimple w:instr="HYPERLINK &quot;https://www.hebrewbooks.org/54321&quot;">
+        <w:r>
+          <w:rPr>
+            <w:rStyle w:val="TorahHighlight"/>
+          </w:rPr>
+          <w:t>ספר התניא קדישא</w:t>
+        </w:r>
+      </w:fldSimple>
+      <w:r><w:t> וכן </w:t></w:r>
+      <w:fldSimple w:instr="HYPERLINK \\l &quot;perek_2&quot;">
+        <w:r><w:t>בפרק ב׳ להלן</w:t></w:r>
+      </w:fldSimple>
+      <w:r><w:t>.</w:t></w:r>
+      <w:r><w:footnoteReference w:id="3"/></w:r>
+    </w:p>
+  </w:body>
+</w:document>`;
+
+      const footnotesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:footnote w:type="separator" w:id="0"><w:p/></w:footnote>
+  <w:footnote w:id="3">
+    <w:p>
+      <w:r><w:t>ראה מקור נוסף באתר </w:t></w:r>
+      <w:fldSimple w:instr="HYPERLINK &quot;https://sefaria.org&quot;">
+        <w:r><w:t>ספריא</w:t></w:r>
+      </w:fldSimple>
+      <w:r><w:t> בביאור סוגיא זו.</w:t></w:r>
+    </w:p>
+  </w:footnote>
+</w:footnotes>`;
+
+      const zipBytes = buildDocxPackage({
+        'word/document.xml': documentXml,
+        'word/styles.xml': stylesXml,
+        'word/footnotes.xml': footnotesXml
+      });
+
+      const imported = importDocx(zipBytes, { fileName: 'ספר_ביאורים.docx' });
+      assert.equal(imported.format, 'docx');
+      assert.equal(imported.paragraphCount, 2);
+
+      // Verify custom styles parsed in imported result
+      assert(imported.styles, 'imported.styles must exist');
+      assert.equal(Object.keys(imported.styles).length, 3);
+      assert(imported.styles.TorahHeading);
+      assert(imported.styles.CustomCommentary);
+      assert(imported.styles.TorahHighlight);
+
+      // Verify Paragraph 1: TorahHeading
+      const p1 = imported.paragraphs[0];
+      assert.equal(p1.styleId, 'TorahHeading');
+      assert.equal(p1.text, 'שער הביאורים וההערות');
+      assert.equal(p1.patch?.alignment, 'Center');
+      assert.equal(p1.patch?.direction, 'Rtl');
+      assert.equal(p1.patch?.spaceBeforePt, 12);
+      assert.equal(p1.patch?.spaceAfterPt, 6);
+      assert.equal(p1.patch?.fontFamily, 'Taamey Frank');
+      assert.equal(p1.patch?.fontSizePt, 16);
+      assert.equal(p1.patch?.color, '#331100');
+
+      // Verify Paragraph 2: CustomCommentary with local override
+      const p2 = imported.paragraphs[1];
+      assert.equal(p2.styleId, 'CustomCommentary');
+      assert(p2.text.includes('ספר התניא קדישא'));
+      assert(p2.text.includes('בפרק ב׳ להלן'));
+      assert(p2.text.includes('[א]'), 'Must contain footnote marker');
+      assert.equal(p2.patch?.alignment, 'Justified');
+      assert.equal(p2.patch?.direction, 'Rtl');
+      assert.equal(p2.patch?.indentStartPt, 25, 'Local override 500dxa / 20 = 25pt must override style 360dxa');
+      assert.equal(p2.patch?.firstLineIndentPt, 12, 'Inherited firstLine 240dxa / 20 = 12pt');
+      assert.equal(p2.patch?.fontFamily, 'Frank Ruhl Libre');
+      assert.equal(p2.patch?.fontSizePt, 11);
+      assert.equal(p2.patch?.color, '#222222');
+
+      // Verify extracted links in paragraph 2
+      assert(imported.links && imported.links.length >= 2, 'Must extract at least 2 links from document');
+      const externalLink = imported.links.find((l) => l.url.includes('hebrewbooks.org'));
+      assert(externalLink, 'Must find hebrewbooks external link');
+      assert.equal(externalLink.text, 'ספר התניא קדישא');
+      assert.equal(externalLink.isExternal, true);
+      assert.equal(externalLink.paragraphId, p2.id);
+
+      const internalLink = imported.links.find((l) => l.url === '#perek_2');
+      assert(internalLink, 'Must find internal #perek_2 bookmark anchor');
+      assert.equal(internalLink.text, 'בפרק ב׳ להלן');
+      assert.equal(internalLink.isExternal, false);
+
+      // Verify TextSpans formatting on the links
+      const linkSpan1 = p2.spans?.find((s) => s.format.linkUrl === 'https://www.hebrewbooks.org/54321');
+      assert(linkSpan1, 'Must have span with linkUrl for hebrewbooks');
+      assert.equal(p2.text.slice(linkSpan1.start, linkSpan1.end), 'ספר התניא קדישא');
+      assert.equal(linkSpan1.format.fontWeight, 700, 'Must inherit bold from TorahHighlight style');
+      assert.equal(linkSpan1.format.color, '#990000', 'Must inherit color from TorahHighlight style');
+      assert.equal(linkSpan1.format.underline, true, 'Link must be underlined');
+
+      const linkSpan2 = p2.spans?.find((s) => s.format.linkUrl === '#perek_2');
+      assert(linkSpan2, 'Must have span with linkUrl for internal anchor');
+      assert.equal(p2.text.slice(linkSpan2.start, linkSpan2.end), 'בפרק ב׳ להלן');
+      assert.equal(linkSpan2.format.characterStyleId, 'hyperlink');
+
+      // Verify Footnote was extracted and linked
+      assert(imported.footnotes && imported.footnotes.length === 1);
+      assert(imported.footnotes[0].text.includes('ראה מקור נוסף באתר'));
+      assert(imported.multiFlowAnchors && imported.multiFlowAnchors.length === 1);
+      assert.equal(imported.multiFlowAnchors[0].primaryNodeId, p2.id);
+      assert.equal(imported.multiFlowAnchors[0].commentaryNodeId, imported.footnotes[0].id);
+
+      // Verify DocumentRoot roundtrip preserves linkUrl and styles
+      const root = importResultToDocumentRoot(imported, 'prose');
+      const gemaraFlow = root.sections[0].flows[0];
+      const p2Json = gemaraFlow.paragraphs[1];
+      const p2LinkSpanJson = p2Json.spans?.find((s) => s.format.link_url === 'https://www.hebrewbooks.org/54321');
+      assert(p2LinkSpanJson, 'DocumentRoot JSON must preserve link_url in span format');
+
+      const restoredState = documentRootToDocumentState(root);
+      const restoredP2 = restoredState.flows.gemara[1];
+      const restoredSpan = restoredP2.spans?.find((s) => s.format.linkUrl === 'https://www.hebrewbooks.org/54321');
+      assert(restoredSpan, 'Restored DocumentState must preserve linkUrl');
     });
   });
 

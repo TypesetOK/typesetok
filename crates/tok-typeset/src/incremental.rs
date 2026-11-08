@@ -208,6 +208,7 @@ mod tests {
             force_page_break_before: false,
             force_page_break_after: false,
             keep_lines_together: false,
+            force_odd_page_break_before: false,
         }
     }
 

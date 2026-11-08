@@ -133,4 +133,42 @@ pub struct PageLayoutBox {
     pub dimensions: PhysicalRect,
     pub frames: Vec<TextFrameBox>,
     pub break_token: Option<BreakToken>,
+    /// Indicates whether this page is an intentionally injected blank page (e.g. Blank Verso Page
+    /// to force an opening chapter/siman onto an odd Recto page).
+    #[serde(default)]
+    pub is_blank: bool,
+}
+
+impl PageLayoutBox {
+    pub fn new(
+        page_index: usize,
+        page_number_gematria: String,
+        dimensions: PhysicalRect,
+        frames: Vec<TextFrameBox>,
+        break_token: Option<BreakToken>,
+    ) -> Self {
+        Self {
+            page_index,
+            page_number_gematria,
+            dimensions,
+            frames,
+            break_token,
+            is_blank: false,
+        }
+    }
+
+    pub fn blank(
+        page_index: usize,
+        page_number_gematria: String,
+        dimensions: PhysicalRect,
+    ) -> Self {
+        Self {
+            page_index,
+            page_number_gematria,
+            dimensions,
+            frames: Vec::new(),
+            break_token: None,
+            is_blank: true,
+        }
+    }
 }

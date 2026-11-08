@@ -351,6 +351,7 @@ impl PdfPrePressEngine {
                 dimensions: PhysicalRect::a4_portrait(),
                 frames: Vec::new(),
                 break_token: None,
+                is_blank: false,
             }];
             &dummy_page
         } else {
@@ -699,6 +700,12 @@ impl PdfPrePressEngine {
             page_boxes.draw_registration_marks(&mut content);
         }
 
+        if p_box.is_blank {
+            // A blank verso page suppresses all content, footnotes, running headers, and page numbers,
+            // while preserving prepress crop marks and registration marks for sheet imposition.
+            return content.finish();
+        }
+
         // Set fill color to pure DeviceCMYK black (0 0 0 1 k)
         content.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
 
@@ -885,6 +892,7 @@ mod tests {
                 lines,
             }],
             break_token: None,
+            is_blank: false,
         }
     }
 
@@ -1252,6 +1260,7 @@ mod tests {
                 },
             ],
             break_token: None,
+            is_blank: false,
         };
 
         let options = PdfExportOptions {

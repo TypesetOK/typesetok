@@ -917,6 +917,27 @@ impl TypesettingEngine {
             ),
             frames: vec![frame],
             break_token,
+            is_blank: false,
+        }
+    }
+
+    /// Creates an intentionally injected blank page (Blank Verso Page).
+    ///
+    /// Preserves strict page number synchronization (gematria counter advances continuously),
+    /// while containing no body text frames and suppressing running headers and folios.
+    fn new_blank_page(&self, page_num: usize) -> PageLayoutBox {
+        PageLayoutBox {
+            page_index: page_num - 1,
+            page_number_gematria: GematriaEngine::to_hebrew_numeral(page_num),
+            dimensions: PhysicalRect::new(
+                0.0,
+                0.0,
+                self.config.page_width_pt,
+                self.config.page_height_pt,
+            ),
+            frames: Vec::new(),
+            break_token: None,
+            is_blank: true,
         }
     }
 
@@ -1125,16 +1146,36 @@ impl TypesettingEngine {
         let mut prev_space_after: f32 = 0.0;
         let mut prev_section_idx: Option<usize> = None;
 
+        let doc_forces_odd_sections = doc.metadata.document_settings.as_ref().is_some_and(|s| {
+            s.get("chaptersStartOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
+                || s.get("startSectionsOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
+                || s.get("forceOddPageOnSections").and_then(|v| v.as_bool()).unwrap_or(false)
+        });
+
         for (&(sec_idx, p_idx, p), p_lines) in jobs.iter().zip(laid_out) {
-            if prev_section_idx != Some(sec_idx) {
+            let is_new_section = prev_section_idx != Some(sec_idx);
+            if is_new_section {
                 prev_section_idx = Some(sec_idx);
                 prev_space_after = 0.0;
             }
 
-            let (keep_with_next, orphan_control, widow_control, space_before, space_after) = doc
-                .paragraph_styles
-                .iter()
-                .find(|s| s.id == p.style_id)
+            let sec = doc.sections.get(sec_idx);
+            let sec_starts_on_odd = sec.is_some_and(|s| {
+                s.start_on_odd_page
+                    || s.page_break_mode == tok_core::overrides::PageBreakMode::OddPage
+                    || doc_forces_odd_sections
+            });
+
+            let style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
+            let style_forces_odd = style.is_some_and(|s| {
+                s.force_odd_page || s.break_before == tok_core::overrides::PageBreakMode::OddPage
+            });
+
+            let force_odd_before = p.has_forced_odd_page_break_before()
+                || style_forces_odd
+                || (is_new_section && p_idx == 0 && sec_idx > 0 && sec_starts_on_odd);
+
+            let (keep_with_next, orphan_control, widow_control, space_before, space_after) = style
                 .map(|style| {
                     (
                         style.keep_with_next,
@@ -1162,6 +1203,16 @@ impl TypesettingEngine {
                     .and_then(|byte| p.text.get(..byte))
                     .map_or(0, |s| s.chars().count());
 
+                let line_forces_odd = l_idx == 0 && force_odd_before;
+                let line_forces_page_break = l_idx == 0
+                    && (p.has_forced_page_break_before()
+                        || (is_new_section
+                            && p_idx == 0
+                            && sec_idx > 0
+                            && sec.is_some_and(|s| {
+                                s.page_break_mode == tok_core::overrides::PageBreakMode::Page
+                            })));
+
                 pagination_inputs.push(PaginationLineInput {
                     line,
                     section_idx: sec_idx,
@@ -1179,12 +1230,13 @@ impl TypesettingEngine {
                     },
                     space_after,
                     char_offset,
-                    force_page_break_before: p.has_forced_page_break_before(),
+                    force_page_break_before: line_forces_page_break,
                     force_page_break_after: p.has_forced_page_break_after(),
                     keep_lines_together: p
                         .overrides
                         .as_ref()
                         .is_some_and(|o| o.keep_lines_together),
+                    force_odd_page_break_before: line_forces_odd,
                 });
             }
             prev_space_after = space_after;
@@ -1195,14 +1247,18 @@ impl TypesettingEngine {
 
         let mut pages = Vec::new();
         for (page_idx, slice) in slices.into_iter().enumerate() {
-            let page = self.new_page(
-                page_idx + 1,
-                content_width,
-                slice.total_height,
-                slice.lines,
-                slice.break_token,
-                flow_id,
-            );
+            let page = if slice.is_blank {
+                self.new_blank_page(page_idx + 1)
+            } else {
+                self.new_page(
+                    page_idx + 1,
+                    content_width,
+                    slice.total_height,
+                    slice.lines,
+                    slice.break_token,
+                    flow_id,
+                )
+            };
             pages.push(page);
         }
 
@@ -1496,21 +1552,41 @@ impl TypesettingEngine {
         let mut prev_section_idx: Option<usize> = None;
         let mut first_affected_line_idx: Option<usize> = None;
 
+        let doc_forces_odd_sections = doc.metadata.document_settings.as_ref().is_some_and(|s| {
+            s.get("chaptersStartOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
+                || s.get("startSectionsOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
+                || s.get("forceOddPageOnSections").and_then(|v| v.as_bool()).unwrap_or(false)
+        });
+
         for (job_idx, (&(sec_idx, p_idx, p), p_lines)) in jobs.iter().zip(&laid_out).enumerate() {
             let is_modified = misses.iter().any(|(m_idx, _, _)| *m_idx == job_idx);
             if is_modified && first_affected_line_idx.is_none() {
                 first_affected_line_idx = Some(pagination_inputs.len());
             }
 
-            if prev_section_idx != Some(sec_idx) {
+            let is_new_section = prev_section_idx != Some(sec_idx);
+            if is_new_section {
                 prev_section_idx = Some(sec_idx);
                 prev_space_after = 0.0;
             }
 
-            let (keep_with_next, orphan_control, widow_control, space_before, space_after) = doc
-                .paragraph_styles
-                .iter()
-                .find(|s| s.id == p.style_id)
+            let sec = doc.sections.get(sec_idx);
+            let sec_starts_on_odd = sec.is_some_and(|s| {
+                s.start_on_odd_page
+                    || s.page_break_mode == tok_core::overrides::PageBreakMode::OddPage
+                    || doc_forces_odd_sections
+            });
+
+            let style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
+            let style_forces_odd = style.is_some_and(|s| {
+                s.force_odd_page || s.break_before == tok_core::overrides::PageBreakMode::OddPage
+            });
+
+            let force_odd_before = p.has_forced_odd_page_break_before()
+                || style_forces_odd
+                || (is_new_section && p_idx == 0 && sec_idx > 0 && sec_starts_on_odd);
+
+            let (keep_with_next, orphan_control, widow_control, space_before, space_after) = style
                 .map(|style| {
                     (
                         style.keep_with_next,
@@ -1538,6 +1614,16 @@ impl TypesettingEngine {
                     .and_then(|byte| p.text.get(..byte))
                     .map_or(0, |s| s.chars().count());
 
+                let line_forces_odd = l_idx == 0 && force_odd_before;
+                let line_forces_page_break = l_idx == 0
+                    && (p.has_forced_page_break_before()
+                        || (is_new_section
+                            && p_idx == 0
+                            && sec_idx > 0
+                            && sec.is_some_and(|s| {
+                                s.page_break_mode == tok_core::overrides::PageBreakMode::Page
+                            })));
+
                 pagination_inputs.push(PaginationLineInput {
                     line: line.clone(),
                     section_idx: sec_idx,
@@ -1555,12 +1641,13 @@ impl TypesettingEngine {
                     },
                     space_after,
                     char_offset,
-                    force_page_break_before: p.has_forced_page_break_before(),
+                    force_page_break_before: line_forces_page_break,
                     force_page_break_after: p.has_forced_page_break_after(),
                     keep_lines_together: p
                         .overrides
                         .as_ref()
                         .is_some_and(|o| o.keep_lines_together),
+                    force_odd_page_break_before: line_forces_odd,
                 });
             }
             prev_space_after = space_after;
@@ -1572,6 +1659,7 @@ impl TypesettingEngine {
                 lines: p.frames.iter().flat_map(|f| f.lines.clone()).collect(),
                 total_height: p.frames.iter().map(|f| f.rect.height).sum(),
                 break_token: p.break_token.clone(),
+                is_blank: p.is_blank,
             })
             .collect();
 
@@ -1584,14 +1672,18 @@ impl TypesettingEngine {
 
         let mut pages = Vec::new();
         for (page_idx, slice) in slices.into_iter().enumerate() {
-            let page = self.new_page(
-                page_idx + 1,
-                content_width,
-                slice.total_height,
-                slice.lines,
-                slice.break_token,
-                flow_id,
-            );
+            let page = if slice.is_blank {
+                self.new_blank_page(page_idx + 1)
+            } else {
+                self.new_page(
+                    page_idx + 1,
+                    content_width,
+                    slice.total_height,
+                    slice.lines,
+                    slice.break_token,
+                    flow_id,
+                )
+            };
             pages.push(page);
         }
 
@@ -2819,6 +2911,7 @@ impl TypesettingEngine {
                 ),
                 frames: page_frames,
                 break_token,
+                is_blank: false,
             });
 
             current_page_num += 1;

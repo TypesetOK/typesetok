@@ -217,7 +217,13 @@ impl ParagraphNode {
     pub fn has_forced_page_break_before(&self) -> bool {
         self.overrides
             .as_ref()
-            .is_some_and(|o| o.force_page_break_before)
+            .is_some_and(|o| o.force_page_break_before || o.page_break_mode == crate::overrides::PageBreakMode::Page)
+    }
+
+    pub fn has_forced_odd_page_break_before(&self) -> bool {
+        self.overrides
+            .as_ref()
+            .is_some_and(|o| o.force_odd_page_break_before || o.page_break_mode == crate::overrides::PageBreakMode::OddPage)
     }
 
     pub fn has_forced_page_break_after(&self) -> bool {
@@ -290,6 +296,13 @@ pub struct SectionNode {
     pub expansion_flow_id: Option<FlowId>,
     #[serde(default)]
     pub anchors: crate::multi_flow_anchor::MultiFlowAnchorMap,
+    /// Force this section (e.g. Siman or Perek) to start on an odd (recto) page,
+    /// automatically injecting a blank verso page if the previous content ends on an odd page.
+    #[serde(default)]
+    pub start_on_odd_page: bool,
+    /// Detailed page break mode for this section.
+    #[serde(default)]
+    pub page_break_mode: crate::overrides::PageBreakMode,
 }
 
 impl SectionNode {
@@ -304,7 +317,27 @@ impl SectionNode {
             column_proportions: None,
             expansion_flow_id: None,
             anchors: crate::multi_flow_anchor::MultiFlowAnchorMap::default(),
+            start_on_odd_page: false,
+            page_break_mode: crate::overrides::PageBreakMode::Auto,
         }
+    }
+
+    /// Sets whether this section must start on an odd (recto) page.
+    pub fn with_start_on_odd_page(mut self, start_on_odd: bool) -> Self {
+        self.start_on_odd_page = start_on_odd;
+        if start_on_odd {
+            self.page_break_mode = crate::overrides::PageBreakMode::OddPage;
+        }
+        self
+    }
+
+    /// Sets the page break mode for this section.
+    pub fn with_page_break_mode(mut self, mode: crate::overrides::PageBreakMode) -> Self {
+        self.page_break_mode = mode;
+        if mode == crate::overrides::PageBreakMode::OddPage {
+            self.start_on_odd_page = true;
+        }
+        self
     }
 
     pub fn with_anchors(mut self, anchors: crate::multi_flow_anchor::MultiFlowAnchorMap) -> Self {

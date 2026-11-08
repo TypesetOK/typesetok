@@ -143,6 +143,9 @@ pub struct PaginationLineInput {
     pub force_page_break_before: bool,
     pub force_page_break_after: bool,
     pub keep_lines_together: bool,
+    /// Force this line/paragraph (e.g. Siman or Perek heading) to open on an odd (recto) page,
+    /// automatically injecting a blank verso page if preceding content ended on an odd page.
+    pub force_odd_page_break_before: bool,
 }
 
 impl PaginationLineInput {
@@ -168,6 +171,27 @@ pub struct PageSlice {
     pub lines: Vec<LineBox>,
     pub total_height: f32,
     pub break_token: Option<BreakToken>,
+    pub is_blank: bool,
+}
+
+impl PageSlice {
+    pub fn new(lines: Vec<LineBox>, total_height: f32, break_token: Option<BreakToken>) -> Self {
+        Self {
+            lines,
+            total_height,
+            break_token,
+            is_blank: false,
+        }
+    }
+
+    pub fn blank() -> Self {
+        Self {
+            lines: Vec::new(),
+            total_height: 0.0,
+            break_token: None,
+            is_blank: true,
+        }
+    }
 }
 
 /// Dynamic global page breaker evaluating candidate breaks with lookahead and penalty optimization.
@@ -197,6 +221,20 @@ impl GlobalPageBreaker {
     /// Breaks a flat list of positioned lines into pages, choosing break points
     /// that minimize typographic badness and penalties (preventing orphans, widows, and stranded headings).
     pub fn break_pages(&self, lines: &[PaginationLineInput]) -> Vec<PageSlice> {
+        self.break_pages_with_start_num(lines, 1)
+    }
+
+    /// Breaks a flat list of positioned lines into pages starting with a custom 1-based page number.
+    ///
+    /// When an item with `force_odd_page_break_before` is encountered (e.g. Siman or Perek heading),
+    /// this breaker checks the parity of the upcoming page. If the previous content ended on an odd page
+    /// (meaning the upcoming page would be an even Verso page), an intentional `PageSlice::blank()`
+    /// is automatically injected to guarantee that the opening heading is placed on an odd (Recto) page.
+    pub fn break_pages_with_start_num(
+        &self,
+        lines: &[PaginationLineInput],
+        start_page_num: usize,
+    ) -> Vec<PageSlice> {
         if lines.is_empty() {
             return Vec::new();
         }
@@ -205,6 +243,17 @@ impl GlobalPageBreaker {
         let mut start_idx = 0;
 
         while start_idx < lines.len() {
+            // Check if upcoming line requests opening on an odd (recto) page
+            let upcoming_item = &lines[start_idx];
+            if upcoming_item.line_in_paragraph == 0 && upcoming_item.force_odd_page_break_before {
+                let upcoming_page_num = start_page_num + pages.len();
+                if upcoming_page_num % 2 == 0 {
+                    // Even page = Verso. A section/chapter forced to an odd page cannot start on Verso.
+                    // Inject a Blank Verso Page to advance to the next Recto (odd) page.
+                    pages.push(PageSlice::blank());
+                }
+            }
+
             let (end_idx, total_height) = self.find_best_page_break(&lines[start_idx..]);
             let page_lines_input = &lines[start_idx..start_idx + end_idx];
 
@@ -280,6 +329,7 @@ impl GlobalPageBreaker {
                 lines: page_lines,
                 total_height,
                 break_token,
+                is_blank: false,
             });
 
             start_idx += end_idx;
@@ -310,7 +360,7 @@ impl GlobalPageBreaker {
         let mut prev_was_drop_cap_for_para: Option<usize> = None;
 
         for (idx, item) in remaining.iter().enumerate() {
-            if idx > 0 && item.line_in_paragraph == 0 && item.force_page_break_before {
+            if idx > 0 && item.line_in_paragraph == 0 && (item.force_page_break_before || item.force_odd_page_break_before) {
                 // Forced break immediately before this line!
                 break;
             }
@@ -621,6 +671,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             })
             .collect::<Vec<_>>();
 
@@ -659,6 +710,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             });
         }
         // H1: 1 line heading
@@ -678,6 +730,7 @@ mod tests {
             force_page_break_before: false,
             force_page_break_after: false,
             keep_lines_together: false,
+            force_odd_page_break_before: false,
         });
         // P2: 3 lines
         for i in 0..3 {
@@ -697,6 +750,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             });
         }
 
@@ -736,6 +790,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             });
         }
         for i in 0..3 {
@@ -755,6 +810,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             });
         }
 
@@ -794,6 +850,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             });
         }
         for i in 0..3 {
@@ -813,6 +870,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             });
         }
 
@@ -844,6 +902,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             },
             PaginationLineInput {
                 line: make_test_line(1, 30.0),
@@ -861,6 +920,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             },
         ];
 
@@ -892,6 +952,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             },
             PaginationLineInput {
                 line: make_test_line(1, 30.0),
@@ -909,6 +970,7 @@ mod tests {
                 force_page_break_before: true,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             },
         ];
 
@@ -937,6 +999,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: true,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             },
             PaginationLineInput {
                 line: make_test_line(1, 30.0),
@@ -954,6 +1017,7 @@ mod tests {
                 force_page_break_before: false,
                 force_page_break_after: false,
                 keep_lines_together: false,
+                force_odd_page_break_before: false,
             },
         ];
 
@@ -963,5 +1027,135 @@ mod tests {
             2,
             "Forced break after must terminate page immediately"
         );
+    }
+
+    #[test]
+    fn test_global_page_breaker_forced_odd_page_injects_blank_verso() {
+        let breaker = GlobalPageBreaker::new(100.0);
+
+        // Case 1: P1 fits on page 1 (odd). P2 forces odd page break before.
+        // Page 1 is odd. The next page would be page 2 (even/verso).
+        // Breaker must inject Page 2 as a blank verso page, and place P2 on Page 3 (odd/recto).
+        let inputs = vec![
+            PaginationLineInput {
+                line: make_test_line(0, 40.0),
+                section_idx: 0,
+                paragraph_idx: 0,
+                paragraph_id: Some(NodeId::new()),
+                line_in_paragraph: 0,
+                total_lines_in_paragraph: 1,
+                keep_with_next: false,
+                orphan_control: 1,
+                widow_control: 1,
+                space_before: 0.0,
+                space_after: 0.0,
+                char_offset: 0,
+                force_page_break_before: false,
+                force_page_break_after: false,
+                keep_lines_together: false,
+                force_odd_page_break_before: false,
+            },
+            PaginationLineInput {
+                line: make_test_line(1, 40.0),
+                section_idx: 1,
+                paragraph_idx: 0,
+                paragraph_id: Some(NodeId::new()),
+                line_in_paragraph: 0,
+                total_lines_in_paragraph: 1,
+                keep_with_next: false,
+                orphan_control: 1,
+                widow_control: 1,
+                space_before: 0.0,
+                space_after: 0.0,
+                char_offset: 0,
+                force_page_break_before: false,
+                force_page_break_after: false,
+                keep_lines_together: false,
+                force_odd_page_break_before: true,
+            },
+        ];
+
+        let pages = breaker.break_pages(&inputs);
+        assert_eq!(pages.len(), 3, "Expected Page 1 (content), Page 2 (blank verso), Page 3 (content)");
+        assert!(!pages[0].is_blank);
+        assert_eq!(pages[0].lines.len(), 1);
+        assert_eq!(pages[0].lines[0].text, "line 0");
+
+        assert!(pages[1].is_blank, "Page 2 must be an injected blank verso page");
+        assert!(pages[1].lines.is_empty(), "Blank verso page must have no text lines");
+
+        assert!(!pages[2].is_blank);
+        assert_eq!(pages[2].lines.len(), 1);
+        assert_eq!(pages[2].lines[0].text, "line 1");
+
+        // Case 2: P1 spans across 2 pages (Page 1 and Page 2).
+        // Since content ends on Page 2 (even/verso), the next consecutive page is Page 3 (odd/recto).
+        // No blank page should be injected!
+        let inputs_two_pages = vec![
+            // Page 1 line
+            PaginationLineInput {
+                line: make_test_line(0, 80.0),
+                section_idx: 0,
+                paragraph_idx: 0,
+                paragraph_id: Some(NodeId::new()),
+                line_in_paragraph: 0,
+                total_lines_in_paragraph: 2,
+                keep_with_next: false,
+                orphan_control: 1,
+                widow_control: 1,
+                space_before: 0.0,
+                space_after: 0.0,
+                char_offset: 0,
+                force_page_break_before: false,
+                force_page_break_after: false,
+                keep_lines_together: false,
+                force_odd_page_break_before: false,
+            },
+            // Page 2 line (overflows page 1 because 80 + 80 > 100)
+            PaginationLineInput {
+                line: make_test_line(1, 80.0),
+                section_idx: 0,
+                paragraph_idx: 0,
+                paragraph_id: Some(NodeId::new()),
+                line_in_paragraph: 1,
+                total_lines_in_paragraph: 2,
+                keep_with_next: false,
+                orphan_control: 1,
+                widow_control: 1,
+                space_before: 0.0,
+                space_after: 0.0,
+                char_offset: 0,
+                force_page_break_before: false,
+                force_page_break_after: false,
+                keep_lines_together: false,
+                force_odd_page_break_before: false,
+            },
+            // Section 2 line: forced odd page break
+            PaginationLineInput {
+                line: make_test_line(2, 40.0),
+                section_idx: 1,
+                paragraph_idx: 0,
+                paragraph_id: Some(NodeId::new()),
+                line_in_paragraph: 0,
+                total_lines_in_paragraph: 1,
+                keep_with_next: false,
+                orphan_control: 1,
+                widow_control: 1,
+                space_before: 0.0,
+                space_after: 0.0,
+                char_offset: 0,
+                force_page_break_before: false,
+                force_page_break_after: false,
+                keep_lines_together: false,
+                force_odd_page_break_before: true,
+            },
+        ];
+
+        let pages2 = breaker.break_pages(&inputs_two_pages);
+        assert_eq!(pages2.len(), 3, "Expected Page 1, Page 2, Page 3 without blank insertion");
+        assert!(!pages2[0].is_blank);
+        assert!(!pages2[1].is_blank);
+        assert!(!pages2[2].is_blank);
+        assert_eq!(pages2[2].lines[0].text, "line 2");
     }
 }

@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+/// Target page parity mode for forced page breaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PageBreakMode {
+    /// Natural pagination flow without forced page break.
+    #[default]
+    Auto,
+    /// Force break to the next page.
+    Page,
+    /// Force break to the next odd (recto) page, injecting a blank verso page if needed.
+    OddPage,
+    /// Force break to the next even (verso) page.
+    EvenPage,
+}
+
 /// Manual typographic lock overrides specified by the user or editor.
 ///
 /// Ensures that manual editorial interventions (e.g., custom line breaks,
@@ -18,6 +32,15 @@ pub struct LayoutLockOverrides {
     /// Force a page break immediately after this paragraph.
     #[serde(default)]
     pub force_page_break_after: bool,
+
+    /// Force this paragraph (e.g. Siman / Perek opening) to open on an odd (recto) page,
+    /// automatically injecting a blank verso page if preceding content ended on an odd page.
+    #[serde(default)]
+    pub force_odd_page_break_before: bool,
+
+    /// Fine-grained page break mode before this paragraph.
+    #[serde(default)]
+    pub page_break_mode: PageBreakMode,
 
     /// Character offsets in paragraph text where line breaks are manually locked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -48,6 +71,15 @@ impl LayoutLockOverrides {
     pub fn page_break_before() -> Self {
         Self {
             force_page_break_before: true,
+            page_break_mode: PageBreakMode::Page,
+            ..Default::default()
+        }
+    }
+
+    pub fn odd_page_break_before() -> Self {
+        Self {
+            force_odd_page_break_before: true,
+            page_break_mode: PageBreakMode::OddPage,
             ..Default::default()
         }
     }
@@ -89,6 +121,10 @@ mod tests {
         let pb = LayoutLockOverrides::page_break_before().with_locked_breaks(vec![15, 30]);
         assert!(pb.force_page_break_before);
         assert_eq!(pb.locked_line_breaks, vec![15, 30]);
+
+        let odd_pb = LayoutLockOverrides::odd_page_break_before();
+        assert!(odd_pb.force_odd_page_break_before);
+        assert_eq!(odd_pb.page_break_mode, PageBreakMode::OddPage);
     }
 
     #[test]
@@ -97,6 +133,8 @@ mod tests {
             keep_lines_together: true,
             force_page_break_before: true,
             force_page_break_after: false,
+            force_odd_page_break_before: true,
+            page_break_mode: PageBreakMode::OddPage,
             locked_line_breaks: vec![10, 25],
             manual_leading_offset_pt: 2.5,
             is_frozen: false,

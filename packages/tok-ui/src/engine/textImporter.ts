@@ -1025,6 +1025,406 @@ function advanceAndFormatListMarker(
 }
 
 /**
+ * Parses `word/styles.xml` into a registry of resolved paragraph and character style definitions.
+ * Handles style inheritance (`<w:basedOn>`), paragraph properties, and character formatting.
+ */
+export function parseDocxStylesXml(stylesXml?: string): Map<string, DocxStyleDefinition> {
+  const map = new Map<string, DocxStyleDefinition>();
+  if (!stylesXml) return map;
+
+  const styleRegex = /<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g;
+  let sMatch: RegExpExecArray | null;
+
+  while ((sMatch = styleRegex.exec(stylesXml)) !== null) {
+    const attrs = sMatch[1] || '';
+    const body = sMatch[2] || '';
+
+    const idMatch = /w:styleId="([^"]+)"/i.exec(attrs);
+    if (!idMatch) continue;
+    const id = idMatch[1];
+
+    const typeMatch = /w:type="([^"]+)"/i.exec(attrs);
+    const typeStr = typeMatch ? typeMatch[1].toLowerCase() : 'paragraph';
+    const type: 'paragraph' | 'character' | 'table' | 'numbering' =
+      typeStr === 'character' ? 'character' :
+      typeStr === 'table' ? 'table' :
+      typeStr === 'numbering' ? 'numbering' : 'paragraph';
+
+    const isDefault = /w:default="(?:1|true)"/i.test(attrs);
+
+    const nameMatch = /<w:name\b[^>]*?w:val="([^"]+)"/i.exec(body);
+    const name = nameMatch ? decodeXmlEntities(nameMatch[1]) : id;
+
+    const basedOnMatch = /<w:basedOn\b[^>]*?w:val="([^"]+)"/i.exec(body);
+    const basedOn = basedOnMatch ? basedOnMatch[1] : undefined;
+
+    const nextMatch = /<w:next\b[^>]*?w:val="([^"]+)"/i.exec(body);
+    const nextStyleId = nextMatch ? nextMatch[1] : undefined;
+
+    // Parse paragraph properties <w:pPr>
+    const pPrMatch = /<w:pPr\b[^>]*>([\s\S]*?)<\/w:pPr>/i.exec(body);
+    const pPrXml = pPrMatch ? pPrMatch[1] : '';
+    const paragraphPatch: ParagraphStylePatch = {};
+
+    if (pPrXml) {
+      // Alignment <w:jc w:val="..."/>
+      const jcMatch = /<w:jc\b[^>]*?w:val="([^"]+)"/i.exec(pPrXml);
+      if (jcMatch) {
+        const jc = jcMatch[1].toLowerCase();
+        if (jc === 'center') paragraphPatch.alignment = 'Center';
+        else if (jc === 'both' || jc === 'distribute' || jc === 'thaidistribute') paragraphPatch.alignment = 'Justified';
+        else if (jc === 'left' || jc === 'end') paragraphPatch.alignment = 'Left';
+        else if (jc === 'right' || jc === 'start') paragraphPatch.alignment = 'Right';
+      }
+
+      // Direction <w:bidi/>
+      if (/<w:bidi(?:\s|\/|>)/.test(pPrXml) && !/<w:bidi\s+w:val="(?:0|false)"/i.test(pPrXml)) {
+        paragraphPatch.direction = 'Rtl';
+      }
+
+      // Indentation <w:ind .../>
+      const indMatch = /<w:ind\b([^>]*)\/?>/i.exec(pPrXml);
+      if (indMatch) {
+        const indAttrs = indMatch[1];
+        const startDxa = /(?:w:start|w:right|w:left)="(\d+)"/i.exec(indAttrs);
+        const firstLineDxa = /w:firstLine="(\d+)"/i.exec(indAttrs);
+        const endDxa = /(?:w:end|w:right)="(\d+)"/i.exec(indAttrs);
+        if (startDxa) {
+          paragraphPatch.indentStartPt = Math.round((parseInt(startDxa[1], 10) / 20) * 10) / 10;
+        }
+        if (firstLineDxa) {
+          paragraphPatch.firstLineIndentPt = Math.round((parseInt(firstLineDxa[1], 10) / 20) * 10) / 10;
+        }
+        if (endDxa) {
+          paragraphPatch.indentEndPt = Math.round((parseInt(endDxa[1], 10) / 20) * 10) / 10;
+        }
+      }
+
+      // Spacing <w:spacing .../>
+      const spMatch = /<w:spacing\b([^>]*)\/?>/i.exec(pPrXml);
+      if (spMatch) {
+        const spAttrs = spMatch[1];
+        const beforeMatch = /w:before="(\d+)"/i.exec(spAttrs);
+        const afterMatch = /w:after="(\d+)"/i.exec(spAttrs);
+        const lineMatch = /w:line="(\d+)"/i.exec(spAttrs);
+        if (beforeMatch) {
+          paragraphPatch.spaceBeforePt = Math.round((parseInt(beforeMatch[1], 10) / 20) * 10) / 10;
+        }
+        if (afterMatch) {
+          paragraphPatch.spaceAfterPt = Math.round((parseInt(afterMatch[1], 10) / 20) * 10) / 10;
+        }
+        if (lineMatch) {
+          paragraphPatch.lineHeightPt = Math.round((parseInt(lineMatch[1], 10) / 20) * 10) / 10;
+        }
+      }
+    }
+
+    // Parse run/character properties <w:rPr>
+    const rPrMatch = /<w:rPr\b[^>]*>([\s\S]*?)<\/w:rPr>/i.exec(body);
+    const rPrXml = rPrMatch ? rPrMatch[1] : '';
+    const characterFormat: CharacterFormat = {};
+
+    if (rPrXml) {
+      // Font family
+      const fontsMatch = /<w:rFonts\b([^>]*)\/?>/i.exec(rPrXml);
+      if (fontsMatch) {
+        const fontAttrs = fontsMatch[1];
+        const csFont = /w:cs="([^"]+)"/i.exec(fontAttrs);
+        const asciiFont = /w:ascii="([^"]+)"/i.exec(fontAttrs);
+        const hAnsiFont = /w:hAnsi="([^"]+)"/i.exec(fontAttrs);
+        const family = csFont ? csFont[1] : (asciiFont ? asciiFont[1] : (hAnsiFont ? hAnsiFont[1] : undefined));
+        if (family) {
+          characterFormat.fontFamily = decodeXmlEntities(family);
+          paragraphPatch.fontFamily = characterFormat.fontFamily;
+        }
+      }
+
+      // Bold
+      if (/<w:b(?:\s|\/|>)/.test(rPrXml) && !/<w:b\s+w:val="(?:0|false|none)"/i.test(rPrXml)) {
+        characterFormat.fontWeight = 700;
+        paragraphPatch.fontWeight = 700;
+      }
+
+      // Italic
+      if (/<w:i(?:\s|\/|>)/.test(rPrXml) && !/<w:i\s+w:val="(?:0|false|none)"/i.test(rPrXml)) {
+        characterFormat.italic = true;
+      }
+
+      // Underline
+      if (/<w:u(?:\s|\/|>)/.test(rPrXml) && !/<w:u\s+w:val="(?:0|false|none)"/i.test(rPrXml)) {
+        characterFormat.underline = true;
+      }
+
+      // Font size (sz in half-points)
+      const szMatch = /<w:(?:sz|szCs)\b[^>]*?w:val="(\d+)"/i.exec(rPrXml);
+      if (szMatch) {
+        const pt = Math.round((parseInt(szMatch[1], 10) / 2) * 10) / 10;
+        characterFormat.fontSizePt = pt;
+        paragraphPatch.fontSizePt = pt;
+      }
+
+      // Color
+      const colorMatch = /<w:color\b[^>]*?w:val="([0-9a-fA-F]{6}|auto)"/i.exec(rPrXml);
+      if (colorMatch && colorMatch[1].toLowerCase() !== 'auto') {
+        characterFormat.color = `#${colorMatch[1]}`;
+        paragraphPatch.color = characterFormat.color;
+      }
+    }
+
+    map.set(id, {
+      id,
+      name,
+      type,
+      isDefault,
+      basedOn,
+      nextStyleId,
+      paragraphPatch,
+      characterFormat
+    });
+  }
+
+  // Resolve inheritance: merge basedOn recursively
+  const resolved = new Map<string, DocxStyleDefinition>();
+  function resolveDef(styleId: string, visited: Set<string>): DocxStyleDefinition | undefined {
+    if (visited.has(styleId)) return map.get(styleId);
+    visited.add(styleId);
+    const def = map.get(styleId);
+    if (!def) return undefined;
+    if (resolved.has(styleId)) return resolved.get(styleId);
+
+    let mergedParagraphPatch = { ...def.paragraphPatch };
+    let mergedCharacterFormat = { ...def.characterFormat };
+
+    if (def.basedOn && map.has(def.basedOn)) {
+      const base = resolveDef(def.basedOn, visited);
+      if (base) {
+        mergedParagraphPatch = { ...base.paragraphPatch, ...def.paragraphPatch };
+        mergedCharacterFormat = { ...base.characterFormat, ...def.characterFormat };
+      }
+    }
+
+    const mergedDef: DocxStyleDefinition = {
+      ...def,
+      paragraphPatch: mergedParagraphPatch,
+      characterFormat: mergedCharacterFormat
+    };
+    resolved.set(styleId, mergedDef);
+    return mergedDef;
+  }
+
+  for (const styleId of map.keys()) {
+    resolveDef(styleId, new Set());
+  }
+
+  return resolved;
+}
+
+/**
+ * Maps a DOCX style identifier and name to a canonical TypesetOK style ID or preserves custom styles.
+ */
+export function mapDocxStyleId(styleVal: string, styleName?: string): string {
+  const normVal = (styleVal || '').toLowerCase().trim();
+  const normName = (styleName || '').toLowerCase().trim();
+  const matches = (target: string) => normVal.includes(target) || normName.includes(target);
+
+  if (
+    matches('heading 1') ||
+    matches('heading1') ||
+    normVal === '1' ||
+    matches('כותרת 1') ||
+    matches('כותרת1') ||
+    matches('title') ||
+    matches('כותרת ראשית')
+  ) {
+    return 'heading-1';
+  }
+  if (
+    matches('heading 2') ||
+    matches('heading2') ||
+    normVal === '2' ||
+    matches('כותרת 2') ||
+    matches('כותרת2') ||
+    matches('subtitle') ||
+    matches('כותרת משנה')
+  ) {
+    return 'heading-2';
+  }
+  if (
+    matches('heading 3') ||
+    matches('heading3') ||
+    normVal === '3' ||
+    matches('כותרת 3') ||
+    matches('כותרת3')
+  ) {
+    return 'heading-3';
+  }
+  if (matches('quote') || matches('ציטוט') || matches('blockquote')) {
+    return 'blockquote';
+  }
+  if (matches('footnote') || matches('הערת שוליים') || matches('endnote') || matches('הערת סיום')) {
+    return 'style-footnotes';
+  }
+  if (matches('list') || matches('רשימה')) {
+    return 'list-item';
+  }
+  if (matches('normal') || matches('body') || matches('רגיל') || matches('גוף הטקסט')) {
+    return 'default-body';
+  }
+  return styleVal || 'default-body';
+}
+
+/**
+ * Parses a DOCX field instruction string (from `w:instr` or `w:instrText`),
+ * extracting HYPERLINK URLs, internal bookmark targets (`\l`), REF, and PAGEREF targets.
+ */
+export function parseDocxFieldInstruction(rawInstr: string): DocxFieldInfo {
+  const decoded = decodeXmlEntities(rawInstr).trim();
+  const match = /^([A-Za-z]+)\b([\s\S]*)$/i.exec(decoded);
+  if (!match) {
+    return { type: 'OTHER', isExternal: false, rawInstruction: decoded };
+  }
+  const typeUpper = match[1].toUpperCase();
+  const rest = match[2].trim();
+
+  if (typeUpper === 'HYPERLINK') {
+    let targetUrl: string | undefined;
+    let targetAnchor: string | undefined;
+    let remaining = rest;
+
+    // Sub-location bookmark flag: \l "bookmark" or \l bookmark
+    const subLocMatch = /\\l\s+["']?([^"'\s]+)["']?/i.exec(remaining);
+    if (subLocMatch) {
+      targetAnchor = subLocMatch[1];
+      remaining = remaining.replace(subLocMatch[0], ' ').trim();
+    }
+
+    // Quoted URL: "https://..." or 'https://...'
+    const quotedMatch = /(?:^|\s)["'](https?:\/\/[^"']+|mailto:[^"']+|ftp:\/\/[^"']+|www\.[^"']+|[^"'\s]+)["']/i.exec(remaining);
+    if (quotedMatch) {
+      targetUrl = quotedMatch[1];
+    } else if (remaining) {
+      // Unquoted URL
+      const unquotedMatch = /(?:^|\s)(https?:\/\/\S+|mailto:\S+|ftp:\/\/\S+|www\.\S+)/i.exec(remaining);
+      if (unquotedMatch) {
+        targetUrl = unquotedMatch[1];
+      }
+    }
+
+    if (targetAnchor && !targetUrl) {
+      targetUrl = `#${targetAnchor}`;
+    } else if (targetAnchor && targetUrl) {
+      targetUrl = `${targetUrl}#${targetAnchor}`;
+    }
+
+    const isExternal = Boolean(targetUrl && !targetUrl.startsWith('#'));
+    return {
+      type: 'HYPERLINK',
+      targetUrl: targetUrl || '#',
+      isExternal,
+      targetAnchor,
+      rawInstruction: decoded
+    };
+  }
+
+  if (typeUpper === 'REF' || typeUpper === 'PAGEREF') {
+    const bookmarkMatch = /["']?([A-Za-z0-9_#\u0590-\u05FF-]+)["']?/.exec(rest);
+    const targetAnchor = bookmarkMatch ? bookmarkMatch[1] : undefined;
+    return {
+      type: typeUpper as 'REF' | 'PAGEREF',
+      targetUrl: targetAnchor ? `#${targetAnchor}` : undefined,
+      isExternal: false,
+      targetAnchor,
+      rawInstruction: decoded
+    };
+  }
+
+  const standardTypes: Array<DocxFieldInfo['type']> = ['PAGE', 'NUMPAGES', 'DATE'];
+  const matchedType = standardTypes.find((t) => t === typeUpper) || 'OTHER';
+
+  return {
+    type: matchedType,
+    isExternal: false,
+    rawInstruction: decoded
+  };
+}
+
+interface DocxRunChunk {
+  rXml: string;
+  fieldInfo?: DocxFieldInfo;
+}
+
+/**
+ * Extracts run chunks from a `<w:p>` paragraph body preserving field elements like
+ * `<w:fldSimple>` and `<w:hyperlink>`.
+ */
+function extractParagraphRunChunks(pXml: string): DocxRunChunk[] {
+  const bodyXml = pXml.replace(/<w:pPr\b[\s\S]*?<\/w:pPr>/i, '');
+  const chunks: DocxRunChunk[] = [];
+
+  const elemRegex = /<w:(fldSimple|hyperlink|r)\b([^>]*)>([\s\S]*?)<\/w:\1>|<w:r\b([^>]*)\/>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = elemRegex.exec(bodyXml)) !== null) {
+    if (!match[1]) continue;
+    const tag = match[1];
+    const attrs = match[2] || '';
+    const inner = match[3] || '';
+
+    if (tag === 'r') {
+      chunks.push({ rXml: inner });
+    } else if (tag === 'fldSimple') {
+      const instrMatch = /w:instr="([^"]*)"/i.exec(attrs);
+      const rawInstr = instrMatch ? instrMatch[1] : '';
+      const fieldInfo = parseDocxFieldInstruction(rawInstr);
+
+      const rInnerRegex = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+      let rMatch: RegExpExecArray | null;
+      let matchedAny = false;
+      while ((rMatch = rInnerRegex.exec(inner)) !== null) {
+        matchedAny = true;
+        chunks.push({ rXml: rMatch[1], fieldInfo });
+      }
+      if (!matchedAny && inner.includes('<w:t')) {
+        chunks.push({ rXml: inner, fieldInfo });
+      }
+    } else if (tag === 'hyperlink') {
+      const anchorMatch = /w:anchor="([^"]*)"/i.exec(attrs);
+      const ridMatch = /r:id="([^"]*)"/i.exec(attrs);
+      const targetAnchor = anchorMatch ? anchorMatch[1] : undefined;
+      const targetUrl = targetAnchor ? `#${targetAnchor}` : (ridMatch ? `#${ridMatch[1]}` : '#');
+      const fieldInfo: DocxFieldInfo = {
+        type: 'HYPERLINK',
+        targetUrl,
+        isExternal: !targetUrl.startsWith('#'),
+        targetAnchor,
+        rawInstruction: `HYPERLINK "${targetUrl}"`
+      };
+
+      const rInnerRegex = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+      let rMatch: RegExpExecArray | null;
+      let matchedAny = false;
+      while ((rMatch = rInnerRegex.exec(inner)) !== null) {
+        matchedAny = true;
+        chunks.push({ rXml: rMatch[1], fieldInfo });
+      }
+      if (!matchedAny && inner.includes('<w:t')) {
+        chunks.push({ rXml: inner, fieldInfo });
+      }
+    }
+  }
+
+  if (chunks.length === 0) {
+    const rInnerRegex = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+    let rMatch: RegExpExecArray | null;
+    while ((rMatch = rInnerRegex.exec(bodyXml)) !== null) {
+      chunks.push({ rXml: rMatch[1] });
+    }
+  }
+
+  return chunks;
+}
+
+/**
  * Finds top-level `<w:p>` and `<w:tbl>` blocks in document order without matching `<w:p>` inside `<w:tbl>` twice.
  */
 function extractTopLevelBodyBlocks(xml: string): Array<{ type: 'p' | 'tbl'; xml: string }> {
@@ -1105,7 +1505,9 @@ function extractDirectSubElements(xml: string, tagName: 'tr' | 'tc'): string[] {
 }
 
 /**
- * Parses a single `<w:p>` element and resolves inline footnote references.
+ * Parses a single `<w:p>` element, applying custom styles from `word/styles.xml`,
+ * resolving dynamic field links (`w:fldSimple`, `w:hyperlink`, complex fields),
+ * and linking inline footnote references.
  */
 function parseDocxParagraphElement(
   pXml: string,
@@ -1113,28 +1515,28 @@ function parseDocxParagraphElement(
   footnoteLookup: Map<string, DocxFootnoteEntry>,
   numberingRegistry: NumberingRegistry,
   numberingCounters: Map<string, number[]>,
+  styleRegistry: Map<string, DocxStyleDefinition>,
   emittedFootnotes: StoryParagraph[],
   anchorLinks: MultiFlowAnchorLink[],
+  emittedLinks: ImportedFieldLink[],
   nextFootnoteSeq: () => number
 ): StoryParagraph | null {
   let styleId = options?.defaultStyleId || 'default-body';
+  let matchedStyleDef: DocxStyleDefinition | undefined;
+
   const styleMatch = /<w:pStyle[^>]*?w:val="([^"]+)"/i.exec(pXml);
   if (styleMatch) {
-    const val = styleMatch[1].toLowerCase();
-    if (val.includes('heading1') || val.includes('heading 1') || val === '1' || val.includes('כותרת1')) {
-      styleId = 'heading-1';
-    } else if (val.includes('heading2') || val.includes('heading 2') || val === '2' || val.includes('כותרת2')) {
-      styleId = 'heading-2';
-    } else if (val.includes('heading3') || val.includes('heading 3') || val === '3' || val.includes('כותרת3')) {
-      styleId = 'heading-3';
-    } else if (val.includes('quote') || val.includes('ציטוט')) {
-      styleId = 'blockquote';
-    }
+    const rawVal = styleMatch[1].trim();
+    matchedStyleDef = styleRegistry.get(rawVal);
+    styleId = mapDocxStyleId(rawVal, matchedStyleDef?.name);
   }
 
-  const patch: ParagraphStylePatch = {};
+  // Base paragraph patch inherited from the resolved style definition
+  const patch: ParagraphStylePatch = {
+    ...(matchedStyleDef?.paragraphPatch || {})
+  };
 
-  // Paragraph alignment <w:jc w:val="..."/>
+  // Local paragraph alignment <w:jc w:val="..."/> override
   const jcMatch = /<w:jc\b[^>]*?w:val="([^"]+)"/i.exec(pXml);
   if (jcMatch) {
     const jc = jcMatch[1].toLowerCase();
@@ -1144,22 +1546,44 @@ function parseDocxParagraphElement(
     else if (jc === 'right' || jc === 'start') patch.alignment = 'Right';
   }
 
-  // Paragraph direction <w:bidi/>
+  // Local paragraph direction <w:bidi/> override
   if (/<w:bidi(?:\s|\/|>)/.test(pXml) && !/<w:bidi\s+w:val="(?:0|false)"/i.test(pXml)) {
     patch.direction = 'Rtl';
   }
 
-  // Paragraph indentation <w:ind .../>
+  // Local paragraph indentation <w:ind .../> override
   const indTagMatch = /<w:ind\b([^>]*)\/?>/i.exec(pXml);
   if (indTagMatch) {
     const indAttrs = indTagMatch[1];
     const startDxa = /(?:w:start|w:right|w:left)="(\d+)"/i.exec(indAttrs);
     const firstLineDxa = /w:firstLine="(\d+)"/i.exec(indAttrs);
+    const endDxa = /(?:w:end|w:right)="(\d+)"/i.exec(indAttrs);
     if (startDxa) {
       patch.indentStartPt = Math.round((parseInt(startDxa[1], 10) / 20) * 10) / 10;
     }
     if (firstLineDxa) {
       patch.firstLineIndentPt = Math.round((parseInt(firstLineDxa[1], 10) / 20) * 10) / 10;
+    }
+    if (endDxa) {
+      patch.indentEndPt = Math.round((parseInt(endDxa[1], 10) / 20) * 10) / 10;
+    }
+  }
+
+  // Local paragraph spacing <w:spacing .../> override
+  const spTagMatch = /<w:spacing\b([^>]*)\/?>/i.exec(pXml);
+  if (spTagMatch) {
+    const spAttrs = spTagMatch[1];
+    const beforeDxa = /w:before="(\d+)"/i.exec(spAttrs);
+    const afterDxa = /w:after="(\d+)"/i.exec(spAttrs);
+    const lineDxa = /w:line="(\d+)"/i.exec(spAttrs);
+    if (beforeDxa) {
+      patch.spaceBeforePt = Math.round((parseInt(beforeDxa[1], 10) / 20) * 10) / 10;
+    }
+    if (afterDxa) {
+      patch.spaceAfterPt = Math.round((parseInt(afterDxa[1], 10) / 20) * 10) / 10;
+    }
+    if (lineDxa) {
+      patch.lineHeightPt = Math.round((parseInt(lineDxa[1], 10) / 20) * 10) / 10;
     }
   }
 
@@ -1182,11 +1606,10 @@ function parseDocxParagraphElement(
     }
   }
 
-  const rRegex = /<w:r(?:\s[^>]*)?>([\s\S]*?)<\/w:r>/g;
-  let rMatch: RegExpExecArray | null;
   let fullParaText = listPrefix;
   const spans: TextSpan[] = [];
   const pendingAnchorsForPara: Array<{ fnParaId: string; label: string }> = [];
+  const pendingLinksForPara: ImportedFieldLink[] = [];
 
   if (listPrefix) {
     spans.push({
@@ -1197,19 +1620,114 @@ function parseDocxParagraphElement(
   }
 
   const useHebrewMarkers = (options?.footnoteNumbering ?? 'hebrew') === 'hebrew';
+  const chunks = extractParagraphRunChunks(pXml);
 
-  while ((rMatch = rRegex.exec(pXml)) !== null) {
-    const rXml = rMatch[1];
+  let activeComplexField: DocxFieldInfo | undefined;
+  let collectingComplexInstr = false;
+  let complexInstrBuffer = '';
 
+  for (const chunk of chunks) {
+    const rXml = chunk.rXml;
+
+    // Complex field codes state machine (<w:fldChar>)
+    if (/<w:fldChar\b[^>]*?w:fldCharType="begin"/i.test(rXml)) {
+      collectingComplexInstr = true;
+      complexInstrBuffer = '';
+      activeComplexField = undefined;
+      continue;
+    }
+    if (collectingComplexInstr) {
+      const instrMatch = /<w:instrText\b[^>]*>([\s\S]*?)<\/w:instrText>/gi;
+      let im: RegExpExecArray | null;
+      while ((im = instrMatch.exec(rXml)) !== null) {
+        complexInstrBuffer += im[1];
+      }
+      if (/<w:fldChar\b[^>]*?w:fldCharType="separate"/i.test(rXml)) {
+        collectingComplexInstr = false;
+        activeComplexField = parseDocxFieldInstruction(complexInstrBuffer);
+      }
+      continue;
+    }
+    if (/<w:fldChar\b[^>]*?w:fldCharType="end"/i.test(rXml)) {
+      activeComplexField = undefined;
+      continue;
+    }
+
+    const effectiveField = chunk.fieldInfo || activeComplexField;
+
+    // Character style resolution from styleRegistry
+    let baseCharFormat: CharacterFormat = {};
+    let characterStyleId: string | undefined;
+    const rStyleMatch = /<w:rStyle\b[^>]*?w:val="([^"]+)"/i.exec(rXml);
+    if (rStyleMatch) {
+      const rStyleVal = rStyleMatch[1].trim();
+      characterStyleId = rStyleVal;
+      const def = styleRegistry.get(rStyleVal);
+      if (def?.characterFormat) {
+        baseCharFormat = { ...def.characterFormat };
+      }
+      if (rStyleVal.toLowerCase().includes('hyperlink') || rStyleVal.includes('קישור')) {
+        baseCharFormat.underline = true;
+        if (!baseCharFormat.color) baseCharFormat.color = '#0563C1';
+        characterStyleId = 'hyperlink';
+      }
+    }
+
+    // Direct run properties overrides
     const isBold = /<w:b(?:\s|\/|>)/.test(rXml) && !/<w:b\s+w:val="(?:0|false|none)"/i.test(rXml);
     const isItalic = /<w:i(?:\s|\/|>)/.test(rXml) && !/<w:i\s+w:val="(?:0|false|none)"/i.test(rXml);
     const isUnderline = /<w:u(?:\s|\/|>)/.test(rXml) && !/<w:u\s+w:val="(?:0|false|none)"/i.test(rXml);
+    const szMatch = /<w:(?:sz|szCs)\b[^>]*?w:val="(\d+)"/i.exec(rXml);
+    const colorMatch = /<w:color\b[^>]*?w:val="([0-9a-fA-F]{6}|auto)"/i.exec(rXml);
 
+    const fontsMatch = /<w:rFonts\b([^>]*)\/?>/i.exec(rXml);
+    let runFontFamily: string | undefined;
+    if (fontsMatch) {
+      const fontAttrs = fontsMatch[1];
+      const csFont = /w:cs="([^"]+)"/i.exec(fontAttrs);
+      const asciiFont = /w:ascii="([^"]+)"/i.exec(fontAttrs);
+      const hAnsiFont = /w:hAnsi="([^"]+)"/i.exec(fontAttrs);
+      runFontFamily = csFont ? csFont[1] : (asciiFont ? asciiFont[1] : (hAnsiFont ? hAnsiFont[1] : undefined));
+    }
+
+    const format: CharacterFormat = { ...baseCharFormat };
+    if (characterStyleId) format.characterStyleId = characterStyleId;
+    if (isBold) format.fontWeight = 700;
+    if (isItalic) format.italic = true;
+    if (isUnderline) format.underline = true;
+    if (szMatch) format.fontSizePt = Math.round((parseInt(szMatch[1], 10) / 2) * 10) / 10;
+    if (colorMatch && colorMatch[1].toLowerCase() !== 'auto') format.color = `#${colorMatch[1]}`;
+    if (runFontFamily) format.fontFamily = decodeXmlEntities(runFontFamily);
+
+    // If field instruction applies
+    if (effectiveField) {
+      if (effectiveField.type === 'HYPERLINK' && effectiveField.targetUrl) {
+        format.linkUrl = effectiveField.targetUrl;
+        if (!format.characterStyleId) format.characterStyleId = 'hyperlink';
+        if (format.underline === undefined) format.underline = true;
+        if (!format.color) format.color = '#0563C1';
+      } else if ((effectiveField.type === 'REF' || effectiveField.type === 'PAGEREF') && effectiveField.targetUrl) {
+        format.linkUrl = effectiveField.targetUrl;
+        if (!format.characterStyleId) format.characterStyleId = 'cross-reference';
+        if (format.underline === undefined) format.underline = true;
+        if (!format.color) format.color = '#0563C1';
+      } else if (['PAGE', 'NUMPAGES', 'DATE'].includes(effectiveField.type)) {
+        if (!format.characterStyleId) format.characterStyleId = `field-${effectiveField.type.toLowerCase()}`;
+      }
+    }
+
+    // Extract text from <w:t>, <w:tab/>, <w:br/>
     const tRegex = /<w:t(?:[^>]*)>([\s\S]*?)<\/w:t>/g;
     let tMatch: RegExpExecArray | null;
     let runText = '';
     while ((tMatch = tRegex.exec(rXml)) !== null) {
       runText += decodeXmlEntities(tMatch[1]);
+    }
+    if (/<w:tab(?:\s|\/|>)/.test(rXml)) {
+      runText += '\t';
+    }
+    if (/<w:br(?:\s|\/|>)/.test(rXml)) {
+      runText += '\n';
     }
 
     if (runText) {
@@ -1217,15 +1735,25 @@ function parseDocxParagraphElement(
       fullParaText += runText;
       const end = fullParaText.length;
 
-      if (isBold || isItalic || isUnderline) {
-        spans.push({
+      if (!isFormatEmpty(format)) {
+        spans.push({ start, end, format });
+      }
+
+      if (effectiveField?.targetUrl) {
+        pendingLinksForPara.push({
+          text: runText,
+          url: effectiveField.targetUrl,
+          fieldType:
+            effectiveField.type === 'HYPERLINK'
+              ? 'HYPERLINK'
+              : effectiveField.type === 'REF'
+              ? 'REF'
+              : effectiveField.type === 'PAGEREF'
+              ? 'PAGEREF'
+              : 'OTHER',
           start,
           end,
-          format: {
-            fontWeight: isBold ? 700 : undefined,
-            italic: isItalic ? true : undefined,
-            underline: isUnderline ? true : undefined
-          }
+          isExternal: effectiveField.isExternal
         });
       }
     }
@@ -1289,6 +1817,7 @@ function parseDocxParagraphElement(
   }
 
   const para = createStoryParagraph(trimmed, styleId, adjustedSpans, patch);
+
   for (const anc of pendingAnchorsForPara) {
     anchorLinks.push({
       anchorId: `anc_${para.id}_${anc.fnParaId}`,
@@ -1298,6 +1827,37 @@ function parseDocxParagraphElement(
       commentaryNodeId: anc.fnParaId,
       label: anc.label
     });
+  }
+
+  // Consolidate links for this paragraph and emit
+  if (pendingLinksForPara.length > 0) {
+    let currentLink: ImportedFieldLink | null = null;
+    for (const pl of pendingLinksForPara) {
+      const s = Math.max(0, (pl.start ?? 0) - leadSpaces);
+      const e = Math.min(trimmed.length, (pl.end ?? 0) - leadSpaces);
+      if (e <= s) continue;
+
+      if (currentLink && currentLink.url === pl.url && currentLink.end === s) {
+        currentLink.end = e;
+        currentLink.text = trimmed.slice(currentLink.start ?? 0, currentLink.end);
+      } else {
+        if (currentLink) {
+          emittedLinks.push(currentLink);
+        }
+        currentLink = {
+          paragraphId: para.id,
+          text: trimmed.slice(s, e),
+          url: pl.url,
+          fieldType: pl.fieldType,
+          start: s,
+          end: e,
+          isExternal: pl.isExternal
+        };
+      }
+    }
+    if (currentLink) {
+      emittedLinks.push(currentLink);
+    }
   }
 
   return para;
@@ -1314,9 +1874,11 @@ function parseDocxTableElement(
   footnoteLookup: Map<string, DocxFootnoteEntry>,
   numberingRegistry: NumberingRegistry,
   numberingCounters: Map<string, number[]>,
+  styleRegistry: Map<string, DocxStyleDefinition>,
   emittedFootnotes: StoryParagraph[],
   anchorLinks: MultiFlowAnchorLink[],
   emittedTables: ImportedTableData[],
+  emittedLinks: ImportedFieldLink[],
   nextFootnoteSeq: () => number
 ): { tableData: ImportedTableData; rowParagraphs: StoryParagraph[] } {
   const tblPrMatch = /<w:tblPr\b[^>]*>([\s\S]*?)<\/w:tblPr>/i.exec(tblXml);
@@ -1370,8 +1932,10 @@ function parseDocxTableElement(
             footnoteLookup,
             numberingRegistry,
             numberingCounters,
+            styleRegistry,
             emittedFootnotes,
             anchorLinks,
+            emittedLinks,
             nextFootnoteSeq
           );
           if (p && p.text) {
@@ -1395,9 +1959,11 @@ function parseDocxTableElement(
             footnoteLookup,
             numberingRegistry,
             numberingCounters,
+            styleRegistry,
             emittedFootnotes,
             anchorLinks,
             emittedTables,
+            emittedLinks,
             nextFootnoteSeq
           );
           nestedTables.push(nested.tableData);
@@ -1502,13 +2068,15 @@ function parseDocxTableElement(
 }
 
 /**
- * Parses word/document.xml (along with optional `footnotesXml` and `numberingXml`)
- * into structured StoryParagraphs, linked footnotes, tables, and hierarchical numbered lists.
+ * Parses word/document.xml (along with optional `footnotesXml`, `numberingXml`, and `stylesXml`)
+ * into structured StoryParagraphs, linked footnotes, custom styled paragraphs, field links,
+ * tables, and hierarchical numbered lists.
  */
 export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult {
-  const footnoteLookup = parseDocxFootnotesXml(options?.footnotesXml);
+  const styleRegistry = parseDocxStylesXml(options?.stylesXml);
+  const footnoteLookup = parseDocxFootnotesXml(options?.footnotesXml, styleRegistry);
   if (options?.endnotesXml) {
-    const endnotes = parseDocxFootnotesXml(options.endnotesXml);
+    const endnotes = parseDocxFootnotesXml(options.endnotesXml, styleRegistry);
     for (const [k, v] of endnotes.entries()) {
       if (!footnoteLookup.has(k)) footnoteLookup.set(k, v);
     }
@@ -1519,6 +2087,7 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
   const paragraphs: StoryParagraph[] = [];
   const emittedFootnotes: StoryParagraph[] = [];
   const emittedTables: ImportedTableData[] = [];
+  const emittedLinks: ImportedFieldLink[] = [];
   const anchorLinks: MultiFlowAnchorLink[] = [];
   let footnoteSeqCounter = 0;
   const nextFootnoteSeq = () => ++footnoteSeqCounter;
@@ -1532,8 +2101,10 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
         footnoteLookup,
         numberingRegistry,
         numberingCounters,
+        styleRegistry,
         emittedFootnotes,
         anchorLinks,
+        emittedLinks,
         nextFootnoteSeq
       );
       if (p) paragraphs.push(p);
@@ -1545,9 +2116,11 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
         footnoteLookup,
         numberingRegistry,
         numberingCounters,
+        styleRegistry,
         emittedFootnotes,
         anchorLinks,
         emittedTables,
+        emittedLinks,
         nextFootnoteSeq
       );
       paragraphs.push(...rowParagraphs);
@@ -1590,6 +2163,7 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
   const detectedDirection = detectTextDirection(allText);
   const detectedLanguage = detectTextLanguage(allText);
   const wordCount = (allText.match(/\S+/g) || []).length;
+  const stylesRecord = styleRegistry.size > 0 ? Object.fromEntries(styleRegistry.entries()) : undefined;
 
   return {
     title,
@@ -1597,6 +2171,8 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
     footnotes: emittedFootnotes.length > 0 ? emittedFootnotes : undefined,
     tables: emittedTables.length > 0 ? emittedTables : undefined,
     multiFlowAnchors: anchorLinks.length > 0 ? anchorLinks : undefined,
+    styles: stylesRecord,
+    links: emittedLinks.length > 0 ? emittedLinks : undefined,
     format: 'docx',
     detectedLanguage,
     detectedDirection,
@@ -1604,7 +2180,12 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
     paragraphCount: paragraphs.length,
     metadata: {
       footnoteCount: emittedFootnotes.length,
-      tableCount: emittedTables.length
+      tableCount: emittedTables.length,
+      styleCount: styleRegistry.size,
+      linkCount: emittedLinks.length,
+      styles: stylesRecord,
+      customStyles: stylesRecord,
+      links: emittedLinks.length > 0 ? emittedLinks : undefined
     }
   };
 }

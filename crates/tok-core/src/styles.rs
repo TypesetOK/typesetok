@@ -201,6 +201,13 @@ pub struct ParagraphStyle {
     pub keep_with_next: bool,
     pub orphan_control: u8,
     pub widow_control: u8,
+    /// Force paragraphs with this style (e.g. Siman / Perek heading) to open on an odd (recto) page,
+    /// automatically injecting a blank verso page if preceding content ended on an odd page.
+    #[serde(default)]
+    pub force_odd_page: bool,
+    /// Break mode before paragraphs of this style.
+    #[serde(default)]
+    pub break_before: crate::overrides::PageBreakMode,
     /// Optional drop cap or Hebrew opening word window.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_cap: Option<DropCapConfig>,
@@ -236,6 +243,8 @@ impl Default for ParagraphStyle {
             keep_with_next: false,
             orphan_control: 2,
             widow_control: 2,
+            force_odd_page: false,
+            break_before: crate::overrides::PageBreakMode::Auto,
             drop_cap: None,
             optical_margin: None,
             last_line_constraint: None,
@@ -295,6 +304,12 @@ impl ParagraphStyle {
         }
         if let Some(v) = &patch.opentype_features {
             self.opentype_features = Some(v.clone());
+        }
+        if let Some(v) = patch.force_odd_page {
+            self.force_odd_page = v;
+        }
+        if let Some(v) = patch.break_before {
+            self.break_before = v;
         }
     }
 }
@@ -534,6 +549,10 @@ pub struct StylePatch {
     pub last_line_constraint: Option<LastLineConstraintConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_odd_page: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_before: Option<crate::overrides::PageBreakMode>,
 }
 
 impl StylePatch {

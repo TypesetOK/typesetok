@@ -104,6 +104,16 @@ div.tok-line {{
         }
 
         for p in pages {
+            if p.is_blank {
+                writeln!(
+                    html,
+                    "<div class=\"tok-page tok-page-blank tok-page-left\" data-page-index=\"{}\"></div>",
+                    p.page_index
+                )
+                .unwrap();
+                continue;
+            }
+
             let page_class = if p.page_index == 0 {
                 "tok-page tok-page-chapter-first"
             } else if p.page_index % 2 == 0 {
@@ -215,6 +225,7 @@ mod tests {
             dimensions: PhysicalRect::a4_portrait(),
             frames: vec![frame],
             break_token: None,
+            is_blank: false,
         };
 
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
@@ -270,6 +281,7 @@ mod tests {
             dimensions: PhysicalRect::a4_portrait(),
             frames: vec![frame],
             break_token: None,
+            is_blank: false,
         };
 
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
@@ -316,6 +328,7 @@ mod tests {
                 lines: vec![line("שלום", true), line("Hello <world>", false)],
             }],
             break_token: None,
+            is_blank: false,
         };
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
         assert!(html.contains("<div class=\"tok-line\" dir=\"ltr\""));
@@ -352,6 +365,7 @@ mod tests {
                 ],
             }],
             break_token: None,
+            is_blank: false,
         };
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
         assert!(html.contains("font-family: 'Frank Ruhl Libre', 'Noto Rashi Hebrew'"));
