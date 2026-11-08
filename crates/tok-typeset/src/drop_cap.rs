@@ -201,7 +201,10 @@ impl HebrewDropCapShaper {
             font_manager.face_for(requested_family, config.font_weight.max(FONT_WEIGHT_BOLD));
         let session = font_manager.session(&font_face_name);
 
-        let (mut run, mut choice) = session.shape(&opening_text, font_size, is_rtl);
+        let drop_features =
+            crate::masoretic::MasoreticTypographyConfig::default().resolve_features_for_text(&opening_text);
+        let (mut run, mut choice) =
+            session.shape_with_features(&opening_text, font_size, is_rtl, &drop_features);
         let mut shaped_family = session
             .family_of(choice)
             .unwrap_or(&font_face_name)
@@ -239,7 +242,8 @@ impl HebrewDropCapShaper {
         let fit_scale = v_scale.min(h_scale);
         if fit_scale < 0.995 {
             font_size = (font_size * fit_scale).max(8.0);
-            let reshaped = session.shape(&opening_text, font_size, is_rtl);
+            let reshaped =
+                session.shape_with_features(&opening_text, font_size, is_rtl, &drop_features);
             run = reshaped.0;
             choice = reshaped.1;
             shaped_family = session

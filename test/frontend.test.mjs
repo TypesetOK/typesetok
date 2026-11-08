@@ -3908,3 +3908,248 @@ describe('Sections 44-47: UI Cleanups, Blue Updates Badge & Dynamic Margin Guide
     assert.ok(inspector.includes("input.value.replace(/[^0-9.]/g, '')"), 'ContextualInspector must sanitize input value');
   });
 });
+
+describe('Torah Heading Auto-Numbering Engine & IPC Integration', () => {
+  test('Hebrew Gematria formatting supports StandardPunctuation and PlainLetters', async () => {
+    const { formatHebrewGematria } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    // Standard punctuation
+    assert.equal(formatHebrewGematria(1, 'StandardPunctuation'), 'א׳');
+    assert.equal(formatHebrewGematria(2, 'StandardPunctuation'), 'ב׳');
+    assert.equal(formatHebrewGematria(10, 'StandardPunctuation'), 'י׳');
+    assert.equal(formatHebrewGematria(15, 'StandardPunctuation'), 'ט״ו');
+    assert.equal(formatHebrewGematria(16, 'StandardPunctuation'), 'ט״ז');
+    assert.equal(formatHebrewGematria(42, 'StandardPunctuation'), 'מ״ב');
+    assert.equal(formatHebrewGematria(100, 'StandardPunctuation'), 'ק׳');
+    assert.equal(formatHebrewGematria(5786, 'StandardPunctuation'), 'ה׳תשפ״ו');
+
+    // Plain letters
+    assert.equal(formatHebrewGematria(1, 'PlainLetters'), 'א');
+    assert.equal(formatHebrewGematria(15, 'PlainLetters'), 'טו');
+    assert.equal(formatHebrewGematria(16, 'PlainLetters'), 'טז');
+    assert.equal(formatHebrewGematria(42, 'PlainLetters'), 'מב');
+    assert.equal(formatHebrewGematria(5786, 'PlainLetters'), 'התשפו');
+  });
+
+  test('Torah numbering schemes format Simanim, Seifim, Otot, and Daf Amud', async () => {
+    const { formatTorahNumbering } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    assert.equal(formatTorahNumbering({ TorahSiman: 'StandardPunctuation' }, 1), 'סימן א׳');
+    assert.equal(formatTorahNumbering({ TorahSiman: 'StandardPunctuation' }, 15), 'סימן ט״ו');
+    assert.equal(formatTorahNumbering({ TorahSiman: 'PlainLetters' }, 15), 'סימן טו');
+
+    assert.equal(formatTorahNumbering({ TorahSeif: 'StandardPunctuation' }, 3), 'סעיף ג׳');
+    assert.equal(formatTorahNumbering({ TorahSeif: 'PlainLetters' }, 2), 'סעיף ב');
+
+    assert.equal(formatTorahNumbering({ TorahOt: 'StandardPunctuation' }, 4), 'אות ד׳');
+
+    assert.equal(formatTorahNumbering({ TorahDafAmud: 'StandardPunctuation' }, 1), 'דף ב׳ ע״א');
+    assert.equal(formatTorahNumbering({ TorahDafAmud: 'StandardPunctuation' }, 2), 'דף ב׳ ע״ב');
+    assert.equal(formatTorahNumbering({ TorahDafAmud: 'StandardPunctuation' }, 3), 'דף ג׳ ע״א');
+  });
+
+  test('Outline tree auto-numbering calculates Simanim and resets Seifim per Siman', async () => {
+    const {
+      getDefaultTorahOutlineNumberingConfig,
+      recalculateOutlineNumbers
+    } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    const outline = {
+      root_nodes: [
+        {
+          id: 'siman1',
+          level: 'Chapter',
+          title: 'הלכות השכמת הבוקר',
+          children: [
+            { id: 'seif1_1', level: 'Section', title: 'יתגבר כארי', children: [] },
+            { id: 'seif1_2', level: 'Section', title: 'שויתי ה׳', children: [] }
+          ]
+        },
+        {
+          id: 'siman2',
+          level: 'Chapter',
+          title: 'הלכות ציצית',
+          children: [
+            { id: 'seif2_1', level: 'Section', title: 'מצוות ציצית', children: [] },
+            { id: 'seif2_2', level: 'Section', title: 'חוטי הציצית', children: [] },
+            { id: 'seif2_3', level: 'Section', title: 'קשירת הציצית', children: [] }
+          ]
+        }
+      ]
+    };
+
+    const config = getDefaultTorahOutlineNumberingConfig('StandardPunctuation');
+    recalculateOutlineNumbers(outline, config);
+
+    assert.equal(outline.root_nodes[0].number_label, 'סימן א׳');
+    assert.equal(outline.root_nodes[0].children[0].number_label, 'סעיף א׳');
+    assert.equal(outline.root_nodes[0].children[1].number_label, 'סעיף ב׳');
+
+    assert.equal(outline.root_nodes[1].number_label, 'סימן ב׳');
+    assert.equal(outline.root_nodes[1].children[0].number_label, 'סעיף א׳');
+    assert.equal(outline.root_nodes[1].children[1].number_label, 'סעיף ב׳');
+    assert.equal(outline.root_nodes[1].children[2].number_label, 'סעיף ג׳');
+  });
+
+  test('Heading reordering dynamically updates Simanim in real time', async () => {
+    const {
+      getDefaultTorahOutlineNumberingConfig,
+      recalculateOutlineNumbers,
+      reorderOutlineNode
+    } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    const outline = {
+      root_nodes: [
+        { id: 's1', level: 'Chapter', title: 'ראשון', children: [] },
+        { id: 's2', level: 'Chapter', title: 'שני', children: [] }
+      ]
+    };
+
+    const config = getDefaultTorahOutlineNumberingConfig('StandardPunctuation');
+    recalculateOutlineNumbers(outline, config);
+
+    assert.equal(outline.root_nodes[0].title, 'ראשון');
+    assert.equal(outline.root_nodes[0].number_label, 'סימן א׳');
+    assert.equal(outline.root_nodes[1].title, 'שני');
+    assert.equal(outline.root_nodes[1].number_label, 'סימן ב׳');
+
+    // Reorder s2 to the beginning
+    const success = reorderOutlineNode(outline, 's2', null, 0, config);
+    assert.equal(success, true);
+
+    assert.equal(outline.root_nodes[0].title, 'שני');
+    assert.equal(outline.root_nodes[0].number_label, 'סימן א׳');
+    assert.equal(outline.root_nodes[1].title, 'ראשון');
+    assert.equal(outline.root_nodes[1].number_label, 'סימן ב׳');
+  });
+
+  test('Insertion and deletion of Seifim dynamically adjusts numbering sequence', async () => {
+    const {
+      getDefaultTorahOutlineNumberingConfig,
+      insertOutlineNode,
+      removeOutlineNode,
+      recalculateOutlineNumbers
+    } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    const outline = {
+      root_nodes: [
+        {
+          id: 'siman1',
+          level: 'Chapter',
+          title: 'הלכות פסח',
+          children: [
+            { id: 'seif1', level: 'Section', title: 'בדיקת חמץ', children: [] },
+            { id: 'seif2', level: 'Section', title: 'ביעור חמץ', children: [] }
+          ]
+        }
+      ]
+    };
+
+    const config = getDefaultTorahOutlineNumberingConfig('StandardPunctuation');
+    recalculateOutlineNumbers(outline, config);
+
+    assert.equal(outline.root_nodes[0].children[0].number_label, 'סעיף א׳');
+    assert.equal(outline.root_nodes[0].children[1].number_label, 'סעיף ב׳');
+
+    // Insert new intermediate seif at index 1
+    insertOutlineNode(
+      outline,
+      'siman1',
+      1,
+      { id: 'seif_new', level: 'Section', title: 'שריפת חמץ', children: [] },
+      config
+    );
+
+    assert.equal(outline.root_nodes[0].children.length, 3);
+    assert.equal(outline.root_nodes[0].children[0].number_label, 'סעיף א׳');
+    assert.equal(outline.root_nodes[0].children[1].number_label, 'סעיף ב׳');
+    assert.equal(outline.root_nodes[0].children[2].number_label, 'סעיף ג׳');
+
+    // Delete first seif
+    removeOutlineNode(outline, 'seif1', config);
+    assert.equal(outline.root_nodes[0].children.length, 2);
+    assert.equal(outline.root_nodes[0].children[0].number_label, 'סעיף א׳');
+    assert.equal(outline.root_nodes[0].children[1].number_label, 'סעיף ב׳');
+  });
+
+  test('Cycle prevention: moving node inside its own descendant is strictly rejected', async () => {
+    const {
+      getDefaultTorahOutlineNumberingConfig,
+      reorderOutlineNode
+    } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    const outline = {
+      root_nodes: [
+        {
+          id: 'siman',
+          level: 'Chapter',
+          title: 'סימן',
+          children: [
+            { id: 'seif', level: 'Section', title: 'סעיף', children: [] }
+          ]
+        }
+      ]
+    };
+
+    const config = getDefaultTorahOutlineNumberingConfig();
+    const ok = reorderOutlineNode(outline, 'siman', 'seif', 0, config);
+    assert.equal(ok, false, 'Cycle creation must be strictly rejected');
+  });
+
+  test('syncOutlineNumberingToStoryParagraphs syncs number labels to paragraph objects', async () => {
+    const {
+      getDefaultTorahOutlineNumberingConfig,
+      syncOutlineNumberingToStoryParagraphs
+    } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    const outline = {
+      root_nodes: [
+        {
+          id: 'n_chap',
+          level: 'Chapter',
+          title: 'פרק א',
+          target_paragraph_id: 'p1',
+          children: [
+            {
+              id: 'n_sec',
+              level: 'Section',
+              title: 'סעיף א',
+              target_paragraph_id: 'p2',
+              children: []
+            }
+          ]
+        }
+      ]
+    };
+
+    const paragraphs = [
+      { id: 'p1', text: 'כותרת פרק' },
+      { id: 'p2', text: 'גוף סעיף' },
+      { id: 'p3', text: 'טקסט רגיל ללא כותרת' }
+    ];
+
+    const config = getDefaultTorahOutlineNumberingConfig('StandardPunctuation');
+    const affected = syncOutlineNumberingToStoryParagraphs(outline, paragraphs, config);
+
+    assert.equal(affected.length, 2);
+    assert.equal(paragraphs[0].numberLabel, 'סימן א׳');
+    assert.equal(paragraphs[1].numberLabel, 'סעיף א׳');
+    assert.equal(paragraphs[2].numberLabel, undefined);
+  });
+
+  test('Electron IPC bridge exposes heading numbering methods', () => {
+    const preload = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/preload.ts'), 'utf-8');
+    assert.ok(preload.includes('configureHeadingNumbering:'), 'preload must define configureHeadingNumbering');
+    assert.ok(preload.includes('reorderHeading:'), 'preload must define reorderHeading');
+    assert.ok(preload.includes('insertHeading:'), 'preload must define insertHeading');
+    assert.ok(preload.includes('deleteHeading:'), 'preload must define deleteHeading');
+    assert.ok(preload.includes('recalculateHeadingNumbers:'), 'preload must define recalculateHeadingNumbers');
+
+    const main = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
+    assert.ok(main.includes("handle('tok:configure-heading-numbering'"), 'main must handle tok:configure-heading-numbering');
+    assert.ok(main.includes("handle('tok:reorder-heading'"), 'main must handle tok:reorder-heading');
+    assert.ok(main.includes("handle('tok:insert-heading'"), 'main must handle tok:insert-heading');
+    assert.ok(main.includes("handle('tok:delete-heading'"), 'main must handle tok:delete-heading');
+    assert.ok(main.includes("handle('tok:recalculate-heading-numbers'"), 'main must handle tok:recalculate-heading-numbers');
+  });
+});

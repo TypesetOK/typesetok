@@ -95,12 +95,10 @@ impl TextShaper {
         let mut total_width_pt = 0.0;
 
         for (info, pos) in infos.iter().zip(positions.iter()) {
-            let x_adv = pos.x_advance as f32 * scale;
+            let mut x_adv = pos.x_advance as f32 * scale;
             let y_adv = pos.y_advance as f32 * scale;
             let x_off = pos.x_offset as f32 * scale;
             let y_off = pos.y_offset as f32 * scale;
-
-            total_width_pt += x_adv;
 
             // rustybuzz clusters are UTF-8 byte offsets, not Unicode scalar indices.
             // A grapheme cluster holds a base letter and its marks; attribute each
@@ -119,6 +117,14 @@ impl TextShaper {
                     })
                 })
                 .or_else(|| cluster_character(text, info.cluster));
+
+            // Ensure Masoretic punctuation such as Inverted Nun (U+05C6) never collapses
+            // to zero advance width even if a font face lacks an advance for it.
+            if character == Some('\u{05C6}') && x_adv <= 0.0 {
+                x_adv = font_size_pt * 0.55;
+            }
+
+            total_width_pt += x_adv;
 
             glyphs.push(PositionedGlyph {
                 glyph_id: info.glyph_id,

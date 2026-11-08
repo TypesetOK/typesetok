@@ -5,9 +5,37 @@
 
 ---
 
+## [0.35.1] - 2026-11-08
+- **Importance**: minor
+- **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Title**: עברית: מנוע מספור אוטומטי של כותרות תורניות, סימנים וסעיפים וחיבור IPC מלא | en: Automatic Torah Heading & Simanim Numbering Engine with Full IPC Integration
+- **Summary**: עברית: השלמת מנוע המספור האוטומטי לכותרות תורניות: חיבור ישיר בין סכמות המספור של הליבה (סימן, סעיף, אות, דף ועמוד) לעץ הכותרות (DocumentHierarchyNode ו-ParagraphNode), עדכון דינמי בזמן אמת של מספור הסימנים והסעיפים בעת שינוי סדר כותרות, הוספה או מחיקה, תמיכה מלאה בגימטריה מסורתית מול אותיות נקיות, וחשיפת שליטה מלאה ב-IPC לממשק המשתמש. | en: Completion of automatic Torah heading numbering engine: direct integration between core numbering schemes (Siman, Seif, Ot, Daf/Amud) and document hierarchy tree (DocumentHierarchyNode and ParagraphNode), real-time dynamic renumbering upon reordering, inserting, or deleting headings, full support for standard punctuation vs plain gematria letters, and complete IPC bridge exposure for desktop UI.
+
+### Highlights
+- [torah-auto-numbering] icon: layers | badge: עברית: מספור תורני, en: Torah Numbering
+  - Title: עברית: מספור אוטומטי דינמי של סימנים, סעיפים ואותיות | en: Dynamic Automatic Numbering for Simanim, Se'ifim & Otot
+  - Description: עברית: שילוב ישיר בין סכמות המספור בליבת Rust לבין עץ הכותרות והפסקאות (DocumentHierarchyNode ו-ParagraphNode) עם עדכון מיידי של כל הסימנים והסעיפים. | en: Direct integration between Rust core numbering schemes and document hierarchy/paragraph tree with instant renumbering across all subdivisions.
+- [heading-reordering] icon: check | badge: עברית: שינוי סדר חי, en: Live Reordering
+  - Title: עברית: עדכון דינמי בזמן אמת בשינוי סדר, הוספה ומחיקה | en: Real-Time Dynamic Renumbering on Reorder, Insert & Delete
+  - Description: עברית: שינוי סדר כותרות, הוספת סעיף ביניים או מחיקה מעדכנים מיידית את רצף המספור ללא צורך בעריכה ידנית, כולל מניעת לולאות היררכיות. | en: Moving headings, inserting intermediate clauses, or deleting nodes updates numbering sequence immediately without manual edits, with cycle prevention.
+- [ipc-full-control] icon: code | badge: עברית: שליטת IPC, en: Full IPC Control
+  - Title: עברית: חשיפת שליטה מלאה ב-IPC ובממשק המשתמש | en: Comprehensive IPC Control & Bridge for Desktop UI
+  - Description: עברית: פקודות ואירועי IPC ייעודיים (ConfigureHeadingNumbering, ReorderHeadingNode, InsertHeadingNode, DeleteHeadingNode, RecalculateHeadingNumbers) מחוברים ל-Electron ול-UI. | en: Dedicated IPC commands and events exposed in Rust core, framed binary IPC, Electron main/preload bridge, and UI client bridge.
+
+### Changes
+- [features] עברית: טיפוגרפיה מסורתית, ניקוד וטעמים: תמיכה מלאה באותיות זעירות, רבתי ותלויות בשני מסלולים (סגנון תו CharacterStyle עם יחס גודל גופן והזחת קו בסיס, לצד הפעלת תכונות OpenType ייעודיות cvXX/ssXX/titl/smcp/sups בגופנים תורניים) | en: Traditional typography: Literae Majusculae, Minusculae, and Suspensae via CharacterStyle scaling & baseline shift and OpenType features (titl/smcp/sups/cvXX/ssXX)
+- [features] עברית: תמיכה ורינדור תקני של נו"ן הפוכה (U+05C6 Hebrew Punctuation Nun Hafukha) במנוע העימוד rustybuzz, מניעת קריסת רוחב ושימור בטבלת /ToUnicode ב-PDF | en: Compliant rendering and shaping of Inverted Nun (U+05C6) via rustybuzz, non-zero advance preservation, and PDF /ToUnicode mapping
+- [features] עברית: העברת תגי OpenType ייעודיים (calt, ss01, ss04, ss02) ל-rustybuzz עבור טעמי מקרא נדירים (שלשלת, קרני פרה, ירח בן יומו, מירכא כפולה, תלישא גדולה) וטעמי אמ"ת בספרי השירה | en: Automatic routing of OpenType features (calt, ss01, ss04, ss02) to rustybuzz for rare cantillation marks and poetic Sifrei Emet accents
+- [features] עברית: חיבור מלא בין סכמות מספור תורניות (TorahSiman, TorahSeif, TorahOt) לעץ הכותרות DocumentHierarchyNode ולפסקאות ParagraphNode | en: Full connection between Torah numbering schemes and DocumentHierarchyNode/ParagraphNode tree
+- [features] עברית: עדכון דינמי בזמן אמת של מספור הסימנים והסעיפים בעת שינוי סדר כותרות (Heading Reordering), הוספה או מחיקה | en: Real-time dynamic renumbering of Simanim and Se'ifim upon heading reordering, insertion, or deletion
+- [features] עברית: חשיפת פקודות ואירועי IPC ייעודיים ב-tok-ipc ובגשר Electron לשליטה מלאה בממשק המשתמש | en: Dedicated IPC commands and events in tok-ipc and Electron bridge for full UI control
+- [improvements] עברית: תמיכה בסנכרון מספור אוטומטי ישירות דרך כלי ה-CLI tok-cli sync-heading-numbers | en: CLI support for heading numbering synchronization via tok-cli sync-heading-numbers
+
+---
+
 ## [0.35.0] - 2026-11-07
 - **Importance**: major
-- **Badge**: עברית: גרסה נוכחית | en: Current Version
+- **Badge**: עברית: גרסה קודמת | en: Previous Version
 - **Title**: עברית: ייבוא DOCX מתקדם (הערות שוליים, טבלאות ורשימות), ריבוי מדורי הערות במקביל, ניהול צבע ICC/PDF-X ומנוע GREP חי | en: Advanced DOCX Import, Multi-Apparatus Footnotes, ICC Color Management & Live GREP Engine
 - **Summary**: עברית: שחרור גרסה 0.35.0 המשלים ארבע יכולות ליבה לעימוד ספרי קודש וספרות תורנית מקצועית: ייבוא מלא מקובצי Word כולל חילוץ הערות שוליים וקישורן לטקסט הראשי, טבלאות RTL ורשימות ממוספרות מקוננות; מערכת הערות שוליים רב-מדורית במקביל (כגון מדור מקורות ב-2 טורים ומדור ביאורים בטור רחב) עם איזון גובה דינמי וקווי הפרדה; מנוע ניהול צבע קדם-דפוס ופרופילי ICC (FOGRA39, FOGRA51, GRACoL, SWOP) עם הגבלת עומס דיו (TAC <= 300%) והטמעת OutputIntent תקני ב-PDF/X-1a ו-PDF/X-4; ומנוע חוקי GREP חי לעיצוב אוטומטי בזמן אמת ללא שינוי טקסט המקור. | en: Release 0.35.0 delivering four core capabilities: full DOCX import extracting footnotes, nested RTL tables, and numbered lists; parallel multi-apparatus footnotes with independent columns, numbering, proportional height budgeting, and separator rules; pre-press ICC color management (FOGRA39, FOGRA51, GRACoL, SWOP) with GCR/UCR TAC <= 300% and embedded PDF/X OutputIntent profiles; and a non-destructive Live GREP regex styling engine.
 

@@ -49,6 +49,23 @@ pub enum IpcCommand {
         page_index: u32,
         config: Option<HeightBalanceIpcConfig>,
     },
+    ConfigureHeadingNumbering {
+        config: tok_core::outline::OutlineNumberingConfig,
+    },
+    ReorderHeadingNode {
+        node_id: NodeId,
+        new_parent_id: Option<NodeId>,
+        target_index: usize,
+    },
+    InsertHeadingNode {
+        parent_id: Option<NodeId>,
+        target_index: usize,
+        node: tok_core::outline::DocumentHierarchyNode,
+    },
+    DeleteHeadingNode {
+        node_id: NodeId,
+    },
+    RecalculateHeadingNumbers,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -151,6 +168,10 @@ pub enum IpcEvent {
         page_index: u32,
         balanced_bottom_baseline_pt: f32,
         reports: Vec<ColumnBalanceIpcReport>,
+    },
+    HeadingNumberingUpdated {
+        outline: tok_core::outline::DocumentOutline,
+        affected_paragraphs: Vec<(NodeId, String)>,
     },
     Error {
         code: u32,

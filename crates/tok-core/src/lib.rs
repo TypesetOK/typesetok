@@ -30,7 +30,10 @@ pub use model::{
 pub use multi_flow_anchor::{AnchorDefinition, AnchorId, CommentaryLink, MultiFlowAnchorMap};
 pub use normalizer::{canonicalize_hebrew, HebrewMarkCategory, HebrewNormalizer};
 pub use numbering::{GematriaPunctuation, NumberingFormatter, NumberingScheme, NumberingScope};
-pub use outline::{DocumentHierarchyNode, DocumentOutline, HierarchyLevel};
+pub use outline::{
+    DocumentHierarchyNode, DocumentOutline, HierarchyLevel, LevelNumberingRule,
+    OutlineNumberingConfig,
+};
 pub use overrides::LayoutLockOverrides;
 pub use reference::{CrossReferenceNode, CrossReferenceRegistry, ReferenceKind, ReferenceTarget};
 pub use spans::{

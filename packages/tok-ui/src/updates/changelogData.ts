@@ -6,6 +6,103 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.35.1",
+    "releaseDate": "2026-11-08",
+    "importance": "minor",
+    "title": {
+      "he": "מנוע מספור אוטומטי של כותרות תורניות, סימנים וסעיפים וחיבור IPC מלא",
+      "en": "Automatic Torah Heading & Simanim Numbering Engine with Full IPC Integration"
+    },
+    "summary": {
+      "he": "השלמת מנוע המספור האוטומטי לכותרות תורניות: חיבור ישיר בין סכמות המספור של הליבה (סימן, סעיף, אות, דף ועמוד) לעץ הכותרות (DocumentHierarchyNode ו-ParagraphNode), עדכון דינמי בזמן אמת של מספור הסימנים והסעיפים בעת שינוי סדר כותרות, הוספה או מחיקה, תמיכה מלאה בגימטריה מסורתית מול אותיות נקיות, וחשיפת שליטה מלאה ב-IPC לממשק המשתמש.",
+      "en": "Completion of automatic Torah heading numbering engine: direct integration between core numbering schemes (Siman, Seif, Ot, Daf/Amud) and document hierarchy tree (DocumentHierarchyNode and ParagraphNode), real-time dynamic renumbering upon reordering, inserting, or deleting headings, full support for standard punctuation vs plain gematria letters, and complete IPC bridge exposure for desktop UI."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "חיבור מלא בין סכמות מספור תורניות (TorahSiman, TorahSeif, TorahOt) לעץ הכותרות DocumentHierarchyNode ולפסקאות ParagraphNode",
+          "en": "Full connection between Torah numbering schemes and DocumentHierarchyNode/ParagraphNode tree"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "עדכון דינמי בזמן אמת של מספור הסימנים והסעיפים בעת שינוי סדר כותרות (Heading Reordering), הוספה או מחיקה",
+          "en": "Real-time dynamic renumbering of Simanim and Se'ifim upon heading reordering, insertion, or deletion"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "חשיפת פקודות ואירועי IPC ייעודיים ב-tok-ipc ובגשר Electron לשליטה מלאה בממשק המשתמש",
+          "en": "Dedicated IPC commands and events in tok-ipc and Electron bridge for full UI control"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "תמיכה בסנכרון מספור אוטומטי ישירות דרך כלי ה-CLI tok-cli sync-heading-numbers",
+          "en": "CLI support for heading numbering synchronization via tok-cli sync-heading-numbers"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "torah-auto-numbering",
+        "icon": "layers",
+        "title": {
+          "he": "מספור אוטומטי דינמי של סימנים, סעיפים ואותיות",
+          "en": "Dynamic Automatic Numbering for Simanim, Se'ifim & Otot"
+        },
+        "description": {
+          "he": "שילוב ישיר בין סכמות המספור בליבת Rust לבין עץ הכותרות והפסקאות (DocumentHierarchyNode ו-ParagraphNode) עם עדכון מיידי של כל הסימנים והסעיפים.",
+          "en": "Direct integration between Rust core numbering schemes and document hierarchy/paragraph tree with instant renumbering across all subdivisions."
+        },
+        "badge": {
+          "he": "מספור תורני",
+          "en": "Torah Numbering"
+        }
+      },
+      {
+        "id": "heading-reordering",
+        "icon": "check",
+        "title": {
+          "he": "עדכון דינמי בזמן אמת בשינוי סדר, הוספה ומחיקה",
+          "en": "Real-Time Dynamic Renumbering on Reorder, Insert & Delete"
+        },
+        "description": {
+          "he": "שינוי סדר כותרות, הוספת סעיף ביניים או מחיקה מעדכנים מיידית את רצף המספור ללא צורך בעריכה ידנית, כולל מניעת לולאות היררכיות.",
+          "en": "Moving headings, inserting intermediate clauses, or deleting nodes updates numbering sequence immediately without manual edits, with cycle prevention."
+        },
+        "badge": {
+          "he": "שינוי סדר חי",
+          "en": "Live Reordering"
+        }
+      },
+      {
+        "id": "ipc-full-control",
+        "icon": "code",
+        "title": {
+          "he": "חשיפת שליטה מלאה ב-IPC ובממשק המשתמש",
+          "en": "Comprehensive IPC Control & Bridge for Desktop UI"
+        },
+        "description": {
+          "he": "פקודות ואירועי IPC ייעודיים (ConfigureHeadingNumbering, ReorderHeadingNode, InsertHeadingNode, DeleteHeadingNode, RecalculateHeadingNumbers) מחוברים ל-Electron ול-UI.",
+          "en": "Dedicated IPC commands and events exposed in Rust core, framed binary IPC, Electron main/preload bridge, and UI client bridge."
+        },
+        "badge": {
+          "he": "שליטת IPC",
+          "en": "Full IPC Control"
+        }
+      }
+    ],
+    "badge": {
+      "he": "גרסה נוכחית",
+      "en": "Current Version"
+    }
+  },
+  {
     "version": "0.35.0",
     "releaseDate": "2026-11-07",
     "importance": "major",
@@ -114,8 +211,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       }
     ],
     "badge": {
-      "he": "גרסה נוכחית",
-      "en": "Current Version"
+      "he": "גרסה קודמת",
+      "en": "Previous Version"
     }
   },
   {

@@ -61,6 +61,7 @@ fn test_regression_multi_page_single_flow_global_page_breaker() {
         margin_bottom_pt: 35.0,
         margin_inner_pt: 45.0, // Spine margin
         margin_outer_pt: 25.0, // Outer margin
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);
@@ -165,6 +166,7 @@ fn test_regression_multi_page_long_footnotes_carry_over_three_pages() {
         margin_bottom_pt: 30.0,
         margin_inner_pt: 30.0,
         margin_outer_pt: 30.0,
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);
@@ -409,6 +411,7 @@ fn test_regression_difficult_page_break_tight_budget() {
         margin_bottom_pt: 20.0,
         margin_inner_pt: 25.0,
         margin_outer_pt: 25.0,
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);

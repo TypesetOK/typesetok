@@ -249,6 +249,484 @@ export interface TextSpanJson {
   format: CharacterFormatJson;
 }
 
+export type HierarchyLevelJson =
+  | 'Volume'
+  | 'Part'
+  | 'Chapter'
+  | 'Section'
+  | 'Subsection'
+  | 'Clause'
+  | { Custom: string };
+
+export type GematriaPunctuationJson = 'StandardPunctuation' | 'PlainLetters';
+
+export type NumberingScopeJson = 'ContinuousBook' | 'PerSection' | 'PerPage';
+
+export type NumberingSchemeJson =
+  | 'Arabic'
+  | { HebrewGematria: GematriaPunctuationJson }
+  | { TorahSiman: GematriaPunctuationJson }
+  | { TorahSeif: GematriaPunctuationJson }
+  | { TorahOt: GematriaPunctuationJson }
+  | { TorahDafAmud: GematriaPunctuationJson }
+  | 'RomanLower'
+  | 'RomanUpper'
+  | { Custom: { prefix: string; base: NumberingSchemeJson; suffix: string } };
+
+export interface DocumentHierarchyNodeJson {
+  id: string;
+  level: HierarchyLevelJson;
+  title: string;
+  number_label?: string;
+  numbering_scheme?: NumberingSchemeJson;
+  numbering_scope?: NumberingScopeJson;
+  section_id?: string;
+  start_anchor?: { node_id: string; offset_key: string; bias: 'Before' | 'After' };
+  target_paragraph_id?: string;
+  children: DocumentHierarchyNodeJson[];
+}
+
+export interface DocumentOutlineJson {
+  root_nodes: DocumentHierarchyNodeJson[];
+}
+
+export interface LevelNumberingRuleJson {
+  level: HierarchyLevelJson;
+  scheme: NumberingSchemeJson;
+  scope?: NumberingScopeJson;
+  prefix?: string;
+  suffix?: string;
+}
+
+export interface OutlineNumberingConfigJson {
+  level_rules: LevelNumberingRuleJson[];
+  punctuation: GematriaPunctuationJson;
+}
+
+/**
+ * Converts a positive integer into traditional Hebrew gematria.
+ * Supports:
+ * - 1-9: א-ט
+ * - 10-90: י-צ
+ * - 100-900: ק-ת, תק, תר, תש, תת, תתק
+ * - Traditional substitutions for 15 (ט״ו) and 16 (ט״ז)
+ * - StandardPunctuation (single letter gets ׳, multi-letter gets ״ before last letter)
+ * - PlainLetters (pure letters without quote marks)
+ */
+export function formatHebrewGematria(
+  num: number,
+  punct: GematriaPunctuationJson = 'StandardPunctuation'
+): string {
+  if (num <= 0 || !Number.isFinite(num)) return '';
+
+  const thousands = Math.floor(num / 1000);
+  const remainder = num % 1000;
+
+  function toGematriaSub1000(n: number): string {
+    let rem = n;
+    let res = '';
+
+    while (rem >= 400) {
+      res += 'ת';
+      rem -= 400;
+    }
+    if (rem >= 300) {
+      res += 'ש';
+      rem -= 300;
+    } else if (rem >= 200) {
+      res += 'ר';
+      rem -= 200;
+    } else if (rem >= 100) {
+      res += 'ק';
+      rem -= 100;
+    }
+
+    if (rem === 15) {
+      res += 'טו';
+      return res;
+    }
+    if (rem === 16) {
+      res += 'טז';
+      return res;
+    }
+
+    const tens = [
+      [90, 'צ'],
+      [80, 'פ'],
+      [70, 'ע'],
+      [60, 'ס'],
+      [50, 'נ'],
+      [40, 'מ'],
+      [30, 'ל'],
+      [20, 'כ'],
+      [10, 'י']
+    ] as const;
+    for (const [val, ch] of tens) {
+      if (rem >= val) {
+        res += ch;
+        rem -= val;
+        break;
+      }
+    }
+
+    const units = [
+      [9, 'ט'],
+      [8, 'ח'],
+      [7, 'ז'],
+      [6, 'ו'],
+      [5, 'ה'],
+      [4, 'ד'],
+      [3, 'ג'],
+      [2, 'ב'],
+      [1, 'א']
+    ] as const;
+    for (const [val, ch] of units) {
+      if (rem >= val) {
+        res += ch;
+        break;
+      }
+    }
+
+    return res;
+  }
+
+  if (punct === 'PlainLetters') {
+    let s = '';
+    if (thousands > 0) s += toGematriaSub1000(thousands);
+    if (remainder > 0) s += toGematriaSub1000(remainder);
+    return s;
+  }
+
+  let s = '';
+  if (thousands > 0) {
+    s += toGematriaSub1000(thousands) + '׳';
+  }
+  if (remainder > 0) {
+    const chars = Array.from(toGematriaSub1000(remainder));
+    if (chars.length === 1) {
+      s += chars[0] + '׳';
+    } else {
+      for (let i = 0; i < chars.length; i++) {
+        if (i === chars.length - 1) {
+          s += '״';
+        }
+        s += chars[i];
+      }
+    }
+  }
+  return s;
+}
+
+/**
+ * Formats an ordinal value (1-based) according to a numbering scheme.
+ */
+export function formatTorahNumbering(
+  scheme: NumberingSchemeJson,
+  value: number,
+  defaultPunct: GematriaPunctuationJson = 'StandardPunctuation'
+): string {
+  if (value === 0) return '0';
+
+  if (scheme === 'Arabic') {
+    return String(value);
+  }
+  if (typeof scheme === 'object') {
+    if ('HebrewGematria' in scheme) {
+      return formatHebrewGematria(value, scheme.HebrewGematria || defaultPunct);
+    }
+    if ('TorahSiman' in scheme) {
+      return `סימן ${formatHebrewGematria(value, scheme.TorahSiman || defaultPunct)}`;
+    }
+    if ('TorahSeif' in scheme) {
+      return `סעיף ${formatHebrewGematria(value, scheme.TorahSeif || defaultPunct)}`;
+    }
+    if ('TorahOt' in scheme) {
+      return `אות ${formatHebrewGematria(value, scheme.TorahOt || defaultPunct)}`;
+    }
+    if ('TorahDafAmud' in scheme) {
+      const p = scheme.TorahDafAmud || defaultPunct;
+      const dafNumber = Math.floor((value - 1) / 2) + 2;
+      const isAmudB = (value - 1) % 2 === 1;
+      const dafStr = formatHebrewGematria(dafNumber, p);
+      const amudStr = isAmudB
+        ? p === 'StandardPunctuation'
+          ? 'ע״ב'
+          : 'עב'
+        : p === 'StandardPunctuation'
+        ? 'ע״א'
+        : 'עא';
+      return `דף ${dafStr} ${amudStr}`;
+    }
+    if ('Custom' in scheme) {
+      const c = scheme.Custom;
+      return `${c.prefix}${formatTorahNumbering(c.base, value, defaultPunct)}${c.suffix}`;
+    }
+  }
+  if (scheme === 'RomanUpper' || scheme === 'RomanLower') {
+    const lookup: [number, string][] = [
+      [1000, 'M'],
+      [900, 'CM'],
+      [500, 'D'],
+      [400, 'CD'],
+      [100, 'C'],
+      [90, 'XC'],
+      [50, 'L'],
+      [40, 'XL'],
+      [10, 'X'],
+      [9, 'IX'],
+      [5, 'V'],
+      [4, 'IV'],
+      [1, 'I']
+    ];
+    let rem = value;
+    let roman = '';
+    for (const [val, sym] of lookup) {
+      while (rem >= val) {
+        roman += sym;
+        rem -= val;
+      }
+    }
+    return scheme === 'RomanLower' ? roman.toLowerCase() : roman;
+  }
+  return String(value);
+}
+
+/**
+ * Creates canonical Torah book numbering defaults matching tok-core OutlineNumberingConfig.
+ */
+export function getDefaultTorahOutlineNumberingConfig(
+  punctuation: GematriaPunctuationJson = 'StandardPunctuation'
+): OutlineNumberingConfigJson {
+  return {
+    level_rules: [
+      {
+        level: 'Part',
+        scheme: {
+          Custom: {
+            prefix: 'חלק ',
+            base: { HebrewGematria: punctuation },
+            suffix: ''
+          }
+        },
+        scope: 'ContinuousBook'
+      },
+      {
+        level: 'Chapter',
+        scheme: { TorahSiman: punctuation },
+        scope: 'ContinuousBook'
+      },
+      {
+        level: 'Section',
+        scheme: { TorahSeif: punctuation },
+        scope: 'PerSection'
+      },
+      {
+        level: 'Subsection',
+        scheme: { TorahOt: punctuation },
+        scope: 'PerSection'
+      }
+    ],
+    punctuation
+  };
+}
+
+/**
+ * Dynamically recalculates number labels for all nodes in the document outline tree.
+ */
+export function recalculateOutlineNumbers(
+  outline: DocumentOutlineJson,
+  config: OutlineNumberingConfigJson = getDefaultTorahOutlineNumberingConfig()
+): DocumentOutlineJson {
+  const globalCounters = new Map<string, number>();
+
+  function levelKey(lvl: HierarchyLevelJson): string {
+    return typeof lvl === 'string' ? lvl : `Custom:${lvl.Custom}`;
+  }
+
+  function getRule(lvl: HierarchyLevelJson): LevelNumberingRuleJson | undefined {
+    const key = levelKey(lvl);
+    return config.level_rules.find((r) => levelKey(r.level) === key);
+  }
+
+  function processSlice(nodes: DocumentHierarchyNodeJson[]): void {
+    const localCounters = new Map<string, number>();
+
+    for (const node of nodes) {
+      const rule = getRule(node.level);
+      const scheme = node.numbering_scheme || rule?.scheme;
+      const scope = node.numbering_scope || rule?.scope || 'PerSection';
+
+      if (scheme) {
+        const key = levelKey(node.level);
+        let ordinal = 1;
+        if (scope === 'ContinuousBook') {
+          const current = (globalCounters.get(key) || 0) + 1;
+          globalCounters.set(key, current);
+          ordinal = current;
+        } else {
+          const current = (localCounters.get(key) || 0) + 1;
+          localCounters.set(key, current);
+          ordinal = current;
+        }
+
+        node.number_label = formatTorahNumbering(scheme, ordinal, config.punctuation);
+      }
+
+      if (node.children && node.children.length > 0) {
+        processSlice(node.children);
+      }
+    }
+  }
+
+  if (outline?.root_nodes) {
+    processSlice(outline.root_nodes);
+  }
+
+  return outline;
+}
+
+export function removeOutlineNode(
+  outline: DocumentOutlineJson,
+  nodeId: string,
+  config?: OutlineNumberingConfigJson
+): DocumentHierarchyNodeJson | null {
+  function searchAndRemove(nodes: DocumentHierarchyNodeJson[]): DocumentHierarchyNodeJson | null {
+    const idx = nodes.findIndex((n) => n.id === nodeId);
+    if (idx !== -1) {
+      return nodes.splice(idx, 1)[0];
+    }
+    for (const n of nodes) {
+      if (n.children) {
+        const found = searchAndRemove(n.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  const removed = searchAndRemove(outline.root_nodes);
+  if (removed && config) {
+    recalculateOutlineNumbers(outline, config);
+  }
+  return removed;
+}
+
+export function insertOutlineNode(
+  outline: DocumentOutlineJson,
+  parentId: string | null | undefined,
+  targetIndex: number,
+  node: DocumentHierarchyNodeJson,
+  config?: OutlineNumberingConfigJson
+): void {
+  function findNode(
+    nodes: DocumentHierarchyNodeJson[],
+    id: string
+  ): DocumentHierarchyNodeJson | null {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      if (n.children) {
+        const found = findNode(n.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  if (parentId) {
+    const parent = findNode(outline.root_nodes, parentId);
+    if (parent) {
+      if (!parent.children) parent.children = [];
+      const idx = Math.min(Math.max(0, targetIndex), parent.children.length);
+      parent.children.splice(idx, 0, node);
+    } else {
+      const idx = Math.min(Math.max(0, targetIndex), outline.root_nodes.length);
+      outline.root_nodes.splice(idx, 0, node);
+    }
+  } else {
+    const idx = Math.min(Math.max(0, targetIndex), outline.root_nodes.length);
+    outline.root_nodes.splice(idx, 0, node);
+  }
+
+  if (config) {
+    recalculateOutlineNumbers(outline, config);
+  }
+}
+
+export function isOutlineDescendant(
+  outline: DocumentOutlineJson,
+  descendantId: string,
+  ancestorId: string
+): boolean {
+  if (descendantId === ancestorId) return false;
+  function search(nodes: DocumentHierarchyNodeJson[], targetId: string, path: string[]): boolean {
+    for (const n of nodes) {
+      path.push(n.id);
+      if (n.id === targetId) return true;
+      if (n.children && search(n.children, targetId, path)) return true;
+      path.pop();
+    }
+    return false;
+  }
+  const path: string[] = [];
+  if (search(outline.root_nodes, descendantId, path)) {
+    path.pop();
+    return path.includes(ancestorId);
+  }
+  return false;
+}
+
+export function reorderOutlineNode(
+  outline: DocumentOutlineJson,
+  nodeId: string,
+  newParentId: string | null | undefined,
+  targetIndex: number,
+  config?: OutlineNumberingConfigJson
+): boolean {
+  if (newParentId) {
+    if (newParentId === nodeId || isOutlineDescendant(outline, newParentId, nodeId)) {
+      return false;
+    }
+  }
+
+  const removed = removeOutlineNode(outline, nodeId);
+  if (!removed) return false;
+
+  insertOutlineNode(outline, newParentId, targetIndex, removed, config);
+  return true;
+}
+
+export function syncOutlineNumberingToStoryParagraphs(
+  outline: DocumentOutlineJson,
+  paragraphs: StoryParagraph[],
+  config?: OutlineNumberingConfigJson
+): Array<{ paragraphId: string; numberLabel: string }> {
+  if (config) {
+    recalculateOutlineNumbers(outline, config);
+  }
+
+  const labelMap = new Map<string, string>();
+  function collect(nodes: DocumentHierarchyNodeJson[]): void {
+    for (const n of nodes) {
+      const pid = n.target_paragraph_id || n.start_anchor?.node_id;
+      if (pid && n.number_label) {
+        labelMap.set(pid, n.number_label);
+      }
+      if (n.children) collect(n.children);
+    }
+  }
+  collect(outline.root_nodes);
+
+  const affected: Array<{ paragraphId: string; numberLabel: string }> = [];
+  for (const p of paragraphs) {
+    const label = labelMap.get(p.id);
+    if (label) {
+      (p as any).numberLabel = label;
+      affected.push({ paragraphId: p.id, numberLabel: label });
+    }
+  }
+  return affected;
+}
+
 export interface ParagraphNodeJson {
   id: string;
   index: string;
@@ -256,6 +734,9 @@ export interface ParagraphNodeJson {
   text: string;
   style_patches: StylePatchJson[];
   spans?: TextSpanJson[];
+  heading_level?: HierarchyLevelJson;
+  numbering_scheme?: NumberingSchemeJson;
+  number_label?: string;
 }
 
 export function patchToStylePatchJson(patch: ParagraphStylePatch): StylePatchJson {
@@ -442,6 +923,7 @@ export interface DocumentRootJson {
   paragraph_styles: ParagraphStyleJson[];
   character_styles: unknown[];
   sections: SectionNodeJson[];
+  outline?: DocumentOutlineJson;
   multi_flow_anchors?: MultiFlowAnchorMapJson;
   footnote_apparatuses?: FootnoteApparatusConfigJson[];
   grep_rules?: GrepRuleJson[];

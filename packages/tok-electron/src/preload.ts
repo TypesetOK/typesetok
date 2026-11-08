@@ -42,6 +42,13 @@ export interface TokIpcBridge {
   getProjectsDir: () => Promise<string>;
   typesetDocument: (payload: { document?: unknown; inputPath?: string } | unknown) => Promise<{ success: boolean; pages: any[] }>;
 
+  // Heading & Outline Numbering
+  configureHeadingNumbering: (config: unknown) => Promise<unknown>;
+  reorderHeading: (payload: { nodeId: string; newParentId?: string; targetIndex: number; config?: unknown }) => Promise<unknown>;
+  insertHeading: (payload: { parentId?: string; targetIndex: number; node: unknown; config?: unknown }) => Promise<unknown>;
+  deleteHeading: (payload: { nodeId: string; config?: unknown }) => Promise<unknown>;
+  recalculateHeadingNumbers: (payload?: { outline?: unknown; config?: unknown }) => Promise<unknown>;
+
   // System & Utilities
   openExternal: (url: string) => Promise<void>;
   getAppInfo: () => Promise<{ version: string; name: string }>;
@@ -187,6 +194,23 @@ const tokIpc: TokIpcBridge = {
       return null;
     }
   },
+  // Heading & Outline Numbering
+  configureHeadingNumbering: async (config: unknown) => {
+    return await ipcRenderer.invoke('tok:configure-heading-numbering', config);
+  },
+  reorderHeading: async (payload: { nodeId: string; newParentId?: string; targetIndex: number; config?: unknown }) => {
+    return await ipcRenderer.invoke('tok:reorder-heading', payload);
+  },
+  insertHeading: async (payload: { parentId?: string; targetIndex: number; node: unknown; config?: unknown }) => {
+    return await ipcRenderer.invoke('tok:insert-heading', payload);
+  },
+  deleteHeading: async (payload: { nodeId: string; config?: unknown }) => {
+    return await ipcRenderer.invoke('tok:delete-heading', payload);
+  },
+  recalculateHeadingNumbers: async (payload?: { outline?: unknown; config?: unknown }) => {
+    return await ipcRenderer.invoke('tok:recalculate-heading-numbers', payload);
+  },
+
   readImportFile: async (filePath: string) => {
     return await ipcRenderer.invoke('tok:read-import-file', filePath);
   },

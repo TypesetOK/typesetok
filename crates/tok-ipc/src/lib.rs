@@ -175,4 +175,60 @@ mod tests {
         let dec_bal = MessageFramer::decode_event(&enc_bal).expect("Decode balanced");
         assert_eq!(bal_evt, dec_bal);
     }
+
+    #[test]
+    fn test_heading_numbering_ipc_roundtrip() {
+        use tok_core::numbering::GematriaPunctuation;
+        use tok_core::outline::{
+            DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig,
+        };
+
+        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let cfg_cmd = IpcCommand::ConfigureHeadingNumbering {
+            config: config.clone(),
+        };
+        let enc_cmd = MessageFramer::encode_command(&cfg_cmd).expect("Encode cfg_cmd");
+        let dec_cmd = MessageFramer::decode_command(&enc_cmd).expect("Decode cfg_cmd");
+        assert_eq!(cfg_cmd, dec_cmd);
+
+        let node_id = NodeId::new();
+        let reorder_cmd = IpcCommand::ReorderHeadingNode {
+            node_id,
+            new_parent_id: None,
+            target_index: 2,
+        };
+        let enc_reorder = MessageFramer::encode_command(&reorder_cmd).expect("Encode reorder");
+        let dec_reorder = MessageFramer::decode_command(&enc_reorder).expect("Decode reorder");
+        assert_eq!(reorder_cmd, dec_reorder);
+
+        let new_node = DocumentHierarchyNode::new(HierarchyLevel::Chapter, "סימן חדש");
+        let insert_cmd = IpcCommand::InsertHeadingNode {
+            parent_id: None,
+            target_index: 0,
+            node: new_node.clone(),
+        };
+        let enc_insert = MessageFramer::encode_command(&insert_cmd).expect("Encode insert");
+        let dec_insert = MessageFramer::decode_command(&enc_insert).expect("Decode insert");
+        assert_eq!(insert_cmd, dec_insert);
+
+        let delete_cmd = IpcCommand::DeleteHeadingNode { node_id };
+        let enc_del = MessageFramer::encode_command(&delete_cmd).expect("Encode delete");
+        let dec_del = MessageFramer::decode_command(&enc_del).expect("Decode delete");
+        assert_eq!(delete_cmd, dec_del);
+
+        let recalc_cmd = IpcCommand::RecalculateHeadingNumbers;
+        let enc_recalc = MessageFramer::encode_command(&recalc_cmd).expect("Encode recalc");
+        let dec_recalc = MessageFramer::decode_command(&enc_recalc).expect("Decode recalc");
+        assert_eq!(recalc_cmd, dec_recalc);
+
+        let mut outline = DocumentOutline::new();
+        outline.add_root_node(new_node);
+        let update_evt = IpcEvent::HeadingNumberingUpdated {
+            outline,
+            affected_paragraphs: vec![(node_id, "סימן א׳".to_string())],
+        };
+        let enc_evt = MessageFramer::encode_event(&update_evt).expect("Encode evt");
+        let dec_evt = MessageFramer::decode_event(&enc_evt).expect("Decode evt");
+        assert_eq!(update_evt, dec_evt);
+    }
 }

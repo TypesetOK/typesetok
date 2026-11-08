@@ -617,6 +617,30 @@ handle('tok:send-command', async (_, cmd: any) => {
     throw new Error(`Determinism verification failed: ${stderr}`);
   }
 
+  if (action === 'configure-heading-numbering' || cmd?.type === 'ConfigureHeadingNumbering') {
+    const config = cmd?.config || cmd?.payload?.config;
+    return { ok: true, action: 'configure-heading-numbering', config };
+  }
+
+  if (action === 'reorder-heading' || cmd?.type === 'ReorderHeadingNode') {
+    const payload = cmd?.payload || cmd;
+    return { ok: true, action: 'reorder-heading', payload };
+  }
+
+  if (action === 'insert-heading' || cmd?.type === 'InsertHeadingNode') {
+    const payload = cmd?.payload || cmd;
+    return { ok: true, action: 'insert-heading', payload };
+  }
+
+  if (action === 'delete-heading' || cmd?.type === 'DeleteHeadingNode') {
+    const payload = cmd?.payload || cmd;
+    return { ok: true, action: 'delete-heading', payload };
+  }
+
+  if (action === 'recalculate-heading-numbers' || cmd?.type === 'RecalculateHeadingNumbers') {
+    return { ok: true, action: 'recalculate-heading-numbers', payload: cmd?.payload || cmd };
+  }
+
   return { status: 'unhandled_command', cmd };
 });
 
@@ -884,6 +908,32 @@ handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPat
     return { success: true, filePath: resolvedNew };
   }
   return { success: false, error: 'Source file does not exist' };
+});
+
+// Heading & Outline Numbering Handlers
+handle('tok:configure-heading-numbering', async (_, config: any) => {
+  logger.info('[IPC] Received configure-heading-numbering', { config });
+  return { success: true, config };
+});
+
+handle('tok:reorder-heading', async (_, payload: { nodeId: string; newParentId?: string; targetIndex: number; outline?: any; config?: any }) => {
+  logger.info('[IPC] Received reorder-heading', { nodeId: payload?.nodeId, targetIndex: payload?.targetIndex });
+  return { success: true, payload };
+});
+
+handle('tok:insert-heading', async (_, payload: { parentId?: string; targetIndex: number; node: any; config?: any }) => {
+  logger.info('[IPC] Received insert-heading', { targetIndex: payload?.targetIndex });
+  return { success: true, payload };
+});
+
+handle('tok:delete-heading', async (_, payload: { nodeId: string; config?: any }) => {
+  logger.info('[IPC] Received delete-heading', { nodeId: payload?.nodeId });
+  return { success: true, payload };
+});
+
+handle('tok:recalculate-heading-numbers', async (_, payload?: { outline?: any; config?: any; document?: any }) => {
+  logger.info('[IPC] Received recalculate-heading-numbers');
+  return { success: true, payload };
 });
 
 handle('tok:get-recent-logs', () => logger.getRecentLogs(100));

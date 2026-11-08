@@ -21,6 +21,7 @@ fn create_engine() -> TypesettingEngine {
         margin_bottom_pt: 40.0,
         margin_inner_pt: 35.0,
         margin_outer_pt: 35.0,
+        ..Default::default()
     };
     TypesettingEngine::new(config)
 }

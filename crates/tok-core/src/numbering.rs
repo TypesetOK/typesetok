@@ -39,6 +39,29 @@ pub enum NumberingScheme {
     },
 }
 
+impl NumberingScheme {
+    /// Returns a copy of this scheme configured with the specified Gematria punctuation.
+    pub fn with_punctuation(&self, punct: GematriaPunctuation) -> Self {
+        match self {
+            Self::HebrewGematria(_) => Self::HebrewGematria(punct),
+            Self::TorahSiman(_) => Self::TorahSiman(punct),
+            Self::TorahSeif(_) => Self::TorahSeif(punct),
+            Self::TorahOt(_) => Self::TorahOt(punct),
+            Self::TorahDafAmud(_) => Self::TorahDafAmud(punct),
+            Self::Custom {
+                prefix,
+                base,
+                suffix,
+            } => Self::Custom {
+                prefix: prefix.clone(),
+                base: Box::new(base.with_punctuation(punct)),
+                suffix: suffix.clone(),
+            },
+            other => other.clone(),
+        }
+    }
+}
+
 /// Scope at which counter increments or resets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum NumberingScope {
@@ -298,6 +321,17 @@ mod tests {
 
         let seif_scheme = NumberingScheme::TorahSeif(GematriaPunctuation::StandardPunctuation);
         assert_eq!(NumberingFormatter::format(&seif_scheme, 3), "סעיף ג׳");
+
+        let siman_plain = NumberingScheme::TorahSiman(GematriaPunctuation::PlainLetters);
+        assert_eq!(NumberingFormatter::format(&siman_plain, 1), "סימן א");
+        assert_eq!(NumberingFormatter::format(&siman_plain, 15), "סימן טו");
+        assert_eq!(NumberingFormatter::format(&siman_plain, 16), "סימן טז");
+
+        let seif_plain = NumberingScheme::TorahSeif(GematriaPunctuation::PlainLetters);
+        assert_eq!(NumberingFormatter::format(&seif_plain, 2), "סעיף ב");
+
+        let ot_scheme = NumberingScheme::TorahOt(GematriaPunctuation::StandardPunctuation);
+        assert_eq!(NumberingFormatter::format(&ot_scheme, 4), "אות ד׳");
 
         let daf_scheme = NumberingScheme::TorahDafAmud(GematriaPunctuation::StandardPunctuation);
         assert_eq!(NumberingFormatter::format(&daf_scheme, 1), "דף ב׳ ע״א");

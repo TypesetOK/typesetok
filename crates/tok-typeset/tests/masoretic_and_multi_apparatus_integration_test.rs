@@ -122,6 +122,91 @@ fn test_biblical_masoretic_typography_shaping_and_variants() {
 }
 
 #[test]
+fn test_masoretic_character_styles_and_opentype_features_two_pathways() {
+    use tok_core::styles::CharacterStyle;
+
+    // 1. Create document with CharacterStyles for both pathways
+    let mut doc = DocumentRoot::new("מקרא ומסורה");
+    doc.sections.clear();
+
+    // Pathway 1: CharacterStyle with font_scale and baseline_shift
+    let style_rabbatai = CharacterStyle::rabbatai("rabbatai", "ב רבתי");
+    let style_zeira = CharacterStyle::zeira("zeira", "ל זעירא");
+    let style_teluyah = CharacterStyle::teluyah("teluyah", "ע תלויה", Some(5.0));
+
+    // Pathway 2: CharacterStyle with Torani OpenType feature (cvXX / ssXX)
+    let style_cv = CharacterStyle::with_opentype_feature("cv_torani", "Torani Codex Variant", "cv01", 1);
+
+    doc.add_character_style(style_rabbatai);
+    doc.add_character_style(style_zeira);
+    doc.add_character_style(style_teluyah);
+    doc.add_character_style(style_cv);
+
+    let mut sec = SectionNode::new("שמע ישראל", "default");
+    sec.flows.clear();
+
+    let mut flow = Flow::new(FlowId::new("main"), FlowType::Main);
+
+    // Text: שְׁמַע יִשְׂרָאֵל יְהוָה אֱלֹהֵינוּ יְהוָה אֶחָד
+    // Traditional Masorah: ע' of שְׁמַע is Teluyah/Rabbatai, ד' of אֶחָד is Rabbatai
+    let text = "שְׁמַע יִשְׂרָאֵל יְהוָה אֱלֹהֵינוּ יְהוָה אֶחָד ׆ שַׁלְשֶׁלֶת֓ קַרְנֵי פָרָה֟ תְּלִישָׁא גְדוֹלָה֠";
+    let mut p = ParagraphNode::new(FractionalIndex::initial(), "body", text);
+
+    // Apply Pathway 1 via character_style_id
+    // Teluyah on 'ע' of שמע (char index 3)
+    p.spans.push(TextSpan::new(
+        3,
+        4,
+        CharacterFormat {
+            character_style_id: Some("teluyah".to_string()),
+            ..Default::default()
+        },
+    ));
+
+    // Rabbatai on 'ד' of אחד
+    if let Some(pos) = text.find("אֶחָד") {
+        let dalet_char_idx = text[..pos].chars().count() + 3; // 'ד'
+        p.spans.push(TextSpan::new(
+            dalet_char_idx,
+            dalet_char_idx + 1,
+            CharacterFormat {
+                character_style_id: Some("rabbatai".to_string()),
+                ..Default::default()
+            },
+        ));
+    }
+
+    flow.paragraphs.push(p);
+    sec.flows.push(flow);
+    doc.sections.push(sec);
+
+    let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
+    let pages = engine.typeset_document(&doc);
+    assert!(!pages.is_empty());
+
+    let frame = &pages[0].frames[0];
+    assert!(!frame.lines.is_empty());
+    let line = &frame.lines[0];
+
+    // Verify Teluyah glyph has positive upward y baseline shift (around 5.0 pt)
+    let teluyah_glyph = line.glyphs.iter().find(|g| g.y > 4.0);
+    assert!(
+        teluyah_glyph.is_some(),
+        "Teluyah character style must produce upward baseline shift y > 4.0"
+    );
+
+    // Verify Inverted Nun is present and has width > 0
+    let nun_glyph = line.glyphs.iter().find(|g| g.character == Some('\u{05C6}'));
+    assert!(nun_glyph.is_some(), "Inverted nun glyph must be in line");
+    assert!(nun_glyph.unwrap().width > 0.0);
+
+    // Verify rare cantillation marks: Shalshelet 0x0593, Qarne Farah 0x059F, Telisha Gedola 0x05A0
+    assert!(line.glyphs.iter().any(|g| g.character == Some('\u{0593}')));
+    assert!(line.glyphs.iter().any(|g| g.character == Some('\u{059F}')));
+    assert!(line.glyphs.iter().any(|g| g.character == Some('\u{05A0}')));
+}
+
+#[test]
 fn test_multiple_parallel_footnote_apparatuses_layout() {
     let mut doc = DocumentRoot::new("שו\"ת ועיונים");
     doc.sections.clear();

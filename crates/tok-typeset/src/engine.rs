@@ -36,7 +36,7 @@ const SPACE_STRETCH: f32 = 0.30;
 const SPACE_SHRINK: f32 = 0.20;
 const LINE_BREAK_TOLERANCE: f32 = 2.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypesettingEngineConfig {
     pub page_width_pt: f32,
     pub page_height_pt: f32,
@@ -44,6 +44,7 @@ pub struct TypesettingEngineConfig {
     pub margin_bottom_pt: f32,
     pub margin_inner_pt: f32, // Gutter
     pub margin_outer_pt: f32,
+    pub masoretic_typography: crate::masoretic::MasoreticTypographyConfig,
 }
 
 impl Default for TypesettingEngineConfig {
@@ -56,7 +57,18 @@ impl Default for TypesettingEngineConfig {
             margin_bottom_pt: 56.69,
             margin_inner_pt: 85.04, // 30mm for binding
             margin_outer_pt: 56.69, // 20mm outer
+            masoretic_typography: crate::masoretic::MasoreticTypographyConfig::default(),
         }
+    }
+}
+
+impl TypesettingEngineConfig {
+    pub fn with_masoretic_typography(
+        mut self,
+        config: crate::masoretic::MasoreticTypographyConfig,
+    ) -> Self {
+        self.masoretic_typography = config;
+        self
     }
 }
 
@@ -368,13 +380,14 @@ impl TypesettingEngine {
         }
 
         let session = self.font_manager.session(font_family);
-        Self::typeset_with_session_shaped_opts(
+        Self::typeset_with_session_shaped_full(
             &session,
             paragraph,
             base_style,
             &effective_profile,
             font_size_pt,
             line_height_pt,
+            Some(&self.config.masoretic_typography),
         )
     }
 
@@ -423,10 +436,32 @@ impl TypesettingEngine {
         font_size_pt: f32,
         line_height_pt: f32,
     ) -> Vec<LineBox> {
+        Self::typeset_with_session_shaped_full(
+            session,
+            paragraph,
+            base_style,
+            profile,
+            font_size_pt,
+            line_height_pt,
+            None,
+        )
+    }
+
+    fn typeset_with_session_shaped_full(
+        session: &ShapingSession<'_>,
+        paragraph: &ParagraphNode,
+        base_style: Option<&tok_core::styles::ParagraphStyle>,
+        profile: &MeasureProfile,
+        font_size_pt: f32,
+        line_height_pt: f32,
+        masoretic_config: Option<&crate::masoretic::MasoreticTypographyConfig>,
+    ) -> Vec<LineBox> {
         let text = paragraph.text.as_str();
         if text.trim().is_empty() || !profile.is_valid() {
             return Vec::new();
         }
+        let default_masoretic_cfg = crate::masoretic::MasoreticTypographyConfig::default();
+        let masoretic_cfg = masoretic_config.unwrap_or(&default_masoretic_cfg);
         let font_size = if font_size_pt.is_finite() && font_size_pt > 0.0 {
             font_size_pt
         } else {
@@ -549,17 +584,54 @@ impl TypesettingEngine {
                         }
                     }
                     if let Some(mv) = sp.format.masoretic_variant {
-                        run_font_size *= mv.font_size_scale();
-                        baseline_shift += mv.baseline_shift_em() * font_size;
-                    }
-                    if let Some(bs) = sp.format.baseline_shift_pt {
+                        if sp.format.font_scale.is_none() {
+                            run_font_size *= mv.font_size_scale();
+                        }
+                        if let Some(bs) = sp.format.baseline_shift_pt {
+                            if bs.is_finite() {
+                                baseline_shift += bs;
+                            }
+                        } else {
+                            baseline_shift += mv.baseline_shift_em() * font_size;
+                        }
+                    } else if let Some(bs) = sp.format.baseline_shift_pt {
                         if bs.is_finite() {
                             baseline_shift += bs;
                         }
                     }
                 }
-                let (mut run, choice) =
-                    session.shape(&text[run_start..run_end], run_font_size, level % 2 == 1);
+                let run_text = &text[run_start..run_end];
+                let mut extra_features = masoretic_cfg.resolve_features_for_text(run_text);
+                if let Some(para_features) = base_style.and_then(|s| s.opentype_features.as_ref()) {
+                    extra_features.extend(crate::masoretic::convert_opentype_settings(para_features));
+                }
+                for patch in &paragraph.style_patches {
+                    if let Some(patch_features) = &patch.opentype_features {
+                        extra_features.extend(crate::masoretic::convert_opentype_settings(patch_features));
+                    }
+                }
+                if let Some(sp) = span_opt {
+                    if let Some(mv) = sp.format.masoretic_variant {
+                        if let Some(tag) = mv.recommended_opentype_tag() {
+                            if let Ok(bytes) = tag.as_bytes().try_into() {
+                                extra_features.push(rustybuzz::Feature::new(
+                                    rustybuzz::ttf_parser::Tag::from_bytes(bytes),
+                                    1,
+                                    ..,
+                                ));
+                            }
+                        }
+                    }
+                    if let Some(span_features) = &sp.format.opentype_features {
+                        extra_features.extend(crate::masoretic::convert_opentype_settings(span_features));
+                    }
+                }
+                let (mut run, choice) = session.shape_with_features(
+                    run_text,
+                    run_font_size,
+                    level % 2 == 1,
+                    &extra_features,
+                );
                 for g in &mut run.glyphs {
                     g.cluster += run_start as u32;
                     g.y_offset += baseline_shift;
@@ -851,7 +923,7 @@ impl TypesettingEngine {
     /// Typesets an entire DocumentRoot into multi-page layout boxes,
     /// respecting custom page dimensions and margins if present in document settings.
     pub fn typeset_document(&self, doc: &DocumentRoot) -> Vec<PageLayoutBox> {
-        let mut active_config = self.config;
+        let mut active_config = self.config.clone();
         if let Some(settings) = &doc.metadata.document_settings {
             let mm_to_pt = |val: Option<f64>| val.map(|v| (v * 72.0 / 25.4) as f32);
 
@@ -920,7 +992,7 @@ impl TypesettingEngine {
             .collect();
 
         let default_style = tok_core::styles::ParagraphStyle::default();
-        let has_grep_rules = !doc.grep_rules.is_empty();
+        let has_spans_to_resolve = !doc.grep_rules.is_empty() || !doc.character_styles.is_empty();
         let cached_lookup: Vec<(crate::layout_cache::ParagraphCacheKey, Option<Vec<LineBox>>)> = {
             let cache = self.paragraph_cache.read().unwrap();
             jobs.iter()
@@ -930,7 +1002,7 @@ impl TypesettingEngine {
                         .iter()
                         .find(|s| s.id == p.style_id)
                         .unwrap_or(&default_style);
-                    let key = if has_grep_rules {
+                    let key = if has_spans_to_resolve {
                         let mut p_eff = p.clone();
                         p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
                         crate::layout_cache::ParagraphLayoutCache::make_key(
@@ -970,7 +1042,7 @@ impl TypesettingEngine {
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
                     let mut p_eff;
-                    let p_ref = if has_grep_rules {
+                    let p_ref = if has_spans_to_resolve {
                         p_eff = p.clone();
                         p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
                         &p_eff
@@ -1014,13 +1086,14 @@ impl TypesettingEngine {
                             .entry(font_family.clone())
                             .or_insert_with(|| self.font_manager.session(&font_family));
                         let profile = MeasureProfile::uniform(content_width);
-                        Self::typeset_with_session_shaped_opts(
+                        Self::typeset_with_session_shaped_full(
                             session,
                             p_ref,
                             Some(&resolved_style),
                             &profile,
                             font_size,
                             line_height,
+                            Some(&self.config.masoretic_typography),
                         )
                     };
                     (idx, key.clone(), lines)
@@ -1852,13 +1925,14 @@ impl TypesettingEngine {
                         .entry(font_family.clone())
                         .or_insert_with(|| self.font_manager.session(&font_family));
                     let profile = MeasureProfile::uniform(flow_width);
-                    let computed = Self::typeset_with_session_shaped_opts(
+                    let computed = Self::typeset_with_session_shaped_full(
                         session,
                         p_ref,
                         Some(&style),
                         &profile,
                         font_size,
                         line_height,
+                        Some(&self.config.masoretic_typography),
                     );
                     let mut cache = self.paragraph_cache.write().unwrap();
                     cache.insert(key, computed.clone());

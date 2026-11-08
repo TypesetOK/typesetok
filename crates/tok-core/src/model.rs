@@ -57,6 +57,12 @@ pub struct ParagraphNode {
     pub spans: Vec<crate::spans::TextSpan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overrides: Option<crate::overrides::LayoutLockOverrides>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_level: Option<crate::outline::HierarchyLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numbering_scheme: Option<crate::numbering::NumberingScheme>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number_label: Option<String>,
 }
 
 impl ParagraphNode {
@@ -70,6 +76,39 @@ impl ParagraphNode {
             style_patches: Vec::new(),
             spans: Vec::new(),
             overrides: None,
+            heading_level: None,
+            numbering_scheme: None,
+            number_label: None,
+        }
+    }
+
+    pub fn with_heading_level(mut self, level: crate::outline::HierarchyLevel) -> Self {
+        self.heading_level = Some(level);
+        self
+    }
+
+    pub fn with_numbering_scheme(mut self, scheme: crate::numbering::NumberingScheme) -> Self {
+        self.numbering_scheme = Some(scheme);
+        self
+    }
+
+    pub fn with_number_label(mut self, label: impl Into<String>) -> Self {
+        self.number_label = Some(label.into());
+        self
+    }
+
+    /// Full display title including number label if present (e.g. "סימן א׳: הלכות השכמת הבוקר").
+    pub fn full_heading_text(&self) -> String {
+        if let Some(lbl) = &self.number_label {
+            if self.text.trim().is_empty() {
+                lbl.clone()
+            } else if self.text.starts_with(lbl) {
+                self.text.clone()
+            } else {
+                format!("{}: {}", lbl, self.text)
+            }
+        } else {
+            self.text.clone()
         }
     }
 
@@ -430,6 +469,59 @@ impl DocumentRoot {
         self
     }
 
+    /// Synchronizes outline numbering across all nodes and all linked or matching ParagraphNodes.
+    /// Returns a list of (NodeId, String) representing (paragraph_id, new_number_label).
+    pub fn sync_outline_numbering(
+        &mut self,
+        config: &crate::outline::OutlineNumberingConfig,
+    ) -> Vec<(NodeId, String)> {
+        let mut affected = Vec::new();
+        if let Some(outline) = &mut self.outline {
+            outline.recalculate_numbers(config);
+
+            let mut label_map: std::collections::HashMap<
+                NodeId,
+                (
+                    crate::outline::HierarchyLevel,
+                    Option<crate::numbering::NumberingScheme>,
+                    Option<String>,
+                ),
+            > = std::collections::HashMap::new();
+
+            for (node, _) in outline.flatten_in_order() {
+                let target_p_id = node
+                    .target_paragraph_id
+                    .or_else(|| node.start_anchor.as_ref().map(|a| a.node_id));
+                if let Some(pid) = target_p_id {
+                    let scheme = node
+                        .numbering_scheme
+                        .clone()
+                        .or_else(|| config.scheme_for_level(&node.level));
+                    label_map.insert(
+                        pid,
+                        (node.level.clone(), scheme, node.number_label.clone()),
+                    );
+                }
+            }
+
+            for sec in &mut self.sections {
+                for flow in &mut sec.flows {
+                    for p in &mut flow.paragraphs {
+                        if let Some((lvl, scheme, label)) = label_map.get(&p.id) {
+                            p.heading_level = Some(lvl.clone());
+                            p.numbering_scheme = scheme.clone();
+                            p.number_label = label.clone();
+                            if let Some(lbl) = label {
+                                affected.push((p.id, lbl.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        affected
+    }
+
     pub fn add_footnote_apparatus(&mut self, apparatus: crate::header::FootnoteApparatusConfig) {
         if let Some(pos) = self
             .footnote_apparatuses
@@ -492,6 +584,24 @@ impl DocumentRoot {
             self.grep_rules[pos] = rule;
         } else {
             self.grep_rules.push(rule);
+        }
+    }
+
+    /// Adds or updates a `CharacterStyle` in the document.
+    pub fn add_character_style(&mut self, style: crate::styles::CharacterStyle) {
+        if let Some(pos) = self.character_styles.iter().position(|s| s.id == style.id) {
+            self.character_styles[pos] = style;
+        } else {
+            self.character_styles.push(style);
+        }
+    }
+
+    /// Adds or updates a `ParagraphStyle` in the document.
+    pub fn add_paragraph_style(&mut self, style: crate::styles::ParagraphStyle) {
+        if let Some(pos) = self.paragraph_styles.iter().position(|s| s.id == style.id) {
+            self.paragraph_styles[pos] = style;
+        } else {
+            self.paragraph_styles.push(style);
         }
     }
 
@@ -958,5 +1068,54 @@ mod tests {
         assert_eq!(doc.format_footnote_marker("biurim", 1), "(1)");
         assert_eq!(doc.find_apparatus("sources").unwrap().columns, 2);
         assert_eq!(doc.find_apparatus("biurim").unwrap().columns, 1);
+    }
+
+    #[test]
+    fn test_sync_outline_numbering_to_paragraphs() {
+        use crate::numbering::GematriaPunctuation;
+        use crate::outline::{DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig};
+
+        let mut doc = DocumentRoot::new("שו\"ת מהר\"ם");
+        let flow = doc.sections[0].main_flow_mut().unwrap();
+
+        let p1 = ParagraphNode::new(FractionalIndex::initial(), "heading-siman", "הלכות שבת");
+        let p1_id = p1.id;
+        let p2 = ParagraphNode::new(FractionalIndex::initial(), "heading-seif", "דיני הבדלה");
+        let p2_id = p2.id;
+        let p3 = ParagraphNode::new(FractionalIndex::initial(), "heading-seif", "כוס של ברכה");
+        let p3_id = p3.id;
+
+        flow.paragraphs.push(p1);
+        flow.paragraphs.push(p2);
+        flow.paragraphs.push(p3);
+
+        let mut outline = DocumentOutline::new();
+        let mut siman_node = DocumentHierarchyNode::new(HierarchyLevel::Chapter, "הלכות שבת")
+            .with_target_paragraph(p1_id);
+        let seif1_node = DocumentHierarchyNode::new(HierarchyLevel::Section, "דיני הבדלה")
+            .with_target_paragraph(p2_id);
+        let seif2_node = DocumentHierarchyNode::new(HierarchyLevel::Section, "כוס של ברכה")
+            .with_target_paragraph(p3_id);
+
+        siman_node.add_child(seif1_node);
+        siman_node.add_child(seif2_node);
+        outline.add_root_node(siman_node);
+
+        doc.outline = Some(outline);
+
+        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let affected = doc.sync_outline_numbering(&config);
+
+        assert_eq!(affected.len(), 3);
+
+        let main_flow = doc.sections[0].main_flow().unwrap();
+        assert_eq!(main_flow.paragraphs[0].number_label.as_deref(), Some("סימן א׳"));
+        assert_eq!(main_flow.paragraphs[0].full_heading_text(), "סימן א׳: הלכות שבת");
+
+        assert_eq!(main_flow.paragraphs[1].number_label.as_deref(), Some("סעיף א׳"));
+        assert_eq!(main_flow.paragraphs[1].full_heading_text(), "סעיף א׳: דיני הבדלה");
+
+        assert_eq!(main_flow.paragraphs[2].number_label.as_deref(), Some("סעיף ב׳"));
+        assert_eq!(main_flow.paragraphs[2].full_heading_text(), "סעיף ב׳: כוס של ברכה");
     }
 }

@@ -22,6 +22,7 @@ pub fn is_rare_cantillation_mark(c: char) -> bool {
         0x0592 | // Segolta (סְגוֹלְתָּא)
         0x0593 | // Shalshelet (שַׁלְשֶׁלֶת)
         0x059F | // Pazer Gadol / Qarne Farah (קַרְנֵי פָרָה)
+        0x05A0 | // Telisha Gedola (תְּלִישָׁא גְדוֹלָה)
         0x05A6 | // Merkha Kefula (מֵרְכָא כְּפוּלָה)
         0x05AA | // Yerach Ben Yomo (יֶרַח בֶּן יוֹמוֹ)
         0x05AB | // Ole Ve-Yored (עֹלֶה וְיוֹרֵד)
@@ -33,7 +34,7 @@ pub fn is_rare_cantillation_mark(c: char) -> bool {
 
 /// Returns true if character is a poetic cantillation mark used in Sifrei Emet (טעמי אמ"ת: תהלים, משלי, איוב).
 pub fn is_poetic_emet_accent(c: char) -> bool {
-    matches!(c as u32, 0x05A2 | 0x05AB | 0x05AC | 0x05AD | 0x05AE)
+    matches!(c as u32, 0x059C | 0x05A2 | 0x05AB | 0x05AC | 0x05AD | 0x05AE)
 }
 
 /// Checks whether the text contains any rare cantillation marks or Masoretic special symbols.
@@ -76,6 +77,21 @@ impl MasoreticTypographyConfig {
 
     pub fn with_poetic_accents(mut self, enabled: bool) -> Self {
         self.enable_poetic_accents_emet = enabled;
+        self
+    }
+
+    pub fn with_contextual_alternates(mut self, enabled: bool) -> Self {
+        self.enable_contextual_alternates = enabled;
+        self
+    }
+
+    pub fn with_rare_cantillation_alternates(mut self, enabled: bool) -> Self {
+        self.enable_rare_cantillation_alternates = enabled;
+        self
+    }
+
+    pub fn with_inverted_nun_feature(mut self, enabled: bool) -> Self {
+        self.enable_inverted_nun_feature = enabled;
         self
     }
 

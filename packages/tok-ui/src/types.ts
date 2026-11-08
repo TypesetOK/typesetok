@@ -195,3 +195,14 @@ export interface PageThumbnailItem {
   // (ע"ב); use isRightHandPage()/isRectoPage() from components/SpreadCanvas to derive it.
   isSpreadRight: boolean;
 }
+
+export type {
+  HierarchyLevelJson,
+  GematriaPunctuationJson,
+  NumberingScopeJson,
+  NumberingSchemeJson,
+  DocumentHierarchyNodeJson,
+  DocumentOutlineJson,
+  LevelNumberingRuleJson,
+  OutlineNumberingConfigJson
+} from './engine/documentBridge.js';

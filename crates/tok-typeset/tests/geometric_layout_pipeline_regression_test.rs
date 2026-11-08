@@ -48,6 +48,7 @@ fn test_end_to_end_single_flow_spine_alternation() {
         margin_bottom_pt: 40.0,
         margin_inner_pt: 50.0, // Spine margin
         margin_outer_pt: 20.0, // Outer margin
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);
@@ -124,6 +125,7 @@ fn test_end_to_end_talmud_spread_solver_driven_placement() {
         margin_bottom_pt: 36.0,
         margin_inner_pt: 40.0,
         margin_outer_pt: 30.0,
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);
@@ -201,6 +203,7 @@ fn test_end_to_end_talmud_l_shape_commentary_expansion_in_engine() {
         margin_bottom_pt: 36.0,
         margin_inner_pt: 40.0,
         margin_outer_pt: 30.0,
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);
@@ -260,6 +263,7 @@ fn test_end_to_end_footnote_band_in_engine() {
         margin_bottom_pt: 36.0,
         margin_inner_pt: 36.0,
         margin_outer_pt: 36.0,
+        ..Default::default()
     };
 
     let engine = TypesettingEngine::new(config);

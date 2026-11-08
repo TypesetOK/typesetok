@@ -300,3 +300,97 @@ fn test_e2e_pipeline_determinism() {
         "PDF exports must be bit-for-bit identical across repeated runs"
     );
 }
+
+#[test]
+fn test_e2e_masoretic_traditional_typography_pdf_pipeline() {
+    use tok_core::id::FractionalIndex;
+    use tok_core::model::{DocumentRoot, Flow, FlowType, ParagraphNode, SectionNode};
+    use tok_core::styles::{CharacterFormat, CharacterStyle};
+    use tok_core::{FlowId, TextSpan};
+
+    let mut doc = DocumentRoot::new("תורה ומסורה - מהדורה מדעית מדויקת");
+    doc.sections.clear();
+
+    // Register Character Styles for Traditional Typography
+    doc.add_character_style(CharacterStyle::rabbatai("rabbatai", "אות רבתי"));
+    doc.add_character_style(CharacterStyle::zeira("zeira", "אות זעירא"));
+    doc.add_character_style(CharacterStyle::teluyah("teluyah", "אות תלויה", Some(6.0)));
+    doc.add_character_style(CharacterStyle::with_opentype_feature("torani_cv", "Torani Codex Variant", "cv01", 1));
+
+    let mut sec = SectionNode::new("סדר בהעלתך", "default");
+    sec.flows.clear();
+    let mut main_flow = Flow::new(FlowId::new("main"), FlowType::Main);
+
+    // Text containing:
+    // 1. Inverted Nun (U+05C6) around Numbers 10:35
+    // 2. Rare cantillation marks: Shalshelet (0x0593), Qarne Farah (0x059F), Telisha Gedola (0x05A0)
+    // 3. Literae Majusculae & Suspensae
+    let text = "בְּרֵאשִׁית ׆ וַיְהִי בִּנְסֹעַ הָאָרֹן ׆ וַיִּתְמַהְמָ֓הּ קַרְנֵי פָרָה֟ תְּלִישָׁא גְדוֹלָה֠ יַעַר מִיָּעַר";
+    let mut p = ParagraphNode::new(FractionalIndex::initial(), "body", text);
+
+    // Span 1: Rabbatai on 'ב' of בראשית (chars 0..2)
+    p.spans.push(TextSpan::new(
+        0,
+        2,
+        CharacterFormat {
+            character_style_id: Some("rabbatai".to_string()),
+            ..Default::default()
+        },
+    ));
+
+    // Span 2: Teluyah on 'ע' of יַעַר (suspended letter with baseline shift 6.0pt)
+    if let Some(idx) = text.find("יַעַר") {
+        let ayin_start = text[..idx].chars().count() + 2; // after yod + patah
+        p.spans.push(TextSpan::new(
+            ayin_start,
+            ayin_start + 1,
+            CharacterFormat {
+                character_style_id: Some("teluyah".to_string()),
+                ..Default::default()
+            },
+        ));
+    }
+
+    main_flow.paragraphs.push(p);
+    sec.flows.push(main_flow);
+    doc.sections.push(sec);
+
+    let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
+    let pages = engine.typeset_document(&doc);
+    assert!(!pages.is_empty(), "Must typeset into pages");
+
+    let page = &pages[0];
+    let line = &page.frames[0].lines[0];
+
+    // Verify Inverted Nun is present in typeset line
+    let nun_glyph = line.glyphs.iter().find(|g| g.character == Some('\u{05C6}'));
+    assert!(nun_glyph.is_some(), "Inverted Nun U+05C6 must be in line glyphs");
+    assert!(nun_glyph.unwrap().width > 0.0);
+
+    // Verify Teluyah elevated baseline shift
+    let teluyah_glyph = line.glyphs.iter().find(|g| g.y >= 5.5);
+    assert!(
+        teluyah_glyph.is_some(),
+        "Teluyah letter must have elevated baseline y >= 5.5pt"
+    );
+
+    // Export to uncompressed PDF to verify text rise and font stream operators
+    let options = PdfExportOptions {
+        compress_streams: false,
+        ..Default::default()
+    };
+    let pdf_bytes = PdfPrePressEngine::export_pdf_with_fonts(&pages, &options, &engine.font_manager)
+        .expect("PDF export with Traditional Masoretic typography must succeed");
+
+    assert!(pdf_bytes.starts_with(b"%PDF-"), "Output must be valid PDF");
+    let pdf_str = String::from_utf8_lossy(&pdf_bytes);
+
+    // Verify /ToUnicode CMap is embedded
+    assert!(pdf_str.contains("/ToUnicode"), "PDF must contain /ToUnicode CMap");
+
+    // Verify text rise operator Ts is emitted for elevated baseline glyphs
+    assert!(
+        pdf_str.contains(" Ts\n") || pdf_str.contains(" Ts "),
+        "PDF stream must contain text rise operator (Ts) for suspended letters"
+    );
+}

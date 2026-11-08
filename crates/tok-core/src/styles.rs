@@ -210,6 +210,9 @@ pub struct ParagraphStyle {
     /// Optional constrained last-line balancing rules for Knuth-Plass.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_line_constraint: Option<LastLineConstraintConfig>,
+    /// Optional OpenType feature settings for the paragraph (e.g. "calt", "ss01", "ss04").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
 }
 
 impl Default for ParagraphStyle {
@@ -236,6 +239,7 @@ impl Default for ParagraphStyle {
             drop_cap: None,
             optical_margin: None,
             last_line_constraint: None,
+            opentype_features: None,
         }
     }
 }
@@ -289,6 +293,9 @@ impl ParagraphStyle {
         if let Some(v) = &patch.last_line_constraint {
             self.last_line_constraint = Some(v.clone());
         }
+        if let Some(v) = &patch.opentype_features {
+            self.opentype_features = Some(v.clone());
+        }
     }
 }
 
@@ -307,6 +314,127 @@ pub struct CharacterStyle {
     pub baseline_shift_pt: Option<f32>,
     pub masoretic_variant: Option<MasoreticLetterVariant>,
     pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
+}
+
+impl CharacterStyle {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            font_family: None,
+            font_size_pt: None,
+            font_scale: None,
+            bold: None,
+            italic: None,
+            tracking_em: None,
+            color: None,
+            baseline_shift_pt: None,
+            masoretic_variant: None,
+            opentype_features: None,
+        }
+    }
+
+    /// Pre-configured Character Style for Literae Majusculae (אות רבתי).
+    /// Scales font size by ~1.30x and sets masoretic variant to Rabbatai (with 'titl' OpenType feature).
+    pub fn rabbatai(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            font_family: None,
+            font_size_pt: None,
+            font_scale: Some(1.30),
+            bold: None,
+            italic: None,
+            tracking_em: None,
+            color: None,
+            baseline_shift_pt: Some(0.0),
+            masoretic_variant: Some(MasoreticLetterVariant::Rabbatai),
+            opentype_features: Some(vec![OpenTypeFeatureSetting::new("titl", 1)]),
+        }
+    }
+
+    /// Pre-configured Character Style for Literae Minusculae (אות זעירא).
+    /// Scales font size by ~0.72x and sets masoretic variant to Zeira (with 'smcp' OpenType feature).
+    pub fn zeira(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            font_family: None,
+            font_size_pt: None,
+            font_scale: Some(0.72),
+            bold: None,
+            italic: None,
+            tracking_em: None,
+            color: None,
+            baseline_shift_pt: Some(0.0),
+            masoretic_variant: Some(MasoreticLetterVariant::Zeira),
+            opentype_features: Some(vec![OpenTypeFeatureSetting::new("smcp", 1)]),
+        }
+    }
+
+    /// Pre-configured Character Style for Literae Suspensae (אות תלויה).
+    /// Scales font size by ~0.72x, elevates baseline, and sets masoretic variant to Teluyah (with 'sups' OpenType feature).
+    pub fn teluyah(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        baseline_shift_pt: Option<f32>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            font_family: None,
+            font_size_pt: None,
+            font_scale: Some(0.72),
+            bold: None,
+            italic: None,
+            tracking_em: None,
+            color: None,
+            baseline_shift_pt,
+            masoretic_variant: Some(MasoreticLetterVariant::Teluyah),
+            opentype_features: Some(vec![OpenTypeFeatureSetting::new("sups", 1)]),
+        }
+    }
+
+    /// Pre-configured Character Style using a dedicated OpenType feature (such as cvXX or ssXX) for Torani fonts.
+    pub fn with_opentype_feature(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        tag: impl Into<String>,
+        value: u32,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            font_family: None,
+            font_size_pt: None,
+            font_scale: None,
+            bold: None,
+            italic: None,
+            tracking_em: None,
+            color: None,
+            baseline_shift_pt: None,
+            masoretic_variant: None,
+            opentype_features: Some(vec![OpenTypeFeatureSetting::new(tag, value)]),
+        }
+    }
+
+    /// Convert this `CharacterStyle` into a `CharacterFormat`.
+    pub fn to_format(&self) -> CharacterFormat {
+        CharacterFormat {
+            character_style_id: Some(self.id.clone()),
+            font_family: self.font_family.clone(),
+            font_size_pt: self.font_size_pt,
+            font_scale: self.font_scale,
+            font_weight: self.bold.map(|b| if b { FONT_WEIGHT_BOLD } else { FONT_WEIGHT_REGULAR }),
+            italic: self.italic,
+            underline: None,
+            tracking_em: self.tracking_em,
+            color: self.color.clone(),
+            baseline_shift_pt: self.baseline_shift_pt,
+            masoretic_variant: self.masoretic_variant,
+            opentype_features: self.opentype_features.clone(),
+        }
+    }
 }
 
 /// OpenType feature setting tag (e.g. "calt", "ss01", "ss04", "cv04") and value (0 or 1).
@@ -403,6 +531,8 @@ pub struct StylePatch {
     pub optical_margin: Option<OpticalMarginConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_line_constraint: Option<LastLineConstraintConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
 }
 
 impl StylePatch {
@@ -472,6 +602,18 @@ impl CharacterFormat {
                 .clone()
                 .or_else(|| self.opentype_features.clone()),
         }
+    }
+
+    /// Resolves this format against available `CharacterStyle` definitions.
+    /// If `character_style_id` matches an existing style, the style's properties are inherited
+    /// and any explicit direct overrides in `self` take precedence.
+    pub fn resolve_with_styles(&self, styles: &[CharacterStyle]) -> CharacterFormat {
+        if let Some(ref sid) = self.character_style_id {
+            if let Some(cs) = styles.iter().find(|s| &s.id == sid) {
+                return cs.to_format().merged_with(self);
+            }
+        }
+        self.clone()
     }
 }
 
@@ -643,8 +785,21 @@ pub fn evaluate_live_grep_spans(
         })
         .collect();
 
+    let resolved_existing: Vec<crate::spans::TextSpan> = existing_spans
+        .iter()
+        .map(|s| {
+            if s.format.character_style_id.is_some() {
+                let mut resolved = s.clone();
+                resolved.format = s.format.resolve_with_styles(char_styles);
+                resolved
+            } else {
+                s.clone()
+            }
+        })
+        .collect();
+
     if active_rules.is_empty() {
-        return existing_spans.to_vec();
+        return resolved_existing;
     }
 
     // Build byte-offset -> char-offset lookup table for O(log N) / O(1) conversion
@@ -679,13 +834,13 @@ pub fn evaluate_live_grep_spans(
     }
 
     if combined_spans.is_empty() {
-        return existing_spans.to_vec();
+        return resolved_existing;
     }
 
     // Normalize GREP spans first, then layer explicit spans on top so user formatting wins
     let mut normalized_grep = crate::spans::normalize_spans(combined_spans, char_count);
-    for exp in existing_spans {
-        normalized_grep.push(exp.clone());
+    for exp in resolved_existing {
+        normalized_grep.push(exp);
     }
     crate::spans::normalize_spans(normalized_grep, char_count)
 }
@@ -848,5 +1003,60 @@ mod tests {
             .filter(|s| s.start > 7 && s.format.font_weight == Some(FONT_WEIGHT_BOLD))
             .collect();
         assert_eq!(acronym_spans.len(), 3);
+    }
+
+    #[test]
+    fn test_character_style_masoretic_variants_and_resolution() {
+        let cs_rabbatai = CharacterStyle::rabbatai("rabbatai", "אות רבתי");
+        assert_eq!(cs_rabbatai.font_scale, Some(1.30));
+        assert_eq!(cs_rabbatai.baseline_shift_pt, Some(0.0));
+        assert_eq!(cs_rabbatai.masoretic_variant, Some(MasoreticLetterVariant::Rabbatai));
+        assert_eq!(
+            cs_rabbatai.opentype_features,
+            Some(vec![OpenTypeFeatureSetting::new("titl", 1)])
+        );
+
+        let cs_zeira = CharacterStyle::zeira("zeira", "אות זעירא");
+        assert_eq!(cs_zeira.font_scale, Some(0.72));
+        assert_eq!(cs_zeira.baseline_shift_pt, Some(0.0));
+        assert_eq!(cs_zeira.masoretic_variant, Some(MasoreticLetterVariant::Zeira));
+        assert_eq!(
+            cs_zeira.opentype_features,
+            Some(vec![OpenTypeFeatureSetting::new("smcp", 1)])
+        );
+
+        let cs_teluyah = CharacterStyle::teluyah("teluyah", "אות תלויה", Some(4.5));
+        assert_eq!(cs_teluyah.font_scale, Some(0.72));
+        assert_eq!(cs_teluyah.baseline_shift_pt, Some(4.5));
+        assert_eq!(cs_teluyah.masoretic_variant, Some(MasoreticLetterVariant::Teluyah));
+        assert_eq!(
+            cs_teluyah.opentype_features,
+            Some(vec![OpenTypeFeatureSetting::new("sups", 1)])
+        );
+
+        let cs_cv = CharacterStyle::with_opentype_feature("cv01", "Torah Variant 1", "cv01", 1);
+        assert_eq!(
+            cs_cv.opentype_features,
+            Some(vec![OpenTypeFeatureSetting::new("cv01", 1)])
+        );
+
+        // Resolution via CharacterFormat
+        let mut fmt = CharacterFormat::default();
+        fmt.character_style_id = Some("teluyah".to_string());
+        let resolved = fmt.resolve_with_styles(&[cs_teluyah]);
+        assert_eq!(resolved.font_scale, Some(0.72));
+        assert_eq!(resolved.baseline_shift_pt, Some(4.5));
+        assert_eq!(resolved.masoretic_variant, Some(MasoreticLetterVariant::Teluyah));
+        assert_eq!(
+            resolved.opentype_features,
+            Some(vec![OpenTypeFeatureSetting::new("sups", 1)])
+        );
+
+        // Resolution via evaluate_live_grep_spans on existing spans
+        let existing = vec![crate::spans::TextSpan::new(0, 1, fmt)];
+        let evaluated = evaluate_live_grep_spans("שמע", &existing, &[], &[CharacterStyle::teluyah("teluyah", "אות תלויה", Some(4.5))], None);
+        assert_eq!(evaluated.len(), 1);
+        assert_eq!(evaluated[0].format.font_scale, Some(0.72));
+        assert_eq!(evaluated[0].format.baseline_shift_pt, Some(4.5));
     }
 }

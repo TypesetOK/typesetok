@@ -970,6 +970,33 @@ fn handle_diagnose_recompute(input: &str) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+fn handle_sync_heading_numbers(
+    input: &str,
+    output: &str,
+    plain: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (model, _manifest) = load_document_input(input, 10)?;
+    let mut root = model.root().clone();
+
+    let punctuation = if plain {
+        tok_core::numbering::GematriaPunctuation::PlainLetters
+    } else {
+        tok_core::numbering::GematriaPunctuation::StandardPunctuation
+    };
+
+    let config = tok_core::outline::OutlineNumberingConfig::torah_default(punctuation);
+    let affected = root.sync_outline_numbering(&config);
+
+    let json_bytes = serde_json::to_vec_pretty(&root)?;
+    fs::write(output, json_bytes)?;
+    println!(
+        "  [SUCCESS] Synchronized heading numbering for {} items to: {}",
+        affected.len(),
+        output
+    );
+    Ok(())
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {}", e);
@@ -1048,6 +1075,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             handle_run_plugins(&args[2], &args[3])?;
         }
+        "sync-heading-numbers" => {
+            if args.len() < 4 {
+                eprintln!(
+                    "Usage: tok-cli sync-heading-numbers <INPUT.json | INPUT.tok | --demo> <OUTPUT.json> [--plain]"
+                );
+                std::process::exit(1);
+            }
+            let plain = args.iter().any(|a| a == "--plain");
+            handle_sync_heading_numbers(&args[2], &args[3], plain)?;
+        }
         "benchmark-typeset" => {
             let mut pages = 1000;
             if args.len() >= 4 && args[2] == "--pages" {
@@ -1108,6 +1145,35 @@ mod tests {
         assert_eq!(
             text,
             "אמר ר׳ משה בן מימון (רמב״ם) בשם אל\u{00A0}שדי וא\u{2060}-\u{2060}להים"
+        );
+    }
+
+    #[test]
+    fn test_sync_heading_numbers_logic() {
+        use tok_core::numbering::GematriaPunctuation;
+        use tok_core::outline::{DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig};
+
+        let mut root = DocumentRoot::new("ספר הלכה");
+        let flow = root.sections[0].main_flow_mut().unwrap();
+
+        let p1 = ParagraphNode::new(FractionalIndex::initial(), "heading-siman", "הלכות ברכות");
+        let p1_id = p1.id;
+        flow.paragraphs.push(p1);
+
+        let mut outline = DocumentOutline::new();
+        let siman_node = DocumentHierarchyNode::new(HierarchyLevel::Chapter, "הלכות ברכות")
+            .with_target_paragraph(p1_id);
+        outline.add_root_node(siman_node);
+        root.outline = Some(outline);
+
+        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let affected = root.sync_outline_numbering(&config);
+
+        assert_eq!(affected.len(), 1);
+        assert_eq!(affected[0].1, "סימן א׳");
+        assert_eq!(
+            root.sections[0].main_flow().unwrap().paragraphs[0].number_label.as_deref(),
+            Some("סימן א׳")
         );
     }
 }
