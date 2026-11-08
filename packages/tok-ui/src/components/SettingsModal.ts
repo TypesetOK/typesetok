@@ -531,15 +531,111 @@ export class SettingsModal {
             headline.appendChild(el('span', undefined, undefined, `${t('updatesStatusAvailable')} (v${String(res.latestVersion ?? '')})`));
             resultBox.appendChild(headline);
             resultBox.appendChild(el('div', undefined, { style: 'white-space:pre-wrap;max-height:160px;overflow-y:auto;margin-bottom:10px;color:var(--tok-text-primary)' }, String(res.releaseNotes ?? '')));
-            resultBox.appendChild(button(t('updatesDownload'), {
-              className: 'tok-btn tok-btn-primary tok-btn-sm',
-              icon: 'export',
+
+            const btnRow = el('div', undefined, { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;' });
+
+            // Direct in-app streaming download with live metrics
+            if (win.tokIpc && win.tokIpc.downloadUpdate && res.downloadUrl) {
+              const downloadInAppBtn = button(t('updatesDownloadInApp'), {
+                className: 'tok-btn tok-btn-primary tok-btn-sm',
+                icon: 'download',
+                onClick: async () => {
+                  downloadInAppBtn.disabled = true;
+                  const progressWrap = el('div', undefined, { style: 'margin-top:10px;padding:10px 12px;background:var(--tok-bg-secondary);border-radius:6px;display:flex;flex-direction:column;gap:6px;width:100%;' });
+                  
+                  const topStatusRow = el('div', undefined, { style: 'display:flex;justify-content:space-between;align-items:center;font-size:12px;' });
+                  const progressLabel = el('span', undefined, { style: 'color:var(--tok-text-primary);font-weight:500;' }, t('updatesDownloading'));
+                  const speedLabel = el('span', undefined, { style: 'color:var(--tok-text-secondary);font-family:monospace;font-size:11px;' });
+                  topStatusRow.appendChild(progressLabel);
+                  topStatusRow.appendChild(speedLabel);
+
+                  const progressBarBg = el('div', undefined, { style: 'width:100%;height:6px;background:var(--tok-border-default);border-radius:3px;overflow:hidden;' });
+                  const progressBar = el('div', undefined, { style: 'width:0%;height:100%;background:var(--tok-accent-primary);transition:width 0.2s;' });
+                  progressBarBg.appendChild(progressBar);
+
+                  const bottomInfoRow = el('div', undefined, { style: 'display:flex;justify-content:space-between;font-size:11px;color:var(--tok-text-secondary);' });
+                  const sizeInfo = el('span');
+                  const etaInfo = el('span');
+                  bottomInfoRow.appendChild(sizeInfo);
+                  bottomInfoRow.appendChild(etaInfo);
+
+                  progressWrap.appendChild(topStatusRow);
+                  progressWrap.appendChild(progressBarBg);
+                  progressWrap.appendChild(bottomInfoRow);
+                  resultBox.appendChild(progressWrap);
+
+                  let unsub: (() => void) | undefined;
+                  if (win.tokIpc.onUpdateDownloadProgress) {
+                    unsub = win.tokIpc.onUpdateDownloadProgress((p: any) => {
+                      progressBar.style.width = `${p.percent}%`;
+                      progressLabel.textContent = `${t('updatesDownloading')} ${p.percent}%`;
+                      
+                      const transferredMb = (p.transferredBytes / (1024 * 1024)).toFixed(1);
+                      const totalMb = p.totalBytes > 0 ? (p.totalBytes / (1024 * 1024)).toFixed(1) : '?';
+                      sizeInfo.textContent = `${transferredMb} MB / ${totalMb} MB`;
+
+                      if (p.speedBytesPerSec > 0) {
+                        const speedMb = (p.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+                        speedLabel.textContent = `${speedMb} MB/s`;
+                      }
+                      if (p.etaSeconds > 0) {
+                        etaInfo.textContent = tf('updatesEta', { sec: p.etaSeconds });
+                      }
+                    });
+                  }
+
+                  try {
+                    const dlRes = await win.tokIpc.downloadUpdate(res.downloadUrl);
+                    if (unsub) unsub();
+                    if (dlRes && dlRes.success && dlRes.filePath) {
+                      progressWrap.remove();
+                      const successNotice = el('div', undefined, { style: 'margin-top:10px;padding:12px;background:var(--tok-bg-secondary);border:1px solid var(--tok-status-success);border-radius:6px;display:flex;flex-direction:column;gap:8px;' });
+                      successNotice.appendChild(el('div', undefined, { style: 'font-size:12px;color:var(--tok-status-success);font-weight:600;' }, t('updatesDownloadSuccess')));
+                      
+                      if (dlRes.sha256) {
+                        const hashRow = el('div', undefined, { style: 'font-size:11px;color:var(--tok-text-secondary);font-family:monospace;word-break:break-all;' }, `${t('updatesSha256')}: ${dlRes.sha256}`);
+                        successNotice.appendChild(hashRow);
+                      }
+
+                      const applyBtn = button(t('updatesApplyNow'), {
+                        className: 'tok-btn tok-btn-primary tok-btn-sm',
+                        icon: 'check',
+                        onClick: async () => {
+                          const applyRes = await win.tokIpc.applyUpdate(dlRes.filePath);
+                          if (applyRes && !applyRes.success) {
+                            this.callbacks.showToast(applyRes.error || t('actionFailed'));
+                          }
+                        }
+                      });
+                      successNotice.appendChild(applyBtn);
+                      resultBox.appendChild(successNotice);
+                    } else {
+                      downloadInAppBtn.disabled = false;
+                      progressWrap.remove();
+                      this.callbacks.showToast(dlRes?.error || t('actionFailed'));
+                    }
+                  } catch (err: any) {
+                    if (unsub) unsub();
+                    downloadInAppBtn.disabled = false;
+                    progressWrap.remove();
+                    this.callbacks.showToast(`${t('actionFailed')}: ${err?.message || err}`);
+                  }
+                }
+              });
+              btnRow.appendChild(downloadInAppBtn);
+            }
+
+            // Fallback: Browser download
+            btnRow.appendChild(button(t('updatesDownload'), {
+              className: 'tok-btn tok-btn-secondary tok-btn-sm',
+              icon: 'link',
               onClick: () => {
                 Promise.resolve(win.tokIpc.openReleaseUrl(res.downloadUrl || res.releaseUrl)).catch((e: any) => {
                   this.callbacks.showToast(`${t('updatesCheckFailed')}: ${e?.message ?? e}`);
                 });
               }
             }));
+            resultBox.appendChild(btnRow);
           } else {
             showLatest(typeof res?.currentVersion === 'string' && res.currentVersion ? res.currentVersion : await getAppVersion());
           }
@@ -552,6 +648,140 @@ export class SettingsModal {
       }
       setChecking(false);
     });
+
+    // Offline / Air-Gapped USB Update Card
+    const offlineCard = el('div', 'tok-card', { style: 'margin-top: 14px; display: flex; flex-direction: column; gap: 8px;' });
+    const offlineHeader = el('div', undefined, { style: 'display: flex; align-items: center; gap: 8px;' });
+    offlineHeader.appendChild(icon('folder', 16));
+    offlineHeader.appendChild(el('span', undefined, { style: 'font-size: 13px; font-weight: 600;' }, t('updatesOfflineTitle')));
+    offlineCard.appendChild(offlineHeader);
+    offlineCard.appendChild(el('div', undefined, { style: 'font-size: 12px; color: var(--tok-text-secondary); line-height: 1.45;' }, t('updatesOfflineDesc')));
+
+    const offlineActions = el('div', undefined, { style: 'display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;' });
+    const offlineResult = el('div', undefined, { style: 'font-size: 12px; margin-top: 6px; display: none;' });
+
+    const selectFileBtn = button(t('updatesOfflineSelectFile'), {
+      className: 'tok-btn tok-btn-secondary tok-btn-sm',
+      icon: 'folder',
+      onClick: async () => {
+        const win = window as any;
+        if (!win.tokIpc || !win.tokIpc.showOpenDialog) {
+          offlineResult.style.display = 'block';
+          offlineResult.style.color = 'var(--tok-status-error)';
+          offlineResult.textContent = t('desktopOnlyFeature');
+          return;
+        }
+        try {
+          const filePath = await win.tokIpc.showOpenDialog({
+            filters: [
+              { name: 'TypesetOK Installer (*.exe, *.AppImage, *.dmg)', extensions: ['exe', 'AppImage', 'dmg'] },
+              { name: 'All Files (*.*)', extensions: ['*'] }
+            ]
+          });
+          if (!filePath) return;
+          offlineResult.style.display = 'block';
+          offlineResult.innerHTML = '';
+          const inspect = win.tokIpc.inspectOfflineUpdate ? await win.tokIpc.inspectOfflineUpdate(filePath) : null;
+          if (inspect && inspect.version) {
+            const info = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--tok-bg-secondary);border-radius:6px;' });
+            const titleRow = el('div', undefined, { style: 'display:flex;justify-content:space-between;align-items:center;' });
+            const statusText = tf('updatesOfflineSelected', { file: inspect.fileName, ver: inspect.version });
+            titleRow.appendChild(el('span', undefined, { style: 'color: var(--tok-status-success); font-weight: 600;' }, statusText));
+            if (inspect.fileSize) {
+              titleRow.appendChild(el('span', undefined, { style: 'font-size:11px;color:var(--tok-text-secondary);' }, `${(inspect.fileSize / (1024 * 1024)).toFixed(1)} MB`));
+            }
+            info.appendChild(titleRow);
+
+            if (inspect.statusDescriptionHebrew) {
+              info.appendChild(el('span', undefined, { style: 'color: var(--tok-text-secondary); font-size: 11px;' }, inspect.statusDescriptionHebrew));
+            }
+
+            info.appendChild(button(t('updatesOfflineApply'), {
+              className: 'tok-btn tok-btn-primary tok-btn-sm',
+              icon: 'check',
+              onClick: async () => {
+                const res = await win.tokIpc.applyUpdate(filePath);
+                if (res && !res.success) {
+                  this.callbacks.showToast(res.error || t('actionFailed'));
+                }
+              }
+            }));
+            offlineResult.appendChild(info);
+          } else {
+            offlineResult.style.color = 'var(--tok-status-warning)';
+            offlineResult.textContent = t('updatesOfflineFileInvalid');
+          }
+        } catch (err: any) {
+          offlineResult.style.display = 'block';
+          offlineResult.style.color = 'var(--tok-status-error)';
+          offlineResult.textContent = `${t('actionFailed')}: ${err?.message || err}`;
+        }
+      }
+    });
+
+    const scanUsbBtn = button(t('updatesOfflineScanUsb'), {
+      className: 'tok-btn tok-btn-secondary tok-btn-sm',
+      icon: 'refresh',
+      onClick: async () => {
+        const win = window as any;
+        if (!win.tokIpc || !win.tokIpc.scanUsbUpdates) {
+          offlineResult.style.display = 'block';
+          offlineResult.style.color = 'var(--tok-status-error)';
+          offlineResult.textContent = t('desktopOnlyFeature');
+          return;
+        }
+        try {
+          offlineResult.style.display = 'block';
+          offlineResult.style.color = 'var(--tok-text-secondary)';
+          offlineResult.textContent = t('updatesStatusChecking');
+          const candidates = await win.tokIpc.scanUsbUpdates();
+          offlineResult.innerHTML = '';
+          if (!candidates || candidates.length === 0) {
+            offlineResult.textContent = t('updatesOfflineNoFilesFound');
+          } else {
+            const list = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:8px;' });
+            for (const cand of candidates) {
+              const row = el('div', undefined, { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--tok-bg-secondary);border-radius:6px;' });
+              const left = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px;' });
+              
+              const titleLine = el('div', undefined, { style: 'display:flex;align-items:center;gap:6px;' });
+              const title = tf('updatesOfflineFoundOnUsb', { ver: cand.version || '', drive: cand.driveLetter || 'USB' });
+              titleLine.appendChild(el('span', undefined, { style: 'font-weight: 600;' }, title));
+              if (cand.isRecommended) {
+                titleLine.appendChild(el('span', 'tok-badge tok-badge-success', undefined, t('updatesOfflineRecommended')));
+              }
+              left.appendChild(titleLine);
+
+              const subText = `${cand.fileName} • ${(cand.fileSize / (1024 * 1024)).toFixed(1)} MB ${cand.modifiedAt ? '• ' + cand.modifiedAt : ''}`;
+              left.appendChild(el('span', undefined, { style: 'font-size:11px;color:var(--tok-text-secondary);' }, subText));
+              row.appendChild(left);
+
+              row.appendChild(button(t('updatesOfflineApply'), {
+                className: `tok-btn ${cand.isRecommended ? 'tok-btn-primary' : 'tok-btn-secondary'} tok-btn-sm`,
+                icon: 'check',
+                onClick: async () => {
+                  const res = await win.tokIpc.applyUpdate(cand.filePath);
+                  if (res && !res.success) {
+                    this.callbacks.showToast(res.error || t('actionFailed'));
+                  }
+                }
+              }));
+              list.appendChild(row);
+            }
+            offlineResult.appendChild(list);
+          }
+        } catch (err: any) {
+          offlineResult.style.color = 'var(--tok-status-error)';
+          offlineResult.textContent = `${t('actionFailed')}: ${err?.message || err}`;
+        }
+      }
+    });
+
+    offlineActions.appendChild(selectFileBtn);
+    offlineActions.appendChild(scanUsbBtn);
+    offlineCard.appendChild(offlineActions);
+    offlineCard.appendChild(offlineResult);
+    container.appendChild(offlineCard);
   }
 
   // --- Plugins ---

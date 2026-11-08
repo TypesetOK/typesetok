@@ -59,6 +59,7 @@ export type IconName =
   | 'alignLeft'
   | 'help'
   | 'upload'
+  | 'download'
   | 'chevronUp'
   | 'chevronLeft'
   | 'chevronRight'
@@ -109,6 +110,9 @@ const ICONS_SVG: Record<IconName, string> = {
   `,
   upload: `
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3M6 7l4-4 4 4"/><path d="M3.5 13v2.5A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5V13"/></svg>
+  `,
+  download: `
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4"/><path d="M3.5 13v2.5A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5V13"/></svg>
   `,
   chevronUp: `
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 5-5 5 5"/></svg>
