@@ -21,6 +21,27 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       {
         "category": "features",
         "text": {
+          "he": "טיפוגרפיה מסורתית, ניקוד וטעמים: תמיכה מלאה באותיות זעירות, רבתי ותלויות בשני מסלולים (סגנון תו CharacterStyle עם יחס גודל גופן והזחת קו בסיס, לצד הפעלת תכונות OpenType ייעודיות cvXX/ssXX/titl/smcp/sups בגופנים תורניים)",
+          "en": "Traditional typography: Literae Majusculae, Minusculae, and Suspensae via CharacterStyle scaling & baseline shift and OpenType features (titl/smcp/sups/cvXX/ssXX)"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "תמיכה ורינדור תקני של נו\"ן הפוכה (U+05C6 Hebrew Punctuation Nun Hafukha) במנוע העימוד rustybuzz, מניעת קריסת רוחב ושימור בטבלת /ToUnicode ב-PDF",
+          "en": "Compliant rendering and shaping of Inverted Nun (U+05C6) via rustybuzz, non-zero advance preservation, and PDF /ToUnicode mapping"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "העברת תגי OpenType ייעודיים (calt, ss01, ss04, ss02) ל-rustybuzz עבור טעמי מקרא נדירים (שלשלת, קרני פרה, ירח בן יומו, מירכא כפולה, תלישא גדולה) וטעמי אמ\"ת בספרי השירה",
+          "en": "Automatic routing of OpenType features (calt, ss01, ss04, ss02) to rustybuzz for rare cantillation marks and poetic Sifrei Emet accents"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
           "he": "חיבור מלא בין סכמות מספור תורניות (TorahSiman, TorahSeif, TorahOt) לעץ הכותרות DocumentHierarchyNode ולפסקאות ParagraphNode",
           "en": "Full connection between Torah numbering schemes and DocumentHierarchyNode/ParagraphNode tree"
         }
