@@ -26,6 +26,11 @@ export interface TokIpcBridge {
   // Updater
   checkForUpdates: () => Promise<unknown>;
   openReleaseUrl: (url?: string) => Promise<void>;
+  downloadUpdate: (downloadUrl: string) => Promise<{ success: boolean; filePath?: string; fileSize?: number; sha256?: string; error?: string }>;
+  onUpdateDownloadProgress: (callback: (data: { percent: number; transferredBytes: number; totalBytes: number; speedBytesPerSec: number; etaSeconds: number }) => void) => () => void;
+  applyUpdate: (filePath: string, silent?: boolean) => Promise<{ success: boolean; error?: string }>;
+  inspectOfflineUpdate: (filePath: string) => Promise<any>;
+  scanUsbUpdates: () => Promise<any[]>;
 
   // Plugins
   getPlugins: () => Promise<unknown[]>;
@@ -126,6 +131,23 @@ const tokIpc: TokIpcBridge = {
   },
   openReleaseUrl: async (url?: string) => {
     return await ipcRenderer.invoke('tok:open-release-url', url);
+  },
+  downloadUpdate: async (url: string) => {
+    return await ipcRenderer.invoke('tok:download-update', url);
+  },
+  applyUpdate: async (filePath: string, silent?: boolean) => {
+    return await ipcRenderer.invoke('tok:apply-update', filePath, silent);
+  },
+  inspectOfflineUpdate: async (filePath: string) => {
+    return await ipcRenderer.invoke('tok:inspect-offline-update', filePath);
+  },
+  scanUsbUpdates: async () => {
+    return await ipcRenderer.invoke('tok:scan-usb-updates');
+  },
+  onUpdateDownloadProgress: (callback: (data: any) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('tok:update-download-progress', handler);
+    return () => ipcRenderer.removeListener('tok:update-download-progress', handler);
   },
 
   // Plugin APIs

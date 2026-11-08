@@ -948,6 +948,20 @@ handle('tok:set-log-retention', (_, days: number) => {
 // Updater Handlers
 handle('tok:check-for-updates', () => updater.checkForUpdates());
 handle('tok:open-release-url', (_, url?: string) => updater.openReleaseUrl(url));
+handle('tok:download-update', async (event, url: string) => {
+  return await updater.downloadUpdate(url, (progress) => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('tok:update-download-progress', progress);
+      }
+    } catch {
+      // Ignore destroyed window
+    }
+  });
+});
+handle('tok:apply-update', (_, filePath: string, silent?: boolean) => updater.applyInstaller(filePath, silent));
+handle('tok:inspect-offline-update', (_, filePath: string) => updater.inspectOfflineFile(filePath));
+handle('tok:scan-usb-updates', () => updater.scanUsbDrives());
 
 // Plugin Handlers
 handle('tok:get-plugins', async () => {
