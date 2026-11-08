@@ -545,17 +545,39 @@ mod tests {
         outline.add_root_node(siman1);
         outline.add_root_node(siman2);
 
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         outline.recalculate_numbers(&config);
 
-        assert_eq!(outline.root_nodes[0].number_label.as_deref(), Some("סימן א׳"));
-        assert_eq!(outline.root_nodes[0].children[0].number_label.as_deref(), Some("סעיף א׳"));
-        assert_eq!(outline.root_nodes[0].children[1].number_label.as_deref(), Some("סעיף ב׳"));
+        assert_eq!(
+            outline.root_nodes[0].number_label.as_deref(),
+            Some("סימן א׳")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[0].number_label.as_deref(),
+            Some("סעיף א׳")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[1].number_label.as_deref(),
+            Some("סעיף ב׳")
+        );
 
-        assert_eq!(outline.root_nodes[1].number_label.as_deref(), Some("סימן ב׳"));
-        assert_eq!(outline.root_nodes[1].children[0].number_label.as_deref(), Some("סעיף א׳"));
-        assert_eq!(outline.root_nodes[1].children[1].number_label.as_deref(), Some("סעיף ב׳"));
-        assert_eq!(outline.root_nodes[1].children[2].number_label.as_deref(), Some("סעיף ג׳"));
+        assert_eq!(
+            outline.root_nodes[1].number_label.as_deref(),
+            Some("סימן ב׳")
+        );
+        assert_eq!(
+            outline.root_nodes[1].children[0].number_label.as_deref(),
+            Some("סעיף א׳")
+        );
+        assert_eq!(
+            outline.root_nodes[1].children[1].number_label.as_deref(),
+            Some("סעיף ב׳")
+        );
+        assert_eq!(
+            outline.root_nodes[1].children[2].number_label.as_deref(),
+            Some("סעיף ג׳")
+        );
 
         assert_eq!(
             outline.root_nodes[0].full_display_title(),
@@ -568,8 +590,14 @@ mod tests {
         let mut outline = DocumentOutline::new();
 
         let mut siman1 = DocumentHierarchyNode::new(HierarchyLevel::Chapter, "ראשון");
-        siman1.add_child(DocumentHierarchyNode::new(HierarchyLevel::Section, "סעיף מקורי א"));
-        siman1.add_child(DocumentHierarchyNode::new(HierarchyLevel::Section, "סעיף מקורי ב"));
+        siman1.add_child(DocumentHierarchyNode::new(
+            HierarchyLevel::Section,
+            "סעיף מקורי א",
+        ));
+        siman1.add_child(DocumentHierarchyNode::new(
+            HierarchyLevel::Section,
+            "סעיף מקורי ב",
+        ));
 
         let siman2 = DocumentHierarchyNode::new(HierarchyLevel::Chapter, "שני");
 
@@ -577,22 +605,35 @@ mod tests {
         outline.add_root_node(siman1);
         outline.add_root_node(siman2);
 
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         outline.recalculate_numbers(&config);
 
         assert_eq!(outline.root_nodes[0].title, "ראשון");
-        assert_eq!(outline.root_nodes[0].number_label.as_deref(), Some("סימן א׳"));
+        assert_eq!(
+            outline.root_nodes[0].number_label.as_deref(),
+            Some("סימן א׳")
+        );
         assert_eq!(outline.root_nodes[1].title, "שני");
-        assert_eq!(outline.root_nodes[1].number_label.as_deref(), Some("סימן ב׳"));
+        assert_eq!(
+            outline.root_nodes[1].number_label.as_deref(),
+            Some("סימן ב׳")
+        );
 
         // Reorder siman2 to become first root item
         let success = outline.reorder_node(siman2_id, None, 0, Some(&config));
         assert!(success);
 
         assert_eq!(outline.root_nodes[0].title, "שני");
-        assert_eq!(outline.root_nodes[0].number_label.as_deref(), Some("סימן א׳"));
+        assert_eq!(
+            outline.root_nodes[0].number_label.as_deref(),
+            Some("סימן א׳")
+        );
         assert_eq!(outline.root_nodes[1].title, "ראשון");
-        assert_eq!(outline.root_nodes[1].number_label.as_deref(), Some("סימן ב׳"));
+        assert_eq!(
+            outline.root_nodes[1].number_label.as_deref(),
+            Some("סימן ב׳")
+        );
     }
 
     #[test]
@@ -607,27 +648,49 @@ mod tests {
         let siman_id = siman.id;
         outline.add_root_node(siman);
 
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         outline.recalculate_numbers(&config);
 
-        assert_eq!(outline.root_nodes[0].children[0].number_label.as_deref(), Some("סעיף א׳"));
-        assert_eq!(outline.root_nodes[0].children[1].number_label.as_deref(), Some("סעיף ב׳"));
+        assert_eq!(
+            outline.root_nodes[0].children[0].number_label.as_deref(),
+            Some("סעיף א׳")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[1].number_label.as_deref(),
+            Some("סעיף ב׳")
+        );
 
         // Insert new seif in between
         let new_sec = DocumentHierarchyNode::new(HierarchyLevel::Section, "סעיף חדש ביניים");
         outline.insert_node(Some(siman_id), 1, new_sec, Some(&config));
 
         assert_eq!(outline.root_nodes[0].children.len(), 3);
-        assert_eq!(outline.root_nodes[0].children[0].number_label.as_deref(), Some("סעיף א׳"));
-        assert_eq!(outline.root_nodes[0].children[1].number_label.as_deref(), Some("סעיף ב׳"));
-        assert_eq!(outline.root_nodes[0].children[2].number_label.as_deref(), Some("סעיף ג׳"));
+        assert_eq!(
+            outline.root_nodes[0].children[0].number_label.as_deref(),
+            Some("סעיף א׳")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[1].number_label.as_deref(),
+            Some("סעיף ב׳")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[2].number_label.as_deref(),
+            Some("סעיף ג׳")
+        );
 
         // Delete the original first seif
         let removed = outline.remove_node(sec1_id, Some(&config));
         assert!(removed.is_some());
         assert_eq!(outline.root_nodes[0].children.len(), 2);
-        assert_eq!(outline.root_nodes[0].children[0].number_label.as_deref(), Some("סעיף א׳"));
-        assert_eq!(outline.root_nodes[0].children[1].number_label.as_deref(), Some("סעיף ב׳"));
+        assert_eq!(
+            outline.root_nodes[0].children[0].number_label.as_deref(),
+            Some("סעיף א׳")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[1].number_label.as_deref(),
+            Some("סעיף ב׳")
+        );
     }
 
     #[test]
@@ -641,8 +704,14 @@ mod tests {
         let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::PlainLetters);
         outline.recalculate_numbers(&config);
 
-        assert_eq!(outline.root_nodes[0].number_label.as_deref(), Some("סימן א"));
-        assert_eq!(outline.root_nodes[0].children[0].number_label.as_deref(), Some("סעיף א"));
+        assert_eq!(
+            outline.root_nodes[0].number_label.as_deref(),
+            Some("סימן א")
+        );
+        assert_eq!(
+            outline.root_nodes[0].children[0].number_label.as_deref(),
+            Some("סעיף א")
+        );
     }
 
     #[test]
@@ -659,7 +728,8 @@ mod tests {
         assert!(!outline.is_descendant_of(siman_id, seif_id));
 
         // Moving siman inside its own child seif must fail
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         let ok = outline.reorder_node(siman_id, Some(seif_id), 0, Some(&config));
         assert!(!ok, "Cycle creation must be strictly rejected");
     }

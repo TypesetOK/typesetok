@@ -440,7 +440,13 @@ impl CharacterStyle {
             font_family: self.font_family.clone(),
             font_size_pt: self.font_size_pt,
             font_scale: self.font_scale,
-            font_weight: self.bold.map(|b| if b { FONT_WEIGHT_BOLD } else { FONT_WEIGHT_REGULAR }),
+            font_weight: self.bold.map(|b| {
+                if b {
+                    FONT_WEIGHT_BOLD
+                } else {
+                    FONT_WEIGHT_REGULAR
+                }
+            }),
             italic: self.italic,
             underline: None,
             tracking_em: self.tracking_em,
@@ -623,10 +629,7 @@ impl CharacterFormat {
                 .opentype_features
                 .clone()
                 .or_else(|| self.opentype_features.clone()),
-            link_url: other
-                .link_url
-                .clone()
-                .or_else(|| self.link_url.clone()),
+            link_url: other.link_url.clone().or_else(|| self.link_url.clone()),
         }
     }
 
@@ -1036,7 +1039,10 @@ mod tests {
         let cs_rabbatai = CharacterStyle::rabbatai("rabbatai", "אות רבתי");
         assert_eq!(cs_rabbatai.font_scale, Some(1.30));
         assert_eq!(cs_rabbatai.baseline_shift_pt, Some(0.0));
-        assert_eq!(cs_rabbatai.masoretic_variant, Some(MasoreticLetterVariant::Rabbatai));
+        assert_eq!(
+            cs_rabbatai.masoretic_variant,
+            Some(MasoreticLetterVariant::Rabbatai)
+        );
         assert_eq!(
             cs_rabbatai.opentype_features,
             Some(vec![OpenTypeFeatureSetting::new("titl", 1)])
@@ -1045,7 +1051,10 @@ mod tests {
         let cs_zeira = CharacterStyle::zeira("zeira", "אות זעירא");
         assert_eq!(cs_zeira.font_scale, Some(0.72));
         assert_eq!(cs_zeira.baseline_shift_pt, Some(0.0));
-        assert_eq!(cs_zeira.masoretic_variant, Some(MasoreticLetterVariant::Zeira));
+        assert_eq!(
+            cs_zeira.masoretic_variant,
+            Some(MasoreticLetterVariant::Zeira)
+        );
         assert_eq!(
             cs_zeira.opentype_features,
             Some(vec![OpenTypeFeatureSetting::new("smcp", 1)])
@@ -1054,7 +1063,10 @@ mod tests {
         let cs_teluyah = CharacterStyle::teluyah("teluyah", "אות תלויה", Some(4.5));
         assert_eq!(cs_teluyah.font_scale, Some(0.72));
         assert_eq!(cs_teluyah.baseline_shift_pt, Some(4.5));
-        assert_eq!(cs_teluyah.masoretic_variant, Some(MasoreticLetterVariant::Teluyah));
+        assert_eq!(
+            cs_teluyah.masoretic_variant,
+            Some(MasoreticLetterVariant::Teluyah)
+        );
         assert_eq!(
             cs_teluyah.opentype_features,
             Some(vec![OpenTypeFeatureSetting::new("sups", 1)])
@@ -1067,12 +1079,17 @@ mod tests {
         );
 
         // Resolution via CharacterFormat
-        let mut fmt = CharacterFormat::default();
-        fmt.character_style_id = Some("teluyah".to_string());
+        let fmt = CharacterFormat {
+            character_style_id: Some("teluyah".to_string()),
+            ..Default::default()
+        };
         let resolved = fmt.resolve_with_styles(&[cs_teluyah]);
         assert_eq!(resolved.font_scale, Some(0.72));
         assert_eq!(resolved.baseline_shift_pt, Some(4.5));
-        assert_eq!(resolved.masoretic_variant, Some(MasoreticLetterVariant::Teluyah));
+        assert_eq!(
+            resolved.masoretic_variant,
+            Some(MasoreticLetterVariant::Teluyah)
+        );
         assert_eq!(
             resolved.opentype_features,
             Some(vec![OpenTypeFeatureSetting::new("sups", 1)])
@@ -1080,7 +1097,13 @@ mod tests {
 
         // Resolution via evaluate_live_grep_spans on existing spans
         let existing = vec![crate::spans::TextSpan::new(0, 1, fmt)];
-        let evaluated = evaluate_live_grep_spans("שמע", &existing, &[], &[CharacterStyle::teluyah("teluyah", "אות תלויה", Some(4.5))], None);
+        let evaluated = evaluate_live_grep_spans(
+            "שמע",
+            &existing,
+            &[],
+            &[CharacterStyle::teluyah("teluyah", "אות תלויה", Some(4.5))],
+            None,
+        );
         assert_eq!(evaluated.len(), 1);
         assert_eq!(evaluated[0].format.font_scale, Some(0.72));
         assert_eq!(evaluated[0].format.baseline_shift_pt, Some(4.5));

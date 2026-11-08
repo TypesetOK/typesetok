@@ -315,7 +315,12 @@ fn test_e2e_masoretic_traditional_typography_pdf_pipeline() {
     doc.add_character_style(CharacterStyle::rabbatai("rabbatai", "אות רבתי"));
     doc.add_character_style(CharacterStyle::zeira("zeira", "אות זעירא"));
     doc.add_character_style(CharacterStyle::teluyah("teluyah", "אות תלויה", Some(6.0)));
-    doc.add_character_style(CharacterStyle::with_opentype_feature("torani_cv", "Torani Codex Variant", "cv01", 1));
+    doc.add_character_style(CharacterStyle::with_opentype_feature(
+        "torani_cv",
+        "Torani Codex Variant",
+        "cv01",
+        1,
+    ));
 
     let mut sec = SectionNode::new("סדר בהעלתך", "default");
     sec.flows.clear();
@@ -364,7 +369,10 @@ fn test_e2e_masoretic_traditional_typography_pdf_pipeline() {
 
     // Verify Inverted Nun is present in typeset line
     let nun_glyph = line.glyphs.iter().find(|g| g.character == Some('\u{05C6}'));
-    assert!(nun_glyph.is_some(), "Inverted Nun U+05C6 must be in line glyphs");
+    assert!(
+        nun_glyph.is_some(),
+        "Inverted Nun U+05C6 must be in line glyphs"
+    );
     assert!(nun_glyph.unwrap().width > 0.0);
 
     // Verify Teluyah elevated baseline shift
@@ -379,14 +387,18 @@ fn test_e2e_masoretic_traditional_typography_pdf_pipeline() {
         compress_streams: false,
         ..Default::default()
     };
-    let pdf_bytes = PdfPrePressEngine::export_pdf_with_fonts(&pages, &options, &engine.font_manager)
-        .expect("PDF export with Traditional Masoretic typography must succeed");
+    let pdf_bytes =
+        PdfPrePressEngine::export_pdf_with_fonts(&pages, &options, &engine.font_manager)
+            .expect("PDF export with Traditional Masoretic typography must succeed");
 
     assert!(pdf_bytes.starts_with(b"%PDF-"), "Output must be valid PDF");
     let pdf_str = String::from_utf8_lossy(&pdf_bytes);
 
     // Verify /ToUnicode CMap is embedded
-    assert!(pdf_str.contains("/ToUnicode"), "PDF must contain /ToUnicode CMap");
+    assert!(
+        pdf_str.contains("/ToUnicode"),
+        "PDF must contain /ToUnicode CMap"
+    );
 
     // Verify text rise operator Ts is emitted for elevated baseline glyphs
     assert!(

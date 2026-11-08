@@ -135,7 +135,8 @@ fn test_masoretic_character_styles_and_opentype_features_two_pathways() {
     let style_teluyah = CharacterStyle::teluyah("teluyah", "ע תלויה", Some(5.0));
 
     // Pathway 2: CharacterStyle with Torani OpenType feature (cvXX / ssXX)
-    let style_cv = CharacterStyle::with_opentype_feature("cv_torani", "Torani Codex Variant", "cv01", 1);
+    let style_cv =
+        CharacterStyle::with_opentype_feature("cv_torani", "Torani Codex Variant", "cv01", 1);
 
     doc.add_character_style(style_rabbatai);
     doc.add_character_style(style_zeira);

@@ -247,7 +247,7 @@ impl GlobalPageBreaker {
             let upcoming_item = &lines[start_idx];
             if upcoming_item.line_in_paragraph == 0 && upcoming_item.force_odd_page_break_before {
                 let upcoming_page_num = start_page_num + pages.len();
-                if upcoming_page_num % 2 == 0 {
+                if upcoming_page_num.is_multiple_of(2) {
                     // Even page = Verso. A section/chapter forced to an odd page cannot start on Verso.
                     // Inject a Blank Verso Page to advance to the next Recto (odd) page.
                     pages.push(PageSlice::blank());
@@ -360,7 +360,10 @@ impl GlobalPageBreaker {
         let mut prev_was_drop_cap_for_para: Option<usize> = None;
 
         for (idx, item) in remaining.iter().enumerate() {
-            if idx > 0 && item.line_in_paragraph == 0 && (item.force_page_break_before || item.force_odd_page_break_before) {
+            if idx > 0
+                && item.line_in_paragraph == 0
+                && (item.force_page_break_before || item.force_odd_page_break_before)
+            {
                 // Forced break immediately before this line!
                 break;
             }
@@ -1076,13 +1079,23 @@ mod tests {
         ];
 
         let pages = breaker.break_pages(&inputs);
-        assert_eq!(pages.len(), 3, "Expected Page 1 (content), Page 2 (blank verso), Page 3 (content)");
+        assert_eq!(
+            pages.len(),
+            3,
+            "Expected Page 1 (content), Page 2 (blank verso), Page 3 (content)"
+        );
         assert!(!pages[0].is_blank);
         assert_eq!(pages[0].lines.len(), 1);
         assert_eq!(pages[0].lines[0].text, "line 0");
 
-        assert!(pages[1].is_blank, "Page 2 must be an injected blank verso page");
-        assert!(pages[1].lines.is_empty(), "Blank verso page must have no text lines");
+        assert!(
+            pages[1].is_blank,
+            "Page 2 must be an injected blank verso page"
+        );
+        assert!(
+            pages[1].lines.is_empty(),
+            "Blank verso page must have no text lines"
+        );
 
         assert!(!pages[2].is_blank);
         assert_eq!(pages[2].lines.len(), 1);
@@ -1152,7 +1165,11 @@ mod tests {
         ];
 
         let pages2 = breaker.break_pages(&inputs_two_pages);
-        assert_eq!(pages2.len(), 3, "Expected Page 1, Page 2, Page 3 without blank insertion");
+        assert_eq!(
+            pages2.len(),
+            3,
+            "Expected Page 1, Page 2, Page 3 without blank insertion"
+        );
         assert!(!pages2[0].is_blank);
         assert!(!pages2[1].is_blank);
         assert!(!pages2[2].is_blank);

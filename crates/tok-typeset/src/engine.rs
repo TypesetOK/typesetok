@@ -603,11 +603,13 @@ impl TypesettingEngine {
                 let run_text = &text[run_start..run_end];
                 let mut extra_features = masoretic_cfg.resolve_features_for_text(run_text);
                 if let Some(para_features) = base_style.and_then(|s| s.opentype_features.as_ref()) {
-                    extra_features.extend(crate::masoretic::convert_opentype_settings(para_features));
+                    extra_features
+                        .extend(crate::masoretic::convert_opentype_settings(para_features));
                 }
                 for patch in &paragraph.style_patches {
                     if let Some(patch_features) = &patch.opentype_features {
-                        extra_features.extend(crate::masoretic::convert_opentype_settings(patch_features));
+                        extra_features
+                            .extend(crate::masoretic::convert_opentype_settings(patch_features));
                     }
                 }
                 if let Some(sp) = span_opt {
@@ -623,7 +625,8 @@ impl TypesettingEngine {
                         }
                     }
                     if let Some(span_features) = &sp.format.opentype_features {
-                        extra_features.extend(crate::masoretic::convert_opentype_settings(span_features));
+                        extra_features
+                            .extend(crate::masoretic::convert_opentype_settings(span_features));
                     }
                 }
                 let (mut run, choice) = session.shape_with_features(
@@ -1147,9 +1150,15 @@ impl TypesettingEngine {
         let mut prev_section_idx: Option<usize> = None;
 
         let doc_forces_odd_sections = doc.metadata.document_settings.as_ref().is_some_and(|s| {
-            s.get("chaptersStartOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
-                || s.get("startSectionsOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
-                || s.get("forceOddPageOnSections").and_then(|v| v.as_bool()).unwrap_or(false)
+            s.get("chaptersStartOnOddPage")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+                || s.get("startSectionsOnOddPage")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                || s.get("forceOddPageOnSections")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
         });
 
         for (&(sec_idx, p_idx, p), p_lines) in jobs.iter().zip(laid_out) {
@@ -1553,9 +1562,15 @@ impl TypesettingEngine {
         let mut first_affected_line_idx: Option<usize> = None;
 
         let doc_forces_odd_sections = doc.metadata.document_settings.as_ref().is_some_and(|s| {
-            s.get("chaptersStartOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
-                || s.get("startSectionsOnOddPage").and_then(|v| v.as_bool()).unwrap_or(false)
-                || s.get("forceOddPageOnSections").and_then(|v| v.as_bool()).unwrap_or(false)
+            s.get("chaptersStartOnOddPage")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+                || s.get("startSectionsOnOddPage")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                || s.get("forceOddPageOnSections")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
         });
 
         for (job_idx, (&(sec_idx, p_idx, p), p_lines)) in jobs.iter().zip(&laid_out).enumerate() {

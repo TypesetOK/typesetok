@@ -1151,7 +1151,9 @@ mod tests {
     #[test]
     fn test_sync_heading_numbers_logic() {
         use tok_core::numbering::GematriaPunctuation;
-        use tok_core::outline::{DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig};
+        use tok_core::outline::{
+            DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig,
+        };
 
         let mut root = DocumentRoot::new("ספר הלכה");
         let flow = root.sections[0].main_flow_mut().unwrap();
@@ -1166,13 +1168,16 @@ mod tests {
         outline.add_root_node(siman_node);
         root.outline = Some(outline);
 
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         let affected = root.sync_outline_numbering(&config);
 
         assert_eq!(affected.len(), 1);
         assert_eq!(affected[0].1, "סימן א׳");
         assert_eq!(
-            root.sections[0].main_flow().unwrap().paragraphs[0].number_label.as_deref(),
+            root.sections[0].main_flow().unwrap().paragraphs[0]
+                .number_label
+                .as_deref(),
             Some("סימן א׳")
         );
     }

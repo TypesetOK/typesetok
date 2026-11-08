@@ -215,15 +215,16 @@ impl ParagraphNode {
     }
 
     pub fn has_forced_page_break_before(&self) -> bool {
-        self.overrides
-            .as_ref()
-            .is_some_and(|o| o.force_page_break_before || o.page_break_mode == crate::overrides::PageBreakMode::Page)
+        self.overrides.as_ref().is_some_and(|o| {
+            o.force_page_break_before || o.page_break_mode == crate::overrides::PageBreakMode::Page
+        })
     }
 
     pub fn has_forced_odd_page_break_before(&self) -> bool {
-        self.overrides
-            .as_ref()
-            .is_some_and(|o| o.force_odd_page_break_before || o.page_break_mode == crate::overrides::PageBreakMode::OddPage)
+        self.overrides.as_ref().is_some_and(|o| {
+            o.force_odd_page_break_before
+                || o.page_break_mode == crate::overrides::PageBreakMode::OddPage
+        })
     }
 
     pub fn has_forced_page_break_after(&self) -> bool {
@@ -530,10 +531,7 @@ impl DocumentRoot {
                         .numbering_scheme
                         .clone()
                         .or_else(|| config.scheme_for_level(&node.level));
-                    label_map.insert(
-                        pid,
-                        (node.level.clone(), scheme, node.number_label.clone()),
-                    );
+                    label_map.insert(pid, (node.level.clone(), scheme, node.number_label.clone()));
                 }
             }
 
@@ -1106,7 +1104,9 @@ mod tests {
     #[test]
     fn test_sync_outline_numbering_to_paragraphs() {
         use crate::numbering::GematriaPunctuation;
-        use crate::outline::{DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig};
+        use crate::outline::{
+            DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig,
+        };
 
         let mut doc = DocumentRoot::new("שו\"ת מהר\"ם");
         let flow = doc.sections[0].main_flow_mut().unwrap();
@@ -1136,19 +1136,38 @@ mod tests {
 
         doc.outline = Some(outline);
 
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         let affected = doc.sync_outline_numbering(&config);
 
         assert_eq!(affected.len(), 3);
 
         let main_flow = doc.sections[0].main_flow().unwrap();
-        assert_eq!(main_flow.paragraphs[0].number_label.as_deref(), Some("סימן א׳"));
-        assert_eq!(main_flow.paragraphs[0].full_heading_text(), "סימן א׳: הלכות שבת");
+        assert_eq!(
+            main_flow.paragraphs[0].number_label.as_deref(),
+            Some("סימן א׳")
+        );
+        assert_eq!(
+            main_flow.paragraphs[0].full_heading_text(),
+            "סימן א׳: הלכות שבת"
+        );
 
-        assert_eq!(main_flow.paragraphs[1].number_label.as_deref(), Some("סעיף א׳"));
-        assert_eq!(main_flow.paragraphs[1].full_heading_text(), "סעיף א׳: דיני הבדלה");
+        assert_eq!(
+            main_flow.paragraphs[1].number_label.as_deref(),
+            Some("סעיף א׳")
+        );
+        assert_eq!(
+            main_flow.paragraphs[1].full_heading_text(),
+            "סעיף א׳: דיני הבדלה"
+        );
 
-        assert_eq!(main_flow.paragraphs[2].number_label.as_deref(), Some("סעיף ב׳"));
-        assert_eq!(main_flow.paragraphs[2].full_heading_text(), "סעיף ב׳: כוס של ברכה");
+        assert_eq!(
+            main_flow.paragraphs[2].number_label.as_deref(),
+            Some("סעיף ב׳")
+        );
+        assert_eq!(
+            main_flow.paragraphs[2].full_heading_text(),
+            "סעיף ב׳: כוס של ברכה"
+        );
     }
 }

@@ -7,6 +7,7 @@ use tok_core::transaction::CompoundTransaction;
 /// High-speed binary IPC command sent from UI frontend to Rust Core.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
+#[allow(clippy::large_enum_variant)]
 pub enum IpcCommand {
     InsertText {
         anchor: TextAnchor,

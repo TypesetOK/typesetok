@@ -98,9 +98,7 @@ fn test_even_ending_section_does_not_inject_spurious_blank_page() {
 
     // Section 2 - Configured to start on an odd page
     let mut sec2 = SectionNode::new("סימן ב", "default").with_start_on_odd_page(true);
-    sec2.main_flow_mut().unwrap().paragraphs = vec![
-        make_para("סימן ב - דיני הנהגת אדם בבוקר."),
-    ];
+    sec2.main_flow_mut().unwrap().paragraphs = vec![make_para("סימן ב - דיני הנהגת אדם בבוקר.")];
 
     doc.sections = vec![sec1, sec2];
 
@@ -141,7 +139,10 @@ fn test_paragraph_style_force_odd_page_opens_on_recto() {
     let mut sec = SectionNode::new("חלק א", "default");
     let p1 = make_para_with_style("siman-heading", "סימן א - כותרת ראשית הפותחת את הספר.");
     let p2 = make_para("תוכן סימן א גוף ההלכה.");
-    let p3 = make_para_with_style("siman-heading", "סימן ב - כותרת סימן ב הפותחת בעמוד ימני אי-זוגי.");
+    let p3 = make_para_with_style(
+        "siman-heading",
+        "סימן ב - כותרת סימן ב הפותחת בעמוד ימני אי-זוגי.",
+    );
     let p4 = make_para("תוכן סימן ב גוף ההלכה.");
 
     sec.main_flow_mut().unwrap().paragraphs = vec![p1, p2, p3, p4];
@@ -172,7 +173,10 @@ fn test_document_settings_chapters_start_on_odd_page() {
 
     // Configure document settings to force all chapters/sections onto odd pages
     let mut settings = serde_json::Map::new();
-    settings.insert("chaptersStartOnOddPage".to_string(), serde_json::Value::Bool(true));
+    settings.insert(
+        "chaptersStartOnOddPage".to_string(),
+        serde_json::Value::Bool(true),
+    );
     doc.metadata.document_settings = Some(serde_json::Value::Object(settings));
 
     let mut sec1 = SectionNode::new("סימן א", "default");
@@ -188,7 +192,10 @@ fn test_document_settings_chapters_start_on_odd_page() {
 
     assert_eq!(pages.len(), 3);
     assert!(!pages[0].is_blank);
-    assert!(pages[1].is_blank, "Document setting must force blank verso insertion before Section 2");
+    assert!(
+        pages[1].is_blank,
+        "Document setting must force blank verso insertion before Section 2"
+    );
     assert!(!pages[2].is_blank);
     assert!(pages[2].frames[0].lines[0].text.contains("סימן ב"));
 }

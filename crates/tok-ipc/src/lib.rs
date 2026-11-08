@@ -183,7 +183,8 @@ mod tests {
             DocumentHierarchyNode, DocumentOutline, HierarchyLevel, OutlineNumberingConfig,
         };
 
-        let config = OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
+        let config =
+            OutlineNumberingConfig::torah_default(GematriaPunctuation::StandardPunctuation);
         let cfg_cmd = IpcCommand::ConfigureHeadingNumbering {
             config: config.clone(),
         };

@@ -34,7 +34,10 @@ pub fn is_rare_cantillation_mark(c: char) -> bool {
 
 /// Returns true if character is a poetic cantillation mark used in Sifrei Emet (טעמי אמ"ת: תהלים, משלי, איוב).
 pub fn is_poetic_emet_accent(c: char) -> bool {
-    matches!(c as u32, 0x059C | 0x05A2 | 0x05AB | 0x05AC | 0x05AD | 0x05AE)
+    matches!(
+        c as u32,
+        0x059C | 0x05A2 | 0x05AB | 0x05AC | 0x05AD | 0x05AE
+    )
 }
 
 /// Checks whether the text contains any rare cantillation marks or Masoretic special symbols.
