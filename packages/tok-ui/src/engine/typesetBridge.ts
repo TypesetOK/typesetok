@@ -65,6 +65,7 @@ export interface PageLayoutBox {
   dimensions: PhysicalRect;
   frames: TextFrameBox[];
   break_token?: BreakToken | null;
+  is_blank?: boolean;
 }
 
 function escapeHtml(str: string): string {
@@ -130,6 +131,20 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[
     const gematriaNumber = pageBox.page_number_gematria || toHebrewGematria(pageIndex + 1);
     const pageWidth = pageBox.dimensions?.width || 595.28;
     const pageHeight = pageBox.dimensions?.height || 841.89;
+
+    if (pageBox.is_blank) {
+      return {
+        pageIndex,
+        gematriaNumber: '',
+        widthPt: pageWidth,
+        heightPt: pageHeight,
+        htmlContent: `
+          <div class="tok-page-layout-rust tok-page-blank" data-page-index="${pageIndex}" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
+            <div class="tok-blank-page-notice" style="position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: var(--tok-text-muted, #888); font-size: 11px; font-style: italic; opacity: 0.5;">[עמוד חלק]</div>
+          </div>
+        `
+      };
+    }
 
     // Identify footnote/apparatus frames to draw separator rules (33% rule above primary apparatus, 18% rule between apparatuses)
     const footnoteFrameIdsOrdered = (pageBox.frames || [])
