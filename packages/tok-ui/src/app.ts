@@ -343,7 +343,6 @@ export class TypesetOkApp {
       onPanelToggle: () => this.updateStoryToolbar()
     });
     this.workbench.appendChild(this.structureBar.element);
-    this.inspector.setFlows(this.structureBar.getFlows());
 
     // 3b. Center: Spread Canvas
     this.canvas = new SpreadCanvas({
@@ -551,6 +550,7 @@ export class TypesetOkApp {
       }
     });
     this.workbench.appendChild(this.inspector.element);
+    this.inspector.setFlows(this.structureBar.getFlows());
 
     const initSettings = this.inspector.getDocumentSettings();
     if (initSettings) {
