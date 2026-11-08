@@ -407,4 +407,20 @@ mod tests {
         let escaped = html_escape("it's");
         assert!(escaped.contains("&#39;"), "Single quotes must be escaped");
     }
+
+    #[test]
+    fn test_html_projection_blank_verso_page() {
+        let blank_page = PageLayoutBox {
+            page_index: 1,
+            page_number_gematria: "ב".to_string(),
+            dimensions: PhysicalRect::a4_portrait(),
+            frames: Vec::new(),
+            break_token: None,
+            is_blank: true,
+        };
+        let html = HtmlProjectionCompiler::compile_to_html(&[blank_page], 210.0, 297.0);
+        assert!(html.contains("tok-page tok-page-blank tok-page-left"));
+        assert!(!html.contains("tok-folio"));
+        assert!(!html.contains("tok-line"));
+    }
 }
