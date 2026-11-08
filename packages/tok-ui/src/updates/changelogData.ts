@@ -21,6 +21,27 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       {
         "category": "features",
         "text": {
+          "he": "מיפוי סגנונות מותאמים אישית מתוך word/styles.xml כולל מודל הורשת סגנונות (basedOn), מאפייני פסקאות ותווים וייצוא מלא ב-ImportResult",
+          "en": "DOCX custom styles extraction and inheritance from word/styles.xml with paragraph and character formatting"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "פענוח שדות קישור w:fldSimple, אלמנטי w:hyperlink ושדות מורכבים (HYPERLINK, REF, PAGEREF, PAGE, NUMPAGES) והחלת סגנון קישור",
+          "en": "Parse w:fldSimple, w:hyperlink, and complex fields with hyperlink styling and URL targeting"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "כפיית פתיחת פרקים וסימנים בעמוד אי-זוגי (Recto) והזרקת עמוד שמאל חלק (Blank Verso Page) אוטומטית במנוע העימוד ובתצוגת ה-UI",
+          "en": "Enforced odd-page section openings with automatic blank verso page injection in typeset engine and UI"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
           "he": "טיפוגרפיה מסורתית, ניקוד וטעמים: תמיכה מלאה באותיות זעירות, רבתי ותלויות בשני מסלולים (סגנון תו CharacterStyle עם יחס גודל גופן והזחת קו בסיס, לצד הפעלת תכונות OpenType ייעודיות cvXX/ssXX/titl/smcp/sups בגופנים תורניים)",
           "en": "Traditional typography: Literae Majusculae, Minusculae, and Suspensae via CharacterStyle scaling & baseline shift and OpenType features (titl/smcp/sups/cvXX/ssXX)"
         }
@@ -115,6 +136,38 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         "badge": {
           "he": "שליטת IPC",
           "en": "Full IPC Control"
+        }
+      },
+      {
+        "id": "docx-styles-and-links",
+        "icon": "file-text",
+        "title": {
+          "he": "מיפוי סגנונות מותאמים אישית מ-word/styles.xml ושדות קישור w:fldSimple",
+          "en": "Custom Styles Mapping from word/styles.xml & Field Links (w:fldSimple)"
+        },
+        "description": {
+          "he": "חילוץ מלא של סגנונות פסקאות ותווים כולל הורשה מרובת רמות (basedOn), הזחות, יישור, גופנים וצבעים, לצד פענוח היפר-קישורים, עוגנים והפניות צולבות.",
+          "en": "Full extraction of custom paragraph and character styles with basedOn inheritance, indents, alignments, and fonts, plus hyperlink, anchor and cross-reference parsing."
+        },
+        "badge": {
+          "he": "סגנונות וקישורים ב-DOCX",
+          "en": "DOCX Styles & Links"
+        }
+      },
+      {
+        "id": "forced-odd-recto-blank",
+        "icon": "book-open",
+        "title": {
+          "he": "פתיחת פרק בעמוד ימין (Recto) והזרקת עמוד חלק אוטומטית",
+          "en": "Forced Odd-Page (Recto) Section Opening & Automatic Blank Verso Page Injection"
+        },
+        "description": {
+          "he": "כפיית פתיחת סימנים בעמוד אי-זוגי ימני עם הזרקה אוטומטית של עמוד שמאל חלק מסונכרן (is_blank) ללא עמודות תוכן או כותרות עליונות.",
+          "en": "Enforced odd-page chapter starts with synchronized blank verso page injection suppressing frames and running headers."
+        },
+        "badge": {
+          "he": "פתיחת ימין כפויה",
+          "en": "Forced Recto & Blank Verso"
         }
       }
     ],

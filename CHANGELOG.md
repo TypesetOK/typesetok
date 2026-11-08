@@ -21,8 +21,17 @@
 - [ipc-full-control] icon: code | badge: עברית: שליטת IPC, en: Full IPC Control
   - Title: עברית: חשיפת שליטה מלאה ב-IPC ובממשק המשתמש | en: Comprehensive IPC Control & Bridge for Desktop UI
   - Description: עברית: פקודות ואירועי IPC ייעודיים (ConfigureHeadingNumbering, ReorderHeadingNode, InsertHeadingNode, DeleteHeadingNode, RecalculateHeadingNumbers) מחוברים ל-Electron ול-UI. | en: Dedicated IPC commands and events exposed in Rust core, framed binary IPC, Electron main/preload bridge, and UI client bridge.
+- [docx-styles-and-links] icon: file-text | badge: עברית: סגנונות וקישורים ב-DOCX, en: DOCX Styles & Links
+  - Title: עברית: מיפוי סגנונות מותאמים אישית מ-word/styles.xml ושדות קישור w:fldSimple | en: Custom Styles Mapping from word/styles.xml & Field Links (w:fldSimple)
+  - Description: עברית: חילוץ מלא של סגנונות פסקאות ותווים כולל הורשה מרובת רמות (basedOn), הזחות, יישור, גופנים וצבעים, לצד פענוח היפר-קישורים, עוגנים והפניות צולבות. | en: Full extraction of custom paragraph and character styles with basedOn inheritance, indents, alignments, and fonts, plus hyperlink, anchor and cross-reference parsing.
+- [forced-odd-recto-blank] icon: book-open | badge: עברית: פתיחת ימין כפויה, en: Forced Recto & Blank Verso
+  - Title: עברית: פתיחת פרק בעמוד ימין (Recto) והזרקת עמוד חלק אוטומטית | en: Forced Odd-Page (Recto) Section Opening & Automatic Blank Verso Page Injection
+  - Description: עברית: כפיית פתיחת סימנים בעמוד אי-זוגי ימני עם הזרקה אוטומטית של עמוד שמאל חלק מסונכרן (is_blank) ללא עמודות תוכן או כותרות עליונות. | en: Enforced odd-page chapter starts with synchronized blank verso page injection suppressing frames and running headers.
 
 ### Changes
+- [features] עברית: מיפוי סגנונות מותאמים אישית מתוך word/styles.xml כולל מודל הורשת סגנונות (basedOn), מאפייני פסקאות ותווים וייצוא מלא ב-ImportResult | en: DOCX custom styles extraction and inheritance from word/styles.xml with paragraph and character formatting
+- [features] עברית: פענוח שדות קישור w:fldSimple, אלמנטי w:hyperlink ושדות מורכבים (HYPERLINK, REF, PAGEREF, PAGE, NUMPAGES) והחלת סגנון קישור | en: Parse w:fldSimple, w:hyperlink, and complex fields with hyperlink styling and URL targeting
+- [features] עברית: כפיית פתיחת פרקים וסימנים בעמוד אי-זוגי (Recto) והזרקת עמוד שמאל חלק (Blank Verso Page) אוטומטית במנוע העימוד ובתצוגת ה-UI | en: Enforced odd-page section openings with automatic blank verso page injection in typeset engine and UI
 - [features] עברית: טיפוגרפיה מסורתית, ניקוד וטעמים: תמיכה מלאה באותיות זעירות, רבתי ותלויות בשני מסלולים (סגנון תו CharacterStyle עם יחס גודל גופן והזחת קו בסיס, לצד הפעלת תכונות OpenType ייעודיות cvXX/ssXX/titl/smcp/sups בגופנים תורניים) | en: Traditional typography: Literae Majusculae, Minusculae, and Suspensae via CharacterStyle scaling & baseline shift and OpenType features (titl/smcp/sups/cvXX/ssXX)
 - [features] עברית: תמיכה ורינדור תקני של נו"ן הפוכה (U+05C6 Hebrew Punctuation Nun Hafukha) במנוע העימוד rustybuzz, מניעת קריסת רוחב ושימור בטבלת /ToUnicode ב-PDF | en: Compliant rendering and shaping of Inverted Nun (U+05C6) via rustybuzz, non-zero advance preservation, and PDF /ToUnicode mapping
 - [features] עברית: העברת תגי OpenType ייעודיים (calt, ss01, ss04, ss02) ל-rustybuzz עבור טעמי מקרא נדירים (שלשלת, קרני פרה, ירח בן יומו, מירכא כפולה, תלישא גדולה) וטעמי אמ"ת בספרי השירה | en: Automatic routing of OpenType features (calt, ss01, ss04, ss02) to rustybuzz for rare cantillation marks and poetic Sifrei Emet accents
