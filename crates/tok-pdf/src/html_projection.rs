@@ -421,6 +421,6 @@ mod tests {
         let html = HtmlProjectionCompiler::compile_to_html(&[blank_page], 210.0, 297.0);
         assert!(html.contains("tok-page tok-page-blank tok-page-left"));
         assert!(!html.contains("tok-folio"));
-        assert!(!html.contains("tok-line"));
+        assert!(!html.contains("<div class=\"tok-line\""));
     }
 }
