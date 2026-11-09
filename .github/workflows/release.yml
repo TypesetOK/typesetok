@@ -204,29 +204,32 @@ jobs:
           draft: false
           prerelease: false
           files: release-assets/*
+          
           body: |
-            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }} — ייבוא DOCX מתקדם, ריבוי מדורי הערות במקביל, ניהול צבע ICC/PDF-X ומנוע GREP חי
+            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }}
 
-            ### 🚀 מה חדש בגרסה ${{ needs.check-release.outputs.tag_name }}:
-            - **ייבוא DOCX מתקדם (הערות שוליים, טבלאות ורשימות ממוספרות):**
-              - חילוץ ישיר של הערות שוליים (`word/footnotes.xml`) וקישורן האוטומטי כעוגנים בטקסט הראשי.
-              - יבוא טבלאות מקוננות עם כיווניות RTL ותמיכה ברשימות ממוספרות היררכיות (`word/numbering.xml`).
-            - **ריבוי מדורי הערות שוליים עצמאיים במקביל (Parallel Multi-Apparatus Footnotes):**
-              - תמיכה מלאה במספר מדורי הערות מקבילים בתחתית העמוד (כגון מדור מקורות ב-2 טורים לצד מדור ביאורים בטור רחב).
-              - מספור, גופנים וסגנונות נפרדים לכל מדור, קווי הפרדה גאומטריים ואיזון גובה תקציבי פרופורציונלי.
-            - **מנוע ניהול צבע קדם-דפוס מקצועי ופרופילי ICC מוטמעים (ICC & PDF/X):**
-              - הפרדת צבע GCR/UCR תקנית עם הגבלת עומס דיו (TAC <= 300%) ושמירה קפדנית על טקסט שחור 100% K.
-              - תמיכה בפרופילי FOGRA39, FOGRA51, GRACoL 2013 ו-SWOP והטמעת DestOutputProfile תקני ב-PDF/X-1a ו-PDF/X-4.
-              - סימוני דפוס וצלבי חיתוך (Registration Marks) מדויקים בעמודי PDF.
-            - **מנוע חוקי GREP חי לעיצוב אוטומטי (Non-Destructive Live GREP Engine):**
-              - מנוע ביטויים רגולריים בזמן אמת בליבת Rust ובממשק המשתמש להחלת עיצובי תו ללא פגיעה בטקסט המקור.
-              - תבניות מובנות לספרי קודש: הקטנת מראי מקומות בסוגריים ל-80%, הדגשת ראשי תיבות ומילות פתיחה.
-            - **שיפורי חוויית משתמש וביצועים:**
-              - התאמות ממשק ומודאלים לעבודה שוטפת ונוחה.
-              - כיסוי בדיקות אוטומטי מלא לכלל רכיבי המערכת.
+            ### 🚀 מה חדש?
 
-            ### 📦 קבצים להורדה (Downloads):
-            - **מתקין רשמי למחשב (מומלץ):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-Setup.exe`
-            - **גרסה ניידת ללא התקנה (Portable):** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-windows-desktop-app.zip`
-            - **CLI בלבד (Windows x64):** `tok-cli-${{ needs.check-release.outputs.tag_name }}-windows-x64.zip`
-            - **Workbench Source Bundle:** `typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz`
+            #### שדרוג מנגנון העדכון המובנה (PR #30)
+            - הורדה ישירה של קובצי ההתקנה מתוך התוכנה, ללא צורך בדפדפן חיצוני.
+            - הצגת התקדמות ההורדה, מהירות ההורדה וזמן משוער לסיומה.
+            - אימות תקינות הקובץ באמצעות SHA-256 במהלך ההורדה.
+            - שימוש בקובץ זמני למניעת שימוש בהורדות חלקיות או פגומות.
+            - בדיקת תקינות קובצי ההתקנה, לרבות חתימת PE וכותרת MZ.
+            - איתור מתקינים קיימים בסריקה מעמיקה של כוננים חיצוניים ותיקיות נפוצות.
+            - השוואת גרסאות באמצעות SemVer וזיהוי המתקין המתאים ביותר.
+            - הפעלה בטוחה יותר של המתקין וסגירה מסודרת של התוכנה לפני העדכון.
+            - הרחבת בדיקות היחידה ובדיקות הרגרסיה.
+            - ללא הוספת תלויות חיצוניות חדשות של Node.js.
+
+            #### תיקוני באגים (Issue #28)
+            - תיקון סדר האתחול של המסמך.
+            - הבטחת אתחול `ContextualInspector` לפני הקריאה ל־`setFlows()`.
+            - תיקון פתיחת מסמכים חדשים וייבוא קובצי DOCX, שמנע הופעת סביבת עבודה ריקה.
+
+            ### 📦 קובצי הורדה
+
+            - **מומלץ – מתקין ל-Windows:** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-Setup.exe`
+            - **גרסה ניידת:** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-windows-desktop-app.zip`
+            - **ממשק שורת הפקודה (CLI):** `tok-cli-${{ needs.check-release.outputs.tag_name }}-windows-x64.zip`
+            - **חבילת קוד המקור:** `typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz`
