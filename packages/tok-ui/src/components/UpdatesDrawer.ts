@@ -184,9 +184,10 @@ export class UpdatesDrawer {
       return;
     }
 
+    const currentVersion = this.stateManager.getLatestEntry()?.version;
     for (let idx = 0; idx < entries.length; idx++) {
       const entry = entries[idx];
-      const isCurrent = idx === 0;
+      const isCurrent = entry.version === currentVersion;
       const card = new ChangelogEntryCard(entry, { isCurrent, defaultExpanded: isCurrent });
       this.cardsContainer.appendChild(card.element);
     }

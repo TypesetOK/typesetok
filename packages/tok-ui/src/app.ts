@@ -964,6 +964,12 @@ export class TypesetOkApp {
     return key ? t(key) : canonical;
   }
 
+  /** Shows the flow that is really being edited in the status bar. Call after the active flow or the flow list changes. */
+  private syncStatusBarFlow(): void {
+    if (!this.statusBar || !this.activeFlowId) return;
+    this.statusBar.updateStats({ activeFlow: this.flowDisplayName(this.activeFlowId) });
+  }
+
   private get welcomeModal(): WelcomeModal {
     if (!this.welcomeModalInstance) {
       this.welcomeModalInstance = new WelcomeModal({
@@ -2353,6 +2359,7 @@ export class TypesetOkApp {
     this.storyEditor.loadStory(this.documentState.flows.gemara);
     // The side panel must list the flows of this template, not whatever was loaded before.
     this.structureBar.setFlows(getFlowsForTemplate(this.documentState.templateType));
+    this.syncStatusBarFlow();
     this.activePageIndex = 0;
     this.structureBar.setActivePage(0);
     this.repaginateAndSync(true);
@@ -2488,6 +2495,7 @@ export class TypesetOkApp {
     this.structureBar.setFlows(getFlowsForTemplate(newState.templateType));
     this.inspector.setFlows(getFlowsForTemplate(newState.templateType));
     this.structureBar.setActiveFlow(activeKey);
+    this.syncStatusBarFlow();
     const activeStory = newState.flows[activeKey] || [];
     this.storyEditor.loadStory(activeStory);
 
@@ -2695,6 +2703,7 @@ export class TypesetOkApp {
     const activeTemplate = this.documentState.templateType;
     this.structureBar.setFlows(getFlowsForTemplate(activeTemplate));
     this.inspector.setFlows(getFlowsForTemplate(activeTemplate));
+    this.syncStatusBarFlow();
     this.inspector.setGrepRules(this.documentState.grepRules);
     this.inspector.setFootnoteApparatuses(this.documentState.footnoteApparatuses);
     this.activePageIndex = 0;
@@ -2775,6 +2784,7 @@ export class TypesetOkApp {
     }
     const targetFlow = this.activeFlowId;
     this.structureBar.setActiveFlow(targetFlow);
+    this.syncStatusBarFlow();
     this.storyEditor.loadStory(this.documentState.flows[targetFlow] || []);
 
     // If there is an associated import path, remember the new choice

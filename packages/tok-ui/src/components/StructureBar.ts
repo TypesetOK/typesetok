@@ -265,7 +265,7 @@ export class StructureBar {
       this.setPanelOpen(false);
       this.callbacks.onPanelToggle?.(false);
       this.callbacks.onActiveTabChange?.(this.activeTab, false);
-    }, { size: 16, attrs: { style: 'width:28px;height:28px', 'class': 'tok-panel-collapse-btn' } }));
+    }, { size: 16, className: 'tok-icon-btn tok-panel-collapse-btn', attrs: { style: 'width:28px;height:28px' } }));
     return head;
   }
 

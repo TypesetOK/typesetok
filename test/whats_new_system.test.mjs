@@ -82,6 +82,25 @@ describe("What's New System - Full Test Suite", () => {
       assert.ok(v0300.highlights.length >= 4, 'Major release must parse highlights');
     });
 
+    test('changelogData.ts is in sync with CHANGELOG.md (run npm run sync:changelog)', () => {
+      const content = fs.readFileSync(path.join(rootDir, 'CHANGELOG.md'), 'utf8');
+      const parsed = parseChangelogMarkdown(content);
+      assert.deepEqual(
+        CHANGELOG_ENTRIES.map((e) => e.version),
+        parsed.map((e) => e.version),
+        'changelogData.ts is stale compared to CHANGELOG.md'
+      );
+    });
+
+    test('every change category is one the UI knows how to render', () => {
+      const allowed = ['features', 'improvements', 'fixes', 'typography', 'performance'];
+      for (const entry of CHANGELOG_ENTRIES) {
+        for (const change of entry.changes) {
+          assert.ok(allowed.includes(change.category), `v${entry.version} uses unknown category "${change.category}"`);
+        }
+      }
+    });
+
     test('Strict No-Emoji & No-Vibe-Coding Policy in changelog and UI text', () => {
       const emojiRegex = /[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/u;
 
