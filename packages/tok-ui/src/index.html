@@ -438,7 +438,8 @@
     .tok-spread-card:hover { background: var(--tok-bg-surface-hover); }
     .tok-spread-pages { display: flex; box-shadow: 0 1px 3px rgba(27, 26, 23, 0.18); }
     .tok-spread-label { font-size: 12px; }
-    .tok-thumb { width: 50px; height: 70px; position: relative; background: var(--tok-paper); border: 1px solid var(--tok-border-strong); cursor: pointer; }
+    .tok-thumb { width: 50px; height: 70px; position: relative; background: var(--tok-paper); border: 1px solid var(--tok-border-strong); cursor: pointer; overflow: hidden; padding: 0; }
+    .tok-thumb .tok-thumb-mini { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; user-select: none; }
     .tok-thumb.tok-thumb-empty { background: transparent; border-color: transparent; cursor: default; }
     .tok-thumb[aria-current="page"] { outline: 2px solid var(--tok-accent-text); outline-offset: 1px; z-index: 1; }
     .tok-thumb i { position: absolute; display: block; }

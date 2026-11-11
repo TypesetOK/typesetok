@@ -570,6 +570,11 @@ export class TypesetOkApp {
         this.showToast(t('toastPreflightOk'));
       },
       onWordCountClick: () => this.openTextStatsDialog(),
+      onPageClick: () => {
+        if (this.currentViewMode === 'canvas') return;
+        this.setViewMode('canvas');
+        this.topBar?.setViewMode('canvas');
+      },
       onExportPdf: () => this.handleSystemAction('export-pdf')
     });
     this.root.appendChild(this.statusBar.element);
@@ -2109,7 +2114,10 @@ export class TypesetOkApp {
         pageIndex: p.pageIndex,
         gematria: p.gematriaNumber,
         label: tf('appPageThumb', { page: p.gematriaNumber }),
-        isSpreadRight: isRightHandPage(idx)
+        isSpreadRight: isRightHandPage(idx),
+        htmlContent: p.htmlContent,
+        widthPt: p.widthPt,
+        heightPt: p.heightPt
       })),
       this.activePageIndex
     );

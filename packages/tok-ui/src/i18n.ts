@@ -463,6 +463,7 @@ export const strings: Translations = {
   appPageStatus: { he: 'דף {page} · {index} מתוך {total}', en: 'Page {page} · {index} of {total}' },
   appLangHebrewRtl: { he: 'עברית (RTL)', en: 'Hebrew (RTL)' },
   appLangEnglishLtr: { he: 'English (LTR)', en: 'English (LTR)' },
+  appearanceLanguage: { he: 'שפת התוכנה', en: 'Application language' },
   appLangHebrew: { he: 'עברית', en: 'Hebrew' },
   appLangEnglish: { he: 'English', en: 'English' },
   appLayerShown: { he: 'מוצגת', en: 'shown' },

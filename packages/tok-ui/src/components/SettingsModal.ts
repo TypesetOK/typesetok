@@ -240,6 +240,16 @@ export class SettingsModal {
     const light = THEME_PALETTES.find((p) => p.id === 'light')!;
     const dark = THEME_PALETTES.find((p) => p.id === 'dark')!;
 
+    // Language is also switchable with the keyboard shortcut; this is the discoverable place for it.
+    const languages: { id: Language; label: string }[] = [
+      { id: 'he', label: 'עברית' },
+      { id: 'en', label: 'English' }
+    ];
+    container.appendChild(group(t('appearanceLanguage'), segmented(t('appearanceLanguage'), languages, i18n.getLanguage(), (id) => {
+      i18n.setLanguage(id);
+      this.callbacks.onLanguageChange(id);
+    }, { fill: true, focusPrefix: 'language' })));
+
     // Main themes: light / dark / follow the system
     const themes = el('div', 'tok-theme-grid', { role: 'radiogroup', 'aria-label': t('appearanceTheme') });
     themes.appendChild(this.themeCard('light', localizedPresetName(light.name), appMiniature(light, 150), settings.paletteId === 'light'));

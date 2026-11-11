@@ -30,6 +30,46 @@ function pageThumbDrawing(_rightHandPage: boolean): string {
     <div style="position:absolute;top:10px;bottom:6px;left:6px;right:6px;border:1px dashed var(--tok-border-strong);border-radius:2px;opacity:0.4;"></div>`;
 }
 
+const THUMB_PT_TO_PX = 96 / 72;
+/** Width of the thumbnail content box (the 50px thumb minus its 1px borders). */
+const THUMB_INNER_WIDTH_PX = 48;
+
+/** Height of a thumbnail that keeps the real page proportions. */
+function thumbHeightPx(p: PageThumbnailItem): number | null {
+  if (!p.widthPt || !p.heightPt) return null;
+  return Math.round((THUMB_INNER_WIDTH_PX + 2) * (p.heightPt / p.widthPt));
+}
+
+/** Replaces the generic drawing with the page itself, scaled down. Static: no ids, no frames, no pointer events. */
+function mountPageMiniature(thumb: HTMLElement, p: PageThumbnailItem): void {
+  const html = p.htmlContent;
+  if (!html || !html.trim() || !p.widthPt || !p.heightPt) return;
+  const engine = html.includes('tok-page-layout-rust');
+  const mini = el('div', 'tok-thumb-mini', { 'aria-hidden': 'true' });
+  mini.style.width = `${p.widthPt}pt`;
+  mini.style.height = `${p.heightPt}pt`;
+  mini.style.transform = `scale(${THUMB_INNER_WIDTH_PX / (p.widthPt * THUMB_PT_TO_PX)})`;
+  const sheet = el('div', engine ? 'tok-page-sheet tok-page-engine-layout' : 'tok-page-sheet');
+  sheet.style.width = `${p.widthPt}pt`;
+  sheet.style.height = `${p.heightPt}pt`;
+  if (engine) sheet.style.padding = '0';
+  const content = el('div', 'tok-page-content', {
+    style: engine ? 'position:absolute;inset:0;overflow:hidden;' : 'flex:1;min-height:0;overflow:hidden;'
+  });
+  content.innerHTML = html;
+  // The canvas owns these identifiers; a second copy in the DOM must not be found by its lookups.
+  content.querySelectorAll<HTMLElement>('[id],[data-para-id],[data-frame-id],.tok-interactive-frame').forEach((n) => {
+    n.removeAttribute('id');
+    n.removeAttribute('data-para-id');
+    n.removeAttribute('data-frame-id');
+    n.classList.remove('tok-interactive-frame');
+  });
+  sheet.appendChild(content);
+  mini.appendChild(sheet);
+  thumb.textContent = '';
+  thumb.appendChild(mini);
+}
+
 /**
  * Leading side of the workbench: an icon rail (pages, flows, styles, layers, settings,
  * about) and the panel it controls. Clicking the active rail item hides the panel.
@@ -42,6 +82,9 @@ export class StructureBar {
   private activePageIndex = 0;
   private activeFlowId = 'gemara';
   private pages: PageThumbnailItem[] = [];
+  /** Miniatures are drawn only for thumbnails that scroll into view (books can have hundreds of pages). */
+  private thumbObserver: IntersectionObserver | null = null;
+  private pendingMiniatures = new Map<Element, () => void>();
   private rail!: HTMLElement;
   private panel!: HTMLElement;
 
@@ -312,7 +355,32 @@ export class StructureBar {
     return `${p.label || tf('structurePageLabel', { g: p.gematria })} · ${tf('structurePageNumber', { n: p.pageIndex + 1 })} · ${side} (${amud})`;
   }
 
+  private observeMiniature(thumb: HTMLElement, p: PageThumbnailItem): void {
+    if (!p.htmlContent) return;
+    const mount = () => mountPageMiniature(thumb, p);
+    if (typeof IntersectionObserver === 'undefined') {
+      mount();
+      return;
+    }
+    if (!this.thumbObserver) {
+      this.thumbObserver = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          observer.unobserve(entry.target);
+          const run = this.pendingMiniatures.get(entry.target);
+          this.pendingMiniatures.delete(entry.target);
+          run?.();
+        }
+      }, { rootMargin: '200px' });
+    }
+    this.pendingMiniatures.set(thumb, mount);
+    this.thumbObserver.observe(thumb);
+  }
+
   private renderPagesView(container: HTMLElement): void {
+    this.thumbObserver?.disconnect();
+    this.thumbObserver = null;
+    this.pendingMiniatures.clear();
     const list = el('div', 'tok-pages-list', { role: 'list' });
     list.style.display = 'flex';
     list.style.flexDirection = 'column';
@@ -334,6 +402,9 @@ export class StructureBar {
           title: this.pageDescription(p)
         });
         thumb.innerHTML = pageThumbDrawing(isRightHandPage(p.pageIndex));
+        const thumbHeight = thumbHeightPx(p);
+        if (thumbHeight) thumb.style.height = `${thumbHeight}px`;
+        this.observeMiniature(thumb, p);
         thumb.addEventListener('click', () => {
           this.activePageIndex = p.pageIndex;
           this.highlightActivePage();

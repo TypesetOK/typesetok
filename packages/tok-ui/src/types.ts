@@ -194,6 +194,10 @@ export interface PageThumbnailItem {
   // Right-hand page of its spread. In an RTL-bound book the right page is the verso
   // (ע"ב); use isRightHandPage()/isRectoPage() from components/SpreadCanvas to derive it.
   isSpreadRight: boolean;
+  /** Rendered page body and size, used to draw a real miniature of the page. Absent: a generic sheet is drawn. */
+  htmlContent?: string;
+  widthPt?: number;
+  heightPt?: number;
 }
 
 export type {
