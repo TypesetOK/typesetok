@@ -104,10 +104,11 @@ export class StructureBar {
     { id: 'style-footnotes', name: 'הערות שוליים', fontFamily: 'Frank Ruhl Libre', fontSizePt: 10, fontWeight: FONT_WEIGHT_REGULAR, flowId: 'notes' }
   ];
 
-  private layers: { id: string; name: string; visible: boolean; locked: boolean }[] = [
+  /** `lockable: false` hides the lock: that layer holds nothing the user could move yet. */
+  private layers: { id: string; name: string; visible: boolean; locked: boolean; lockable?: boolean }[] = [
     { id: 'text-main', name: 'שכבת טקסט ראשי', visible: true, locked: false },
     { id: 'text-commentary', name: 'שכבת פירושים', visible: true, locked: false },
-    { id: 'decorations', name: 'עיטורים ומסגרות', visible: true, locked: false },
+    { id: 'decorations', name: 'עיטורים ומסגרות', visible: true, locked: false, lockable: false },
     { id: 'guides', name: 'קווי עזר ושוליים', visible: true, locked: true }
   ];
 
@@ -512,7 +513,11 @@ export class StructureBar {
 
       const main = el('span', 'tok-list-main');
       main.appendChild(el('span', 'tok-list-title', undefined, l.name));
-      const subSpan = el('span', 'tok-list-sub', undefined, `${t(l.visible ? 'structureLayerVisible' : 'structureLayerHidden')} · ${t(l.locked ? 'structureLayerLocked' : 'structureLayerUnlocked')}`);
+      const lockable = l.lockable !== false;
+      const visibilityText = t(l.visible ? 'structureLayerVisible' : 'structureLayerHidden');
+      const subSpan = el('span', 'tok-list-sub', undefined, lockable
+        ? `${visibilityText} · ${t(l.locked ? 'structureLayerLocked' : 'structureLayerUnlocked')}`
+        : visibilityText);
       main.appendChild(subSpan);
       row.appendChild(main);
 
@@ -531,7 +536,7 @@ export class StructureBar {
         this.callbacks.onLockLayer?.(l.id, l.locked);
       });
       syncLock();
-      row.appendChild(lock);
+      if (lockable) row.appendChild(lock);
 
       container.appendChild(row);
     }
