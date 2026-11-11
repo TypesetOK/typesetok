@@ -39,8 +39,10 @@ import {
 import {
   documentStateToDocumentRoot,
   documentRootToDocumentState,
-  importResultToDocumentState
+  importResultToDocumentState,
+  stripHtmlTags
 } from './engine/documentBridge';
+import type { LineRunLookup, LineRunSource } from './engine/lineRuns';
 import { importDocument, parseDocxXml, ImportResult } from './engine/textImporter';
 import { layoutToPageDescriptors } from './engine/typesetBridge';
 
@@ -967,6 +969,20 @@ export class TypesetOkApp {
     if (fromStructure?.name) return fromStructure.name;
     const key = FLOW_NAME_KEYS[canonical] || FLOW_NAME_KEYS[flowId];
     return key ? t(key) : canonical;
+  }
+
+  /** Paragraph formatting that page view paints on top of the engine's line text. */
+  private buildLineRunLookup(): LineRunLookup {
+    const sources = new Map<string, LineRunSource>();
+    for (const paragraphs of Object.values(this.documentState.flows)) {
+      for (const p of paragraphs || []) {
+        const spans = p.spans || [];
+        const color = p.patch?.color;
+        if (!p.id || (spans.length === 0 && !color)) continue;
+        sources.set(p.id, { text: stripHtmlTags(p.text || ''), spans, color });
+      }
+    }
+    return (paragraphId) => sources.get(paragraphId);
   }
 
   /** Shows the flow that is really being edited in the status bar. Call after the active flow or the flow list changes. */
@@ -2249,7 +2265,7 @@ export class TypesetOkApp {
             return;
           }
           if (res && res.success && Array.isArray(res.pages)) {
-            newPages = layoutToPageDescriptors(res.pages);
+            newPages = layoutToPageDescriptors(res.pages, this.buildLineRunLookup());
           }
         } catch (err: any) {
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
