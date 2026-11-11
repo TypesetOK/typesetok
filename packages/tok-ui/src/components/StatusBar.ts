@@ -127,11 +127,18 @@ export class StatusBar {
   private build(): void {
     this.element.innerHTML = '';
 
-    // Page indicator (display only, does NOT open command search)
-    const pageItem = el('div', 'tok-status-btn tok-status-static', { title: tf('structurePageLabel', { g: this.pageLabel }) });
+    // Page indicator: opens the page view (it does NOT open command search)
+    const pageItem = el('button', 'tok-status-btn', {
+      type: 'button',
+      title: tf('structurePageLabel', { g: this.pageLabel }),
+      style: 'cursor:pointer'
+    });
     pageItem.appendChild(icon('pages', 14));
     this.pageText = el('span');
     pageItem.appendChild(this.pageText);
+    pageItem.addEventListener('click', () => {
+      this.callbacks.onPageClick?.();
+    });
     this.element.appendChild(pageItem);
 
     // Word count button (opens detailed text statistics modal)

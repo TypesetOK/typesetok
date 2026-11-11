@@ -8,6 +8,7 @@
 
 import { PageDescriptor } from 'tok-viewer';
 import { toHebrewGematria } from '../gematria.js';
+import { LineRunLookup, locateLines, renderStyledLine, safeCssColor } from './lineRuns.js';
 
 export interface PhysicalPoint {
   x: number;
@@ -121,10 +122,16 @@ export function renderLineText(text: string, isDropCap = false): string {
  * Uses exact text positions, line heights, baselines, paragraph IDs,
  * and page dimensions calculated by the Rust typesetting engine.
  */
-export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[] {
+export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineRunLookup): PageDescriptor[] {
   if (!Array.isArray(pages) || pages.length === 0) {
     return [];
   }
+
+  // The engine reports line text only. Where each line sits inside its paragraph tells us
+  // which formatting (italic, underline, colour, ...) to paint on which part of it.
+  const locatedLines = lineRuns
+    ? locateLines(pages.flatMap((p) => (p.frames || []).flatMap((f) => f.lines || [])), lineRuns)
+    : null;
 
   return pages.map((pageBox) => {
     const pageIndex = typeof pageBox.page_index === 'number' ? pageBox.page_index : 0;
@@ -215,9 +222,14 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[]): PageDescriptor[
         const fontStyle = `font-family: ${engineFont.fontFamily}; font-size: ${lineFontSizePt.toFixed(2)}pt;` + (isBoldLine ? ` font-weight: 700;` : '');
         const paraAttr = line.paragraph_id ? ` data-para-id="${escapeHtml(String(line.paragraph_id))}"` : '';
         const offsetStyle = line.x_offset ? (line.is_rtl ? ` margin-right: ${line.x_offset.toFixed(2)}pt;` : ` margin-left: ${line.x_offset.toFixed(2)}pt;`) : '';
-        const contentHtml = renderLineText(line.text, line.is_drop_cap);
+        const located = locatedLines?.get(line);
+        const contentHtml = (located
+          ? renderStyledLine(line.text, located, (family) => formatEngineFont(family, isPrimary).fontFamily)
+          : null) ?? renderLineText(line.text, line.is_drop_cap);
+        const paraColor = safeCssColor(located?.source.color);
+        const colorStyle = paraColor ? ` color: ${paraColor};` : '';
 
-        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
+        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${colorStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
       }).join('\n');
 
       const emptyNotice = (!frame.lines || frame.lines.length === 0)

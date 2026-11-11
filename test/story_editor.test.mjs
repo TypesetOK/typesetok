@@ -548,3 +548,84 @@ describe('Stage 11: Long Document Scalability & Performance', () => {
     editor.destroy();
   });
 });
+
+describe('Page view paints span formatting on engine lines', () => {
+  let lineRuns;
+  let bridge;
+  const toCss = (family) => `'${family}'`;
+
+  before(async () => {
+    lineRuns = await import('../packages/tok-ui/dist/engine/lineRuns.js');
+    bridge = await import('../packages/tok-ui/dist/engine/typesetBridge.js');
+  });
+
+  const line = (text, extra = {}) => ({ line_index: 0, paragraph_id: 'P1', text, baseline_y: 12, height: 14, width: 100, is_rtl: true, ...extra });
+
+  test('lines are located as consecutive slices of their paragraph', () => {
+    const source = { text: 'אחת שתיים שלוש ארבע', spans: [] };
+    const a = line('אחת שתיים');
+    const b = line('שלוש ארבע', { line_index: 1 });
+    const located = lineRuns.locateLines([a, b], (id) => (id === 'P1' ? source : undefined));
+    assert.equal(located.get(a).start, 0);
+    assert.equal(located.get(b).start, 10);
+  });
+
+  test('a line that is not part of the paragraph keeps plain rendering', () => {
+    const located = lineRuns.locateLines([line('טקסט אחר')], () => ({ text: 'אחת שתיים', spans: [] }));
+    assert.equal(located.size, 0);
+  });
+
+  test('italic, underline and colour become styled runs, the rest stays plain', () => {
+    const source = {
+      text: 'אחת שתיים שלוש',
+      spans: [
+        { start: 4, end: 9, format: { italic: true, underline: true } },
+        { start: 10, end: 14, format: { color: '#aa0000' } }
+      ]
+    };
+    const l = line('אחת שתיים שלוש');
+    const located = lineRuns.locateLines([l], () => source).get(l);
+    const html = lineRuns.renderStyledLine(l.text, located, toCss);
+    assert.ok(html.startsWith('אחת '));
+    assert.match(html, /<span style="font-style: italic; text-decoration: underline;">שתיים<\/span>/);
+    assert.match(html, /<span style="color: #aa0000;">שלוש<\/span>/);
+  });
+
+  test('a span that starts on an earlier line is still painted on the following line', () => {
+    const source = { text: 'אחת שתיים שלוש ארבע', spans: [{ start: 0, end: 19, format: { italic: true } }] };
+    const b = line('שלוש ארבע');
+    const located = lineRuns.locateLines([b], () => source).get(b);
+    assert.equal(lineRuns.renderStyledLine(b.text, located, toCss), '<span style="font-style: italic;">שלוש ארבע</span>');
+  });
+
+  test('lines without visible formatting return null', () => {
+    const source = { text: 'אחת שתיים', spans: [{ start: 0, end: 4, format: { linkUrl: 'https://example.org' } }] };
+    const l = line('אחת שתיים');
+    const located = lineRuns.locateLines([l], () => source).get(l);
+    assert.equal(lineRuns.renderStyledLine(l.text, located, toCss), null);
+  });
+
+  test('text and colours are escaped before they reach the page', () => {
+    const source = { text: 'a<b', spans: [{ start: 0, end: 3, format: { italic: true, color: 'red;background:url(x)' } }] };
+    const l = line('a<b');
+    const located = lineRuns.locateLines([l], () => source).get(l);
+    const html = lineRuns.renderStyledLine(l.text, located, toCss);
+    assert.equal(html, '<span style="font-style: italic;">a&lt;b</span>');
+    assert.equal(lineRuns.safeCssColor('red;background:url(x)'), undefined);
+  });
+
+  test('layoutToPageDescriptors paints runs and paragraph colour, and is unchanged without a lookup', () => {
+    const pages = [{
+      page_index: 0,
+      page_number_gematria: 'א',
+      dimensions: { x: 0, y: 0, width: 400, height: 600 },
+      frames: [{ frame_id: 'f1', flow_id: 'gemara', rect: { x: 10, y: 10, width: 300, height: 500 }, lines: [line('אחת שתיים')] }]
+    }];
+    const plain = bridge.layoutToPageDescriptors(pages)[0].htmlContent;
+    assert.ok(!plain.includes('font-style: italic'));
+    const lookup = () => ({ text: 'אחת שתיים', color: '#112233', spans: [{ start: 4, end: 9, format: { italic: true } }] });
+    const styled = bridge.layoutToPageDescriptors(pages, lookup)[0].htmlContent;
+    assert.match(styled, /<span style="font-style: italic;">שתיים<\/span>/);
+    assert.match(styled, /color: #112233;/);
+  });
+});

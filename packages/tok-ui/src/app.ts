@@ -39,8 +39,10 @@ import {
 import {
   documentStateToDocumentRoot,
   documentRootToDocumentState,
-  importResultToDocumentState
+  importResultToDocumentState,
+  stripHtmlTags
 } from './engine/documentBridge';
+import type { LineRunLookup, LineRunSource } from './engine/lineRuns';
 import { importDocument, parseDocxXml, ImportResult } from './engine/textImporter';
 import { layoutToPageDescriptors } from './engine/typesetBridge';
 
@@ -570,6 +572,11 @@ export class TypesetOkApp {
         this.showToast(t('toastPreflightOk'));
       },
       onWordCountClick: () => this.openTextStatsDialog(),
+      onPageClick: () => {
+        if (this.currentViewMode === 'canvas') return;
+        this.setViewMode('canvas');
+        this.topBar?.setViewMode('canvas');
+      },
       onExportPdf: () => this.handleSystemAction('export-pdf')
     });
     this.root.appendChild(this.statusBar.element);
@@ -962,6 +969,26 @@ export class TypesetOkApp {
     if (fromStructure?.name) return fromStructure.name;
     const key = FLOW_NAME_KEYS[canonical] || FLOW_NAME_KEYS[flowId];
     return key ? t(key) : canonical;
+  }
+
+  /** Paragraph formatting that page view paints on top of the engine's line text. */
+  private buildLineRunLookup(): LineRunLookup {
+    const sources = new Map<string, LineRunSource>();
+    for (const paragraphs of Object.values(this.documentState.flows)) {
+      for (const p of paragraphs || []) {
+        const spans = p.spans || [];
+        const color = p.patch?.color;
+        if (!p.id || (spans.length === 0 && !color)) continue;
+        sources.set(p.id, { text: stripHtmlTags(p.text || ''), spans, color });
+      }
+    }
+    return (paragraphId) => sources.get(paragraphId);
+  }
+
+  /** Shows the flow that is really being edited in the status bar. Call after the active flow or the flow list changes. */
+  private syncStatusBarFlow(): void {
+    if (!this.statusBar || !this.activeFlowId) return;
+    this.statusBar.updateStats({ activeFlow: this.flowDisplayName(this.activeFlowId) });
   }
 
   private get welcomeModal(): WelcomeModal {
@@ -2103,7 +2130,10 @@ export class TypesetOkApp {
         pageIndex: p.pageIndex,
         gematria: p.gematriaNumber,
         label: tf('appPageThumb', { page: p.gematriaNumber }),
-        isSpreadRight: isRightHandPage(idx)
+        isSpreadRight: isRightHandPage(idx),
+        htmlContent: p.htmlContent,
+        widthPt: p.widthPt,
+        heightPt: p.heightPt
       })),
       this.activePageIndex
     );
@@ -2235,7 +2265,7 @@ export class TypesetOkApp {
             return;
           }
           if (res && res.success && Array.isArray(res.pages)) {
-            newPages = layoutToPageDescriptors(res.pages);
+            newPages = layoutToPageDescriptors(res.pages, this.buildLineRunLookup());
           }
         } catch (err: any) {
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
@@ -2353,6 +2383,7 @@ export class TypesetOkApp {
     this.storyEditor.loadStory(this.documentState.flows.gemara);
     // The side panel must list the flows of this template, not whatever was loaded before.
     this.structureBar.setFlows(getFlowsForTemplate(this.documentState.templateType));
+    this.syncStatusBarFlow();
     this.activePageIndex = 0;
     this.structureBar.setActivePage(0);
     this.repaginateAndSync(true);
@@ -2488,6 +2519,7 @@ export class TypesetOkApp {
     this.structureBar.setFlows(getFlowsForTemplate(newState.templateType));
     this.inspector.setFlows(getFlowsForTemplate(newState.templateType));
     this.structureBar.setActiveFlow(activeKey);
+    this.syncStatusBarFlow();
     const activeStory = newState.flows[activeKey] || [];
     this.storyEditor.loadStory(activeStory);
 
@@ -2695,6 +2727,7 @@ export class TypesetOkApp {
     const activeTemplate = this.documentState.templateType;
     this.structureBar.setFlows(getFlowsForTemplate(activeTemplate));
     this.inspector.setFlows(getFlowsForTemplate(activeTemplate));
+    this.syncStatusBarFlow();
     this.inspector.setGrepRules(this.documentState.grepRules);
     this.inspector.setFootnoteApparatuses(this.documentState.footnoteApparatuses);
     this.activePageIndex = 0;
@@ -2775,6 +2808,7 @@ export class TypesetOkApp {
     }
     const targetFlow = this.activeFlowId;
     this.structureBar.setActiveFlow(targetFlow);
+    this.syncStatusBarFlow();
     this.storyEditor.loadStory(this.documentState.flows[targetFlow] || []);
 
     // If there is an associated import path, remember the new choice
