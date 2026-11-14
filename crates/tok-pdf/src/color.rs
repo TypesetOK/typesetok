@@ -361,14 +361,14 @@ impl ColorManagementEngine {
 
         // Tag Table
         icc.extend_from_slice(&tag_count.to_be_bytes());
-        for (signature, block_index) in &tags {
-            icc.extend_from_slice(*signature);
-            icc.extend_from_slice(&offsets[*block_index].to_be_bytes());
-            icc.extend_from_slice(&(blocks[*block_index].len() as u32).to_be_bytes());
+        for &(signature, block_index) in &tags {
+            icc.extend_from_slice(signature);
+            icc.extend_from_slice(&offsets[block_index].to_be_bytes());
+            icc.extend_from_slice(&(blocks[block_index].len() as u32).to_be_bytes());
         }
 
         // Tag Data
-        for block in &blocks {
+        for block in blocks {
             icc.extend_from_slice(block);
             let padding = (4 - block.len() % 4) % 4;
             icc.extend_from_slice(&[0u8; 3][..padding]);
