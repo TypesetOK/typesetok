@@ -1154,13 +1154,17 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
+      flex-wrap: wrap;
+      gap: 6px 8px;
     }
     .tok-changelog-version-group {
       display: flex;
       align-items: center;
-      gap: 8px;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      min-width: 0;
     }
+    .tok-changelog-version-group .tok-badge { white-space: nowrap; }
     .tok-changelog-version-tag {
       font-size: 14px;
       font-weight: 700;
@@ -1169,17 +1173,23 @@
       font-variant-numeric: tabular-nums;
     }
     .tok-changelog-date {
+      white-space: nowrap;
       font-size: 11.5px;
       color: var(--tok-text-muted);
     }
     .tok-changelog-header-right {
       display: flex;
       align-items: center;
+      flex: none;
       gap: 10px;
+      white-space: nowrap;
+      margin-inline-start: auto;
     }
     .tok-changelog-toggle-btn {
       display: inline-flex;
       align-items: center;
+      flex: none;
+      white-space: nowrap;
       gap: 4px;
       padding: 3px 8px;
       font-size: 11px;

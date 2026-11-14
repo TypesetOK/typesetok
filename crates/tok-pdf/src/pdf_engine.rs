@@ -834,35 +834,46 @@ impl PdfPrePressEngine {
             if let Some(slot) = registry.legacy {
                 let font = &embedded[slot];
                 let folio_font_size = 10.0;
-                let cids: Vec<u8> = p_box
+                // Each glyph with its advance, in logical (reading) order.
+                let glyphs: Vec<(u16, f32)> = p_box
                     .page_number_gematria
                     .chars()
                     .filter_map(|ch| legacy_face.glyph_index(ch))
                     .filter_map(|gid| font.cid(gid.0))
-                    .flat_map(u16::to_be_bytes)
+                    .map(|cid| {
+                        let adv = font
+                            .subset
+                            .cid_widths_1000
+                            .get(usize::from(cid))
+                            .copied()
+                            .unwrap_or(500.0);
+                        (cid, adv / 1000.0 * folio_font_size)
+                    })
                     .collect();
-                if !cids.is_empty() {
-                    let total_width: f32 = p_box
+                if !glyphs.is_empty() {
+                    let total_width: f32 = glyphs.iter().map(|(_, adv)| *adv).sum();
+                    let left_x = origin_x + (p_box.dimensions.width - total_width) / 2.0;
+                    let folio_y = origin_y + 25.0;
+                    // A Hebrew numeral (e.g. "י״א") reads right to left. The glyphs stay in
+                    // logical order in the stream, so copy and search give the right text, and
+                    // each one is placed explicitly so the geresh and gershayim land on the left.
+                    let is_rtl = p_box
                         .page_number_gematria
                         .chars()
-                        .filter_map(|ch| legacy_face.glyph_index(ch))
-                        .filter_map(|gid| font.cid(gid.0))
-                        .map(|cid| {
-                            let adv = font
-                                .subset
-                                .cid_widths_1000
-                                .get(usize::from(cid))
-                                .copied()
-                                .unwrap_or(500.0);
-                            adv / 1000.0 * folio_font_size
-                        })
-                        .sum();
-                    let folio_x = origin_x + (p_box.dimensions.width - total_width) / 2.0;
-                    let folio_y = origin_y + 25.0;
+                        .any(|ch| ('\u{0590}'..='\u{05FF}').contains(&ch));
+                    let mut pen_x = if is_rtl { left_x + total_width } else { left_x };
                     content.begin_text();
                     content.set_font(Name(font.resource.as_bytes()), folio_font_size);
-                    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, folio_x, folio_y]);
-                    content.show(Str(&cids));
+                    for (cid, adv) in &glyphs {
+                        if is_rtl {
+                            pen_x -= *adv;
+                        }
+                        content.set_text_matrix([1.0, 0.0, 0.0, 1.0, pen_x, folio_y]);
+                        content.show(Str(&cid.to_be_bytes()));
+                        if !is_rtl {
+                            pen_x += *adv;
+                        }
+                    }
                     content.end_text();
                 }
             }

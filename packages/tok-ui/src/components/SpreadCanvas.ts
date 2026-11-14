@@ -639,7 +639,8 @@ export class SpreadCanvas {
 
     // 1. Running head: page number on the outer corner.
     const head = el('div', 'tok-page-head', { 'data-layer-id': 'decorations' });
-    const pageNo = el('span', undefined, undefined, `דף ${page.gematriaNumber} ${amud}`);
+    // Hebrew numerals read right to left whatever the interface language is.
+    const pageNo = el('span', undefined, { dir: 'rtl', style: 'unicode-bidi: isolate;' }, `דף ${page.gematriaNumber} ${amud}`);
     if (isRightPage) head.append(pageNo);
     else head.append(pageNo);
     sheet.appendChild(head);
@@ -757,7 +758,7 @@ export class SpreadCanvas {
     }
 
     // 3. Running foot.
-    sheet.appendChild(el('div', 'tok-page-foot', { 'aria-hidden': 'true', 'data-layer-id': 'decorations' }, `- ${page.gematriaNumber} -`));
+    sheet.appendChild(el('div', 'tok-page-foot', { 'aria-hidden': 'true', 'data-layer-id': 'decorations', dir: 'rtl', style: 'unicode-bidi: isolate;' }, `- ${page.gematriaNumber} -`));
 
     // Guides (margin rectangle, baseline grid).
     const guides = el('div', 'tok-guides-layer', { 'aria-hidden': 'true', 'data-layer-id': 'guides' });
