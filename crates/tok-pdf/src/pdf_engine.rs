@@ -1115,10 +1115,12 @@ mod tests {
         // Ignore embedded font/resource streams: their binary bytes may contain
         // the byte sequence "TJ" even though it is not a PDF text operator.
         let decompressed = decompress_flate_streams(&bytes);
-        let text_streams = decompressed.iter().filter(|stream| {
-            stream.windows(3).any(|window| window == b"BT\n")
-                && stream.windows(3).any(|window| window == b"ET\n")
-        });
+        // A PDF content stream starts its text object with the BT operator.
+        // Do not require a particular newline after ET: pdf-writer may serialize
+        // the closing operator with different whitespace.
+        let text_streams = decompressed
+            .iter()
+            .filter(|stream| stream.windows(3).any(|window| window == b"BT\n"));
         let tj_count: usize = text_streams.map(|stream| count(stream, b"TJ")).sum();
         assert_eq!(
             tj_count, 1,
