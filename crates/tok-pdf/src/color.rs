@@ -421,6 +421,51 @@ mod tests {
         );
     }
 
+    /// Regression: the Lab -> CMYK table used to put 100% cyan and 64% magenta under pure black
+    /// (about 364% total ink) and tinted every dark neutral with coloured inks.
+    #[test]
+    fn icc_b2a_table_keeps_neutrals_on_black_and_within_ink_limit() {
+        let icc = ColorManagementEngine::generate_icc_profile_bytes(IccProfileId::Fogra39);
+        let be32 = |at: usize| u32::from_be_bytes(icc[at..at + 4].try_into().unwrap());
+        let tag_count = be32(128) as usize;
+        let b2a_offset = (0..tag_count)
+            .map(|i| 132 + i * 12)
+            .find(|&entry| icc[entry..entry + 4] == *b"B2A0")
+            .map(|entry| be32(entry + 4) as usize)
+            .expect("B2A0 tag");
+        assert_eq!(&icc[b2a_offset..b2a_offset + 4], b"mft2");
+        assert_eq!(icc[b2a_offset + 8], 3, "B2A0 has 3 input channels (Lab)");
+        assert_eq!(icc[b2a_offset + 9], 4, "B2A0 has 4 output channels (CMYK)");
+        let grid = icc[b2a_offset + 10] as usize;
+        // 52-byte header, then three input tables of two 16-bit entries, then the grid.
+        let clut = b2a_offset + 52 + 3 * 2 * 2;
+        let node = |l: usize, a: usize, b: usize| -> [f32; 4] {
+            let at = clut + ((l * grid + a) * grid + b) * 4 * 2;
+            let mut ink = [0.0f32; 4];
+            for (i, value) in ink.iter_mut().enumerate() {
+                let hi = icc[at + i * 2];
+                let lo = icc[at + i * 2 + 1];
+                *value = f32::from(u16::from_be_bytes([hi, lo])) / 65535.0;
+            }
+            ink
+        };
+        let neutral = grid / 2;
+        for l in 0..grid {
+            let [c, m, y, _] = node(l, neutral, neutral);
+            assert!(
+                c < 0.01 && m < 0.01 && y < 0.01,
+                "neutral node {l} must use the black channel only, got c={c} m={m} y={y}"
+            );
+            for a in 0..grid {
+                for b in 0..grid {
+                    let total: f32 = node(l, a, b).iter().sum();
+                    assert!(total <= 3.0 + 1e-3, "node ({l},{a},{b}) has {total} ink");
+                }
+            }
+        }
+        assert_eq!(node(0, neutral, neutral)[3], 1.0, "L=0 is pure 100% K");
+    }
+
     #[test]
     fn color_management_engine_enforces_tac_and_preserves_pure_black() {
         // Pure RGB black -> pure 100% K (0, 0, 0, 1)

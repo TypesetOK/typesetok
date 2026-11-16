@@ -72,12 +72,20 @@ def cmyk_to_rgb(c, m, y, k):
 
 
 def rgb_to_cmyk(r, g, b):
+    """Maximum-GCR separation: the black channel carries the whole grey component.
+
+    Neutrals therefore land on K only, and the three coloured inks together never
+    exceed 200%, so the total ink stays below 300% without any further limiting.
+    The model above is multiplicative, so this separation is colorimetrically exact.
+    """
     r, g, b = (min(max(v, 0.0), 1.0) for v in (r, g, b))
-    k = 1 - max(r, g, b)
-    if k >= 1 - 1e-9:
+    top = max(r, g, b)
+    # Near-black (including values pushed slightly off-neutral by the 16-bit Lab encoding)
+    # would otherwise blow tiny colour differences up into full-strength inks.
+    if top <= 1e-3:
         return 0.0, 0.0, 0.0, 1.0
-    d = 1 - k
-    return (1 - r - k) / d, (1 - g - k) / d, (1 - b - k) / d, k
+    k = 1 - top
+    return (top - r) / top, (top - g) / top, (top - b) / top, k
 
 
 def u16(v):
@@ -133,12 +141,14 @@ def build_a2b():
 def build_b2a():
     clut = []
     n = B2A_GRID - 1
+    # The input tables are the identity over 0..65535, so grid node i sits at the 16-bit
+    # input value i / n * 65535 on every channel (L, a and b alike).
     for li in range(B2A_GRID):
         for ai in range(B2A_GRID):
             for bi in range(B2A_GRID):
-                l = dec_l(li / n * 65280)
-                a = dec_ab(ai / n * 65280)
-                b = dec_ab(bi / n * 65280)
+                l = dec_l(li / n * 65535)
+                a = dec_ab(ai / n * 65535)
+                b = dec_ab(bi / n * 65535)
                 r, g, bl = xyz_d50_to_rgb(*lab_to_xyz(l, a, b))
                 c, m, y, k = rgb_to_cmyk(r, g, bl)
                 clut += [u16(c * 65535), u16(m * 65535), u16(y * 65535), u16(k * 65535)]
