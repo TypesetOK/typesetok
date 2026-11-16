@@ -3201,7 +3201,7 @@ export class TypesetOkApp {
       const previous = getRecentProjects().find(
         (p) => p.path === oldPath || p.name === oldTitle || p.name === `${oldTitle}.tok`
       );
-      removeRecentProject(oldPath);
+      if (oldPath) removeRecentProject(oldPath);
       removeRecentProject(oldTitle);
       removeRecentProject(`${oldTitle}.tok`);
       addRecentProject({
