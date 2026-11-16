@@ -6,6 +6,117 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.35.2",
+    "releaseDate": "2026-11-09",
+    "importance": "patch",
+    "title": {
+      "he": "שדרוג מנגנון העדכון ותיקון אתחול מסמכים",
+      "en": "Upgraded In-App Updater & Document Initialization Fix"
+    },
+    "summary": {
+      "he": "שדרוג מקיף של מנגנון העדכון עם הורדה ישירה מתוך התוכנה ללא תלות בדפדפן, אימות תקינות וקובץ SHA-256 בזמן ההורדה, איתור מתקינים מקומיים בכוננים חיצוניים ובתיקיות נפוצות והשוואת גרסאות אוטומטית. בנוסף, תיקון סדר אתחול ContextualInspector כדי לאפשר יצירה וייבוא תקינים של מסמכים ולמנוע סביבת עבודה ריקה.",
+      "en": "Comprehensive in-app updater improvements with browserless direct downloads, streaming SHA-256 and executable validation, local installer discovery across external drives and common folders, and automatic version comparison. Also fixes ContextualInspector initialization order so document creation and DOCX import work correctly instead of opening a blank workspace."
+    },
+    "changes": [
+      {
+        "category": "improvements",
+        "text": {
+          "he": "מנגנון עדכון מובנה עם הורדה ישירה ללא פתיחת דפדפן חיצוני, כתיבה אטומית לקובץ ‎.part, מדדי מהירות ו-ETA ואימות SHA-256 בזמן הורדה",
+          "en": "Browserless in-app updater with direct streaming download, atomic .part file handling, live speed/ETA, and streaming SHA-256 verification"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "אימות כותרת PE ‏(MZ), גודל מינימלי ותקינות קובץ לפני הפעלת המתקין",
+          "en": "Validate PE (MZ) header, minimum file size, and installer integrity before execution"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "סריקה עמוקה של כוננים חיצוניים ותיקיות מתקינים נפוצות, השוואת SemVer והמלצה על גרסה חדשה",
+          "en": "Deep external-drive and common installer-folder discovery with SemVer comparison and newest-candidate recommendation"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הפעלה מנותקת של המתקין וסגירה מסודרת של התוכנה לשחרור נעילות קבצים",
+          "en": "Detached installer execution and clean application shutdown to release binary locks"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הוספת 11 בדיקות יחידה ורגרסיה למנוע העדכון, אימות PE, SHA-256 וגישור IPC",
+          "en": "Added 11 unit and regression tests for updater engine, PE validation, SHA-256, and IPC bridge contracts"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "תיקון אתחול ContextualInspector והעברת setFlows לאחר יצירת inspector, לתיקון יצירת מסמכים וייבוא DOCX ב-Issue #28",
+          "en": "Fix ContextualInspector initialization order and call setFlows after inspector creation, resolving document creation and DOCX import failures in Issue #28"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "updater-streaming",
+        "icon": "download",
+        "title": {
+          "he": "הורדה ישירה ובטוחה מתוך התוכנה",
+          "en": "Direct & Resilient In-App Downloads"
+        },
+        "description": {
+          "he": "הורדה בזרימה לקובץ זמני עם מדדי מהירות וזמן משוער, אימות SHA-256 בזמן ההעברה ובדיקת כותרת PE וגודל הקובץ לפני הפעלה.",
+          "en": "Stream downloads to a temporary file with live speed and ETA, streaming SHA-256 verification, and PE header and file-size checks before execution."
+        },
+        "badge": {
+          "he": "עדכון מובנה",
+          "en": "In-App Updates"
+        }
+      },
+      {
+        "id": "local-installer-discovery",
+        "icon": "hard-drive",
+        "title": {
+          "he": "איתור מתקינים בכוננים ותיקיות מקומיות",
+          "en": "Local & External Installer Discovery"
+        },
+        "description": {
+          "he": "סריקה היוריסטית של כוננים חיצוניים ותיקיות נפוצות, השוואת SemVer והמלצה על המתקין העדכני ביותר.",
+          "en": "Heuristic scanning of external drives and common folders, SemVer comparison, and recommendation of the newest installer."
+        },
+        "badge": {
+          "he": "איתור מתקינים",
+          "en": "Installer Discovery"
+        }
+      },
+      {
+        "id": "document-init-fix",
+        "icon": "file-check",
+        "title": {
+          "he": "תיקון יצירת מסמכים וייבוא Word",
+          "en": "Fixed Document Creation & Word Import"
+        },
+        "description": {
+          "he": "תיקון סדר יצירת ContextualInspector והפעלת setFlows לאחר האתחול, למניעת מסמכים ריקים.",
+          "en": "Corrected ContextualInspector initialization order and moved setFlows after initialization to prevent blank documents."
+        },
+        "badge": {
+          "he": "תיקון אתחול",
+          "en": "Initialization Fix"
+        }
+      }
+    ],
+    "badge": {
+      "he": "תיקון ושדרוג",
+      "en": "Fixes & Update Improvements"
+    }
+  },
+  {
     "version": "0.35.1",
     "releaseDate": "2026-11-08",
     "importance": "minor",

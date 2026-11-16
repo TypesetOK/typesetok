@@ -8,8 +8,8 @@ import {
 } from '../types';
 import { getBuiltinGrepRules, getDefaultMultiApparatusConfigs } from '../engine/documentBridge';
 import { IconName } from '../icons';
-import { t, i18n } from '../i18n';
-import { el, icon, button, switchRow, segmented, selectField } from '../ui';
+import { t, tf, i18n } from '../i18n';
+import { el, icon, button, iconButton, switchRow, segmented, selectField } from '../ui';
 import { DOCUMENT_FONTS, DEFAULT_DOCUMENT_FONT, FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR, getAvailableFonts } from '../fonts';
 import { UpdatesBellButton } from '../updates/UpdatesBellButton';
 
@@ -357,7 +357,7 @@ export class ContextualInspector {
     // 3. Footer with Settings button
     if (this.callbacks.onOpenSettings) {
       const footer = el('footer', 'tok-inspector-footer');
-      const settingsBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-settings-btn', {
+      const settingsBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-settings-btn tok-insp-settings-btn-labeled', {
         type: 'button',
         title: t('sidebarSettings'),
         'aria-label': t('sidebarSettings')
@@ -788,21 +788,40 @@ export class ContextualInspector {
         this.callbacks.onGrepRulesChange?.([...this.grepRules]);
       }, { focusKey: `grep-${rule.id}` });
       row.setAttribute('data-grep-rule-id', rule.id);
-      grepCard.appendChild(row);
+      if (!rule.id.startsWith('grep-custom-')) {
+        grepCard.appendChild(row);
+        continue;
+      }
+      // User-added rules can be removed again; the built-in presets can only be switched on or off.
+      const removable = el('div', 'tok-grep-rule-row');
+      removable.appendChild(row);
+      removable.appendChild(iconButton('trash', t('inspLiveGrepRemove'), () => {
+        this.grepRules = this.grepRules.filter((r) => r.id !== rule.id);
+        this.callbacks.onGrepRulesChange?.([...this.grepRules]);
+        this.render();
+      }, { size: 14, className: 'tok-icon-btn tok-grep-rule-remove', attrs: { 'data-action': 'remove-grep-rule', 'data-grep-remove-id': rule.id } }));
+      grepCard.appendChild(removable);
     }
 
     const customWrap = el('div', 'tok-grep-custom-wrap', { style: 'display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:6px;border-top:1px solid var(--tok-border-subtle);' });
+    customWrap.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspLiveGrepNewRule')));
     const patternInput = el('input', 'tok-input', {
       type: 'text',
       dir: 'ltr',
-      placeholder: 'Regex (e.g. \\([^()]+\\))',
+      placeholder: t('inspLiveGrepPlaceholder'),
+      'aria-label': t('inspLiveGrepNewRule'),
       'data-grep-custom-pattern': 'true'
+    });
+    const patternError = el('div', 'tok-grep-error', { role: 'alert', hidden: true });
+    patternInput.addEventListener('input', () => {
+      patternError.hidden = true;
+      patternInput.removeAttribute('aria-invalid');
     });
     const styleSelect = el('select', 'tok-input', { 'data-grep-custom-style': 'true' });
     for (const opt of [
-      { id: 'parens-80', label: '80% גודל + אפור עדין (מראי מקומות)' },
-      { id: 'bold-700', label: 'הדגשה (Bold 700)' },
-      { id: 'rashi-font', label: 'גופן רש״י (Noto Rashi Hebrew)' }
+      { id: 'parens-80', label: t('inspLiveGrepStyleCitation') },
+      { id: 'bold-700', label: t('inspLiveGrepStyleBold') },
+      { id: 'rashi-font', label: t('inspLiveGrepStyleRashi') }
     ]) {
       const o = el('option', undefined, { value: opt.id }, opt.label);
       styleSelect.appendChild(o);
@@ -815,10 +834,19 @@ export class ContextualInspector {
       onClick: () => {
         const pat = patternInput.value.trim();
         if (!pat) return;
+        try {
+          // Same flags the live evaluator uses, so a pattern accepted here always runs.
+          new RegExp(pat, 'gu');
+        } catch {
+          patternError.textContent = t('inspLiveGrepInvalid');
+          patternError.hidden = false;
+          patternInput.setAttribute('aria-invalid', 'true');
+          return;
+        }
         const mode = styleSelect.value;
         const newRule: GrepRuleData = {
           id: `grep-custom-${Date.now()}`,
-          name: `כלל מותאם: ${pat}`,
+          name: tf('inspLiveGrepCustomName', { p: pat }),
           pattern: pat,
           target_style_id: `char-custom-${mode}`,
           format: mode === 'parens-80'
@@ -835,6 +863,8 @@ export class ContextualInspector {
       }
     });
     customWrap.appendChild(patternInput);
+    customWrap.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspLiveGrepPatternHint')));
+    customWrap.appendChild(patternError);
     customWrap.appendChild(styleSelect);
     customWrap.appendChild(addBtn);
     grepCard.appendChild(customWrap);

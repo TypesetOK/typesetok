@@ -24,10 +24,10 @@
 
 ### Changes
 - [improvements] עברית: מנגנון עדכון מובנה עם הורדה ישירה ללא פתיחת דפדפן חיצוני, כתיבה אטומית לקובץ ‎.part, מדדי מהירות ו-ETA ואימות SHA-256 בזמן הורדה | en: Browserless in-app updater with direct streaming download, atomic .part file handling, live speed/ETA, and streaming SHA-256 verification
-- [security] עברית: אימות כותרת PE ‏(MZ), גודל מינימלי ותקינות קובץ לפני הפעלת המתקין | en: Validate PE (MZ) header, minimum file size, and installer integrity before execution
+- [improvements] עברית: אימות כותרת PE ‏(MZ), גודל מינימלי ותקינות קובץ לפני הפעלת המתקין | en: Validate PE (MZ) header, minimum file size, and installer integrity before execution
 - [features] עברית: סריקה עמוקה של כוננים חיצוניים ותיקיות מתקינים נפוצות, השוואת SemVer והמלצה על גרסה חדשה | en: Deep external-drive and common installer-folder discovery with SemVer comparison and newest-candidate recommendation
 - [improvements] עברית: הפעלה מנותקת של המתקין וסגירה מסודרת של התוכנה לשחרור נעילות קבצים | en: Detached installer execution and clean application shutdown to release binary locks
-- [tests] עברית: הוספת 11 בדיקות יחידה ורגרסיה למנוע העדכון, אימות PE, SHA-256 וגישור IPC | en: Added 11 unit and regression tests for updater engine, PE validation, SHA-256, and IPC bridge contracts
+- [improvements] עברית: הוספת 11 בדיקות יחידה ורגרסיה למנוע העדכון, אימות PE, SHA-256 וגישור IPC | en: Added 11 unit and regression tests for updater engine, PE validation, SHA-256, and IPC bridge contracts
 - [fixes] עברית: תיקון אתחול ContextualInspector והעברת setFlows לאחר יצירת inspector, לתיקון יצירת מסמכים וייבוא DOCX ב-Issue #28 | en: Fix ContextualInspector initialization order and call setFlows after inspector creation, resolving document creation and DOCX import failures in Issue #28
 
 ---

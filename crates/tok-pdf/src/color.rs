@@ -262,13 +262,22 @@ impl ColorManagementEngine {
         }
     }
 
-    /// Generates a valid ISO 15076-1 binary ICC v2.4 `prtr` `CMYK -> Lab` Output Profile
-    /// for embedding in the PDF/X `DestOutputProfile` stream (`N = 4`).
+    /// Generates a binary ICC v2.4 `prtr` `CMYK -> Lab` Output Profile for embedding in the
+    /// PDF/X `DestOutputProfile` stream (`N = 4`).
+    ///
+    /// The profile carries real colour transforms (`A2B0..2` and `B2A0..2`, both `lut16Type`) so
+    /// that colour-managed viewers can build a transform from it. They come from a generic
+    /// subtractive model (see `assets/icc/gen_icc_luts.py`), not from a measured press condition,
+    /// and the description says so.
     pub fn generate_icc_profile_bytes(profile: IccProfileId) -> Vec<u8> {
-        let desc_str = profile.info();
+        // CMYK -> Lab and Lab -> CMYK `lut16Type` tag data.
+        const A2B_LUT: &[u8] = include_bytes!("../assets/icc/a2b.bin");
+        const B2A_LUT: &[u8] = include_bytes!("../assets/icc/b2a.bin");
+
+        let desc_str = format!("TypesetOK approximation of {}", profile.info());
         let cprt_str = "Copyright TypesetOK Pre-Press Color Engine (ISO 15076-1)";
 
-        // Build `desc` tag (type 'desc')
+        // Build `desc` tag (type 'desc', textDescriptionType)
         let mut desc_tag = Vec::new();
         desc_tag.extend_from_slice(b"desc");
         desc_tag.extend_from_slice(&[0u8; 4]);
@@ -276,11 +285,9 @@ impl ColorManagementEngine {
         desc_tag.extend_from_slice(&ascii_len.to_be_bytes());
         desc_tag.extend_from_slice(desc_str.as_bytes());
         desc_tag.push(0);
-        // Unicode & ScriptCode placeholders (67 bytes per ICC v2 spec)
-        desc_tag.extend_from_slice(&[0u8; 67]);
-        while desc_tag.len() % 4 != 0 {
-            desc_tag.push(0);
-        }
+        // Unicode language code + count (4 + 4), ScriptCode code + count + 67-byte buffer
+        // (2 + 1 + 67): 78 bytes, as the ICC v2 specification requires.
+        desc_tag.extend_from_slice(&[0u8; 78]);
 
         // Build `cprt` tag (type 'text')
         let mut cprt_tag = Vec::new();
@@ -288,9 +295,6 @@ impl ColorManagementEngine {
         cprt_tag.extend_from_slice(&[0u8; 4]);
         cprt_tag.extend_from_slice(cprt_str.as_bytes());
         cprt_tag.push(0);
-        while cprt_tag.len() % 4 != 0 {
-            cprt_tag.push(0);
-        }
 
         // Build `wtpt` tag (type 'XYZ ', D50 standard illuminant: X=0.9642, Y=1.0000, Z=0.8249)
         let mut wtpt_tag = Vec::with_capacity(20);
@@ -300,13 +304,32 @@ impl ColorManagementEngine {
         wtpt_tag.extend_from_slice(&0x0001_0000u32.to_be_bytes()); // 1.0000 in s15Fixed16
         wtpt_tag.extend_from_slice(&0x0000_D32Du32.to_be_bytes()); // 0.8249 in s15Fixed16
 
+        // Distinct data blocks, stored in this order. Every block starts on a 4-byte boundary.
+        let blocks: [&[u8]; 5] = [&desc_tag, &cprt_tag, &wtpt_tag, A2B_LUT, B2A_LUT];
+        // Tag table: signature and the block it points at. The three rendering intents of each
+        // transform share one block.
+        let tags: [(&[u8; 4], usize); 9] = [
+            (b"desc", 0),
+            (b"cprt", 1),
+            (b"wtpt", 2),
+            (b"A2B0", 3),
+            (b"A2B1", 3),
+            (b"A2B2", 3),
+            (b"B2A0", 4),
+            (b"B2A1", 4),
+            (b"B2A2", 4),
+        ];
+
         let header_size = 128u32;
-        let tag_count = 3u32;
+        let tag_count = tags.len() as u32;
         let tag_table_size = 4 + tag_count * 12;
-        let desc_offset = header_size + tag_table_size;
-        let cprt_offset = desc_offset + desc_tag.len() as u32;
-        let wtpt_offset = cprt_offset + cprt_tag.len() as u32;
-        let total_size = wtpt_offset + wtpt_tag.len() as u32;
+        let mut offsets = [0u32; 5];
+        let mut cursor = header_size + tag_table_size;
+        for (offset, block) in offsets.iter_mut().zip(blocks.iter()) {
+            *offset = cursor;
+            cursor += (block.len() as u32 + 3) & !3;
+        }
+        let total_size = cursor;
 
         let mut icc = Vec::with_capacity(total_size as usize);
 
@@ -338,23 +361,18 @@ impl ColorManagementEngine {
 
         // Tag Table
         icc.extend_from_slice(&tag_count.to_be_bytes());
-        // Tag 1: 'desc'
-        icc.extend_from_slice(b"desc");
-        icc.extend_from_slice(&desc_offset.to_be_bytes());
-        icc.extend_from_slice(&(desc_tag.len() as u32).to_be_bytes());
-        // Tag 2: 'cprt'
-        icc.extend_from_slice(b"cprt");
-        icc.extend_from_slice(&cprt_offset.to_be_bytes());
-        icc.extend_from_slice(&(cprt_tag.len() as u32).to_be_bytes());
-        // Tag 3: 'wtpt'
-        icc.extend_from_slice(b"wtpt");
-        icc.extend_from_slice(&wtpt_offset.to_be_bytes());
-        icc.extend_from_slice(&(wtpt_tag.len() as u32).to_be_bytes());
+        for &(signature, block_index) in &tags {
+            icc.extend_from_slice(signature);
+            icc.extend_from_slice(&offsets[block_index].to_be_bytes());
+            icc.extend_from_slice(&(blocks[block_index].len() as u32).to_be_bytes());
+        }
 
         // Tag Data
-        icc.extend_from_slice(&desc_tag);
-        icc.extend_from_slice(&cprt_tag);
-        icc.extend_from_slice(&wtpt_tag);
+        for block in blocks {
+            icc.extend_from_slice(block);
+            let padding = (4 - block.len() % 4) % 4;
+            icc.extend_from_slice(&[0u8; 3][..padding]);
+        }
 
         icc
     }
@@ -436,5 +454,29 @@ mod tests {
         assert_eq!(&icc_bytes[12..16], b"prtr");
         assert_eq!(&icc_bytes[16..20], b"CMYK");
         assert_eq!(&icc_bytes[36..40], b"acsp");
+
+        // The profile must be structurally consistent and carry both colour transforms.
+        let be32 = |at: usize| u32::from_be_bytes(icc_bytes[at..at + 4].try_into().unwrap());
+        assert_eq!(be32(0) as usize, icc_bytes.len(), "profile size field");
+        let tag_count = be32(128) as usize;
+        assert_eq!(tag_count, 9);
+        let mut signatures = Vec::new();
+        for i in 0..tag_count {
+            let entry = 132 + i * 12;
+            let (offset, size) = (be32(entry + 4) as usize, be32(entry + 8) as usize);
+            assert_eq!(offset % 4, 0, "tag data must be 4-byte aligned");
+            assert!(
+                offset + size <= icc_bytes.len(),
+                "tag data inside the profile"
+            );
+            signatures.push(icc_bytes[entry..entry + 4].to_vec());
+            if icc_bytes[entry..entry + 4] == *b"A2B0" {
+                assert_eq!(&icc_bytes[offset..offset + 4], b"mft2");
+                assert_eq!(icc_bytes[offset + 8], 4, "A2B0 has 4 input channels (CMYK)");
+                assert_eq!(icc_bytes[offset + 9], 3, "A2B0 has 3 output channels (Lab)");
+            }
+        }
+        assert!(signatures.iter().any(|s| s == b"A2B0"));
+        assert!(signatures.iter().any(|s| s == b"B2A0"));
     }
 }
