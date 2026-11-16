@@ -3776,6 +3776,27 @@ describe('Home screen, dialogs and About screen', () => {
     assert.strictEqual(getRecentProjects().length, 2);
   });
 
+  test('renaming a document keeps its recent entry consistent and never renames an imported source file (issue #34)', async () => {
+    const { addRecentProject, removeRecentProject, getRecentProjects } = await loadTs('packages/tok-ui/src/components/WelcomeModal.ts');
+    const mockStorage = {};
+    global.localStorage = {
+      getItem: (k) => mockStorage[k] || null,
+      setItem: (k, v) => { mockStorage[k] = String(v); },
+      removeItem: (k) => { delete mockStorage[k]; }
+    };
+    addRecentProject({ name: 'ספר אישי.tok', path: '/docs/sefer.docx' });
+    addRecentProject({ name: 'ספר בראשית.tok', path: '/docs/bereshit.tok' });
+    removeRecentProject('/docs/sefer.docx');
+    assert.deepStrictEqual(getRecentProjects().map((p) => p.path), ['/docs/bereshit.tok'], 'an entry is removable by its path');
+    removeRecentProject('ספר בראשית.tok');
+    assert.strictEqual(getRecentProjects().length, 0, 'an entry is still removable by its name');
+
+    const appCode = read('packages/tok-ui/src/app.ts');
+    const rename = appCode.slice(appCode.indexOf('public async renameDocument'), appCode.indexOf('public setDirty'));
+    assert.ok(rename.includes('/\\.tok$/i.test(oldPath)'), 'only a .tok project file is renamed on disk');
+    assert.ok(rename.includes('name: `${trimmed}.tok`'), 'the recent entry carries the title exactly as typed, not the sanitized file name');
+  });
+
   test('TEMPLATE_TITLES in app.ts contains no demo projects', () => {
     const appCode = read('packages/tok-ui/src/app.ts');
     assert.ok(!appCode.includes('דמו —'), 'No demo titles in TEMPLATE_TITLES');

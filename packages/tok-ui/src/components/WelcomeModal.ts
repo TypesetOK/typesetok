@@ -252,9 +252,10 @@ export function updateProjectClosedTime(nameOrPath: string): void {
   } catch {}
 }
 
-export function removeRecentProject(name: string): void {
+export function removeRecentProject(nameOrPath: string): void {
+  if (!nameOrPath) return;
   try {
-    const list = getRecentProjects().filter((p) => p.name !== name);
+    const list = getRecentProjects().filter((p) => p.name !== nameOrPath && p.path !== nameOrPath);
     localStorage.setItem('tok_recent_projects', JSON.stringify(list));
   } catch {}
 }
