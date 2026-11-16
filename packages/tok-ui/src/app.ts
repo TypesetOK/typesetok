@@ -7,7 +7,7 @@ import { CommandPalette, PaletteItem } from './components/CommandPalette';
 import { StatusBar } from './components/StatusBar';
 import { SpreadCanvas, isRightHandPage, isRectoPage, groupIntoSpreads } from './components/SpreadCanvas';
 import { ExportDialog, ExportOptions } from './components/ExportDialog';
-import { WelcomeModal, addRecentProject, updateProjectClosedTime, removeRecentProject, isDemoProject, purgeAllDemoProjects } from './components/WelcomeModal';
+import { WelcomeModal, addRecentProject, getRecentProjects, updateProjectClosedTime, removeRecentProject, isDemoProject, purgeAllDemoProjects } from './components/WelcomeModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AboutModal } from './components/AboutModal';
 import { UpdatesDrawer } from './components/UpdatesDrawer';
@@ -2658,6 +2658,14 @@ export class TypesetOkApp {
         throw new Error('IPC reader not available');
       }
 
+      // An imported source file keeps no title of its own, so a title the user chose earlier lives in the
+      // recent-projects entry; without this the title is re-derived from the file name and appears changed.
+      if (explicitPath && !/\.tok$/i.test(targetPath)) {
+        const known = getRecentProjects().find((p) => p.path === targetPath);
+        const savedTitle = known?.name?.replace(/\.tok$/i, '').trim();
+        if (savedTitle) result.title = savedTitle;
+      }
+
       // Re-opening a known file (recent projects, OS file association) reuses the flow chosen the first
       // time; the picker still appears for a first import and for an explicit "Import document".
       const remembered = explicitPath ? recallImportTemplate(targetPath) : null;
@@ -3161,33 +3169,49 @@ export class TypesetOkApp {
     const trimmed = newTitle.trim();
     if (!trimmed || trimmed === this.documentTitle) return;
     const oldTitle = this.documentTitle;
+    const oldPath = this.currentFilePath;
     this.documentTitle = trimmed;
     this.documentState.title = trimmed;
     this.showDocumentTitle(trimmed, true);
 
     const win = window as any;
-    if (this.currentFilePath && win.tokIpc?.renameDocumentFile) {
-      const dir = this.currentFilePath.replace(/[^/\\]+$/, '');
+    let recentPath = oldPath;
+    // Only a real .tok project file is renamed on disk. An imported source (.docx/.md/.txt) is the
+    // user's original file and must never be renamed or turned into a ".tok" file by a title change.
+    if (oldPath && /\.tok$/i.test(oldPath) && win.tokIpc?.renameDocumentFile) {
+      const dir = oldPath.replace(/[^/\\]+$/, '');
       const safeNewName = trimmed.replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';
       const newPath = `${dir}${safeNewName}.tok`;
-      if (newPath !== this.currentFilePath) {
+      if (newPath !== oldPath) {
         try {
-          const res = await win.tokIpc.renameDocumentFile({ oldPath: this.currentFilePath, newPath });
+          const res = await win.tokIpc.renameDocumentFile({ oldPath, newPath });
           if (res?.success) {
-            removeRecentProject(oldTitle);
-            removeRecentProject(this.currentFilePath);
             this.currentFilePath = newPath;
-            addRecentProject({
-              name: `${safeNewName}.tok`,
-              path: newPath,
-              pages: this.pages.length || 1,
-              lastSavedAt: new Date().toISOString()
-            });
+            recentPath = newPath;
           }
         } catch (e) {
           console.warn('[TOK] Failed to rename physical file:', e);
         }
       }
+    }
+
+    // Keep the "recent projects" entry in sync with the new title: replace the old entry (matched by
+    // path or by either name form) with one that carries the title exactly as the user typed it.
+    if (recentPath) {
+      const previous = getRecentProjects().find(
+        (p) => p.path === oldPath || p.name === oldTitle || p.name === `${oldTitle}.tok`
+      );
+      if (oldPath) removeRecentProject(oldPath);
+      removeRecentProject(oldTitle);
+      removeRecentProject(`${oldTitle}.tok`);
+      addRecentProject({
+        name: `${trimmed}.tok`,
+        path: recentPath,
+        pages: this.pages.length || previous?.pages || 1,
+        template: previous?.template,
+        lastSavedAt: previous?.lastSavedAt || new Date().toISOString(),
+        lastClosedAt: previous?.lastClosedAt
+      });
     }
     this.setDirty(true);
     this.showToast(tf('toastTitleRenamed', { title: trimmed }));
