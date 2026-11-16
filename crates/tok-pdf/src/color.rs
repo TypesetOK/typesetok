@@ -465,7 +465,10 @@ mod tests {
             let entry = 132 + i * 12;
             let (offset, size) = (be32(entry + 4) as usize, be32(entry + 8) as usize);
             assert_eq!(offset % 4, 0, "tag data must be 4-byte aligned");
-            assert!(offset + size <= icc_bytes.len(), "tag data inside the profile");
+            assert!(
+                offset + size <= icc_bytes.len(),
+                "tag data inside the profile"
+            );
             signatures.push(icc_bytes[entry..entry + 4].to_vec());
             if icc_bytes[entry..entry + 4] == *b"A2B0" {
                 assert_eq!(&icc_bytes[offset..offset + 4], b"mft2");

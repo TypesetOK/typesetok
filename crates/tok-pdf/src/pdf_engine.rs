@@ -1112,9 +1112,18 @@ mod tests {
                 .unwrap();
         assert!(bytes.starts_with(b"%PDF-"));
         // The heuristic glyph is drawn through the legacy font by character.
+        // Ignore embedded font/resource streams: their binary bytes may contain
+        // the byte sequence "TJ" even though it is not a PDF text operator.
         let decompressed = decompress_flate_streams(&bytes);
-        let tj_count: usize = decompressed.iter().map(|st| count(st, b"TJ")).sum();
-        assert_eq!(tj_count, 1);
+        let text_streams = decompressed.iter().filter(|stream| {
+            stream.windows(3).any(|window| window == b"BT\n")
+                && stream.windows(3).any(|window| window == b"ET\n")
+        });
+        let tj_count: usize = text_streams.map(|stream| count(stream, b"TJ")).sum();
+        assert_eq!(
+            tj_count, 1,
+            "Expected exactly one text-show operator for the supported fallback glyph"
+        );
     }
 
     #[test]

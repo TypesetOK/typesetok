@@ -320,20 +320,19 @@ mod tests {
         );
 
         // First 4 lines should fall in the upper band (x_offset = 200, span width = 100)
-        for i in 0..4 {
-            let l = &result.lines[i];
+        for (i, line) in result.lines.iter().take(4).enumerate() {
             assert_eq!(
-                l.x_offset, 200.0,
+                line.x_offset, 200.0,
                 "Line {} x_offset should be in upper band",
                 i
             );
             assert!(
-                l.width <= 100.5,
+                line.width <= 100.5,
                 "Line {} width ({}) exceeded upper band width 100",
                 i,
-                l.width
+                line.width
             );
-            assert_eq!(l.baseline_y, ((i + 1) as f32) * 15.0);
+            assert_eq!(line.baseline_y, ((i + 1) as f32) * 15.0);
         }
 
         // Line 4 and subsequent lines should transition into lower expanded band (x_offset = 0, span width = 300)
