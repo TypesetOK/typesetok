@@ -1,4 +1,5 @@
 import { t, tf, i18n } from '../i18n';
+import type { PreflightReport, PreflightStatus } from '../engine/typesetBridge';
 import { el, icon, iconButton, button, kbd, switchRow, segmented, group, selectField } from '../ui';
 import { ModalController } from './ModalController';
 
@@ -23,6 +24,7 @@ export interface ExportDialogContext {
   /** Labels of the pages of the current spread, e.g. ["ב׳", "ג׳"]. */
   spreadLabels: string[];
   preflightStatus: 'clean' | 'warning' | 'error';
+  preflightReport?: PreflightReport | null;
 }
 
 export interface ExportDialogCallbacks {
@@ -60,7 +62,7 @@ export class ExportDialog {
   private callbacks: ExportDialogCallbacks;
   private modal: ModalController;
   private isVisible = false;
-  private context: ExportDialogContext = { documentTitle: '', pageCount: 0, spreadLabels: [], preflightStatus: 'clean' };
+  private context: ExportDialogContext = { documentTitle: '', pageCount: 0, spreadLabels: [], preflightStatus: 'clean', preflightReport: null };
   private options: ExportOptions = {
     format: 'pdfx1a',
     range: 'all',
@@ -224,7 +226,14 @@ export class ExportDialog {
     side.appendChild(preview);
     side.appendChild(el('span', undefined, { style: 'text-align:center;font-size:12px;color:var(--tok-text-secondary)' }, this.context.spreadLabels.join(' – ')));
 
-    const status = this.context.preflightStatus;
+    const report = this.context.preflightReport;
+    const status: 'clean' | 'warning' | 'error' = report
+      ? report.overall_status === 'Fail'
+        ? 'error'
+        : report.overall_status === 'Warning'
+        ? 'warning'
+        : 'clean'
+      : this.context.preflightStatus;
     const check = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:10px' });
     const checkHead = el('div', 'tok-check-head');
     checkHead.appendChild(el('span', undefined, undefined, t('exportCheckTitle')));
@@ -235,14 +244,29 @@ export class ExportDialog {
     checkHead.appendChild(badge);
     check.appendChild(checkHead);
     const list = el('ul', 'tok-check-list');
-    for (const key of ['exportCheckK', 'exportCheckFonts', 'exportCheckOverset', 'exportCheckImages']) {
-      const ok = status === 'clean';
-      const li = el('li');
-      const mark = el('span', ok ? 'tok-ok' : 'tok-warn');
-      mark.appendChild(icon(ok ? 'check' : 'warning', 15));
-      li.appendChild(mark);
-      li.appendChild(el('span', undefined, undefined, t(key)));
-      list.appendChild(li);
+    if (report && Array.isArray(report.checks) && report.checks.length > 0) {
+      for (const item of report.checks) {
+        const st: PreflightStatus = item.status;
+        const li = el('li');
+        const markCls = st === 'Fail' ? 'tok-err' : st === 'Warning' ? 'tok-warn' : 'tok-ok';
+        const iconName = st === 'Fail' ? 'close' : st === 'Warning' ? 'warning' : 'check';
+        const mark = el('span', markCls);
+        mark.appendChild(icon(iconName, 15));
+        li.appendChild(mark);
+        li.appendChild(el('span', undefined, { style: 'flex:1' }, item.title));
+        li.appendChild(el('span', undefined, { style: 'color:var(--tok-text-primary)' }, item.summary));
+        list.appendChild(li);
+      }
+    } else {
+      for (const key of ['exportCheckK', 'exportCheckFonts', 'exportCheckOverset', 'exportCheckImages']) {
+        const ok = status === 'clean';
+        const li = el('li');
+        const mark = el('span', status === 'error' ? 'tok-err' : ok ? 'tok-ok' : 'tok-warn');
+        mark.appendChild(icon(status === 'error' ? 'close' : ok ? 'check' : 'warning', 15));
+        li.appendChild(mark);
+        li.appendChild(el('span', undefined, undefined, t(key)));
+        list.appendChild(li);
+      }
     }
     check.appendChild(list);
     side.appendChild(check);
