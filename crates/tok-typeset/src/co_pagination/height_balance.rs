@@ -261,6 +261,7 @@ mod tests {
             text: format!("Line {} in paragraph {}", line_index, paragraph_id),
             is_rtl: true,
             fonts: vec!["Frank Ruhl Libre".to_string()],
+            ..Default::default()
         }
     }
 
