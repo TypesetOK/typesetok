@@ -197,36 +197,12 @@ export async function fetchWithFilterSslFallback(
   } catch (httpsErr: any) {
     logger.warn('[FILTER-SSL] Standard Node https failed:', { error: httpsErr?.message });
 
-    // Check if failure is due to filter SSL interception
+    // Check if failure is due to filter SSL interception and surface clear diagnosis
     if (isFilterSslError(httpsErr)) {
       const diag = diagnoseFilterSslError(httpsErr);
-      logger.info(
-        `[FILTER-SSL] Detected filter SSL error (${diag.filterNameHebrew}). Attempting kosher filter resilient fallback...`
+      logger.warn(
+        `[FILTER-SSL] Detected filter SSL error (${diag.filterNameHebrew}); refusing unverified TLS fallback.`
       );
-
-      // Strategy 3: Resilient fallback specifically for api.github.com
-      // Only allowed when URL is strictly the official GitHub Releases API!
-      const parsedUrl = new URL(url);
-      if (parsedUrl.hostname === 'api.github.com') {
-        try {
-          const fallbackResponse = await makeNodeHttpsRequest(url, {
-            userAgent,
-            timeoutMs,
-            rejectUnauthorized: false, // Allows filtered/inspected connection
-          });
-
-          // Validate that response is genuine GitHub release JSON
-          const parsedJson = JSON.parse(fallbackResponse);
-          if (parsedJson && (parsedJson.tag_name || parsedJson.name || parsedJson.html_url)) {
-            logger.info('[FILTER-SSL] Filter-resilient fallback succeeded and verified GitHub release payload.');
-            return fallbackResponse;
-          }
-        } catch (fallbackErr: any) {
-          logger.warn('[FILTER-SSL] Resilient fallback also failed:', { error: fallbackErr?.message });
-        }
-      }
-
-      // If fallback failed or was not allowed, throw clear diagnosed Hebrew message
       const formattedError = new Error(
         `${diag.errorMessageHebrew} (${diag.recommendedActionHebrew})`
       );

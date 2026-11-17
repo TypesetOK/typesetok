@@ -1,6 +1,5 @@
 import { app, shell } from 'electron';
 import type { IncomingMessage } from 'http';
-import * as http from 'http';
 import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -274,8 +273,8 @@ export class TokUpdater {
     downloadUrl: string,
     onProgress?: (progress: UpdateDownloadProgress) => void
   ): Promise<DownloadUpdateResult> {
-    if (!isSafeExternalUrl(downloadUrl)) {
-      return { success: false, error: 'כתובת הורדה לא חוקית' };
+    if (!isSafeExternalUrl(downloadUrl) || new URL(downloadUrl).protocol !== 'https:') {
+      return { success: false, error: 'כתובת הורדה לא חוקית (נדרש HTTPS)' };
     }
 
     try {
@@ -352,17 +351,19 @@ export class TokUpdater {
 
     return new Promise((resolve, reject) => {
       const parsed = new URL(sourceUrl);
-      const isHttps = parsed.protocol === 'https:';
-      const transport: any = isHttps ? https : http;
+      if (parsed.protocol !== 'https:') {
+        reject(new Error('הורדת עדכונים מחייבת חיבור HTTPS מאובטח'));
+        return;
+      }
 
-      const req = transport.get(
+      const req = https.get(
         sourceUrl,
         {
           headers: {
             'User-Agent': `TypesetOK-Desktop/${this.getCurrentVersion()}`,
             Accept: '*/*'
           },
-          rejectUnauthorized: false
+          rejectUnauthorized: true
         },
         (res: IncomingMessage) => {
           if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode)) {
