@@ -9,14 +9,19 @@
 //! produced them.
 
 use crate::boxes::PrePressPageBoxes;
-use crate::color::{ColorManagementEngine, IccProfileId};
+use crate::color::{CmykColor, ColorManagementEngine, IccProfileId};
 use crate::font_subsetter::{fnv1a, FontSubsetter, SubsetFontResult, FNV_OFFSET};
+use crate::image_xobject::{encode_image_xobject_data, PreparedColorSpace};
+use crate::ornament::{BuiltinOrnaments, SvgVectorCompiler};
 use crate::tounicode::ToUnicodeCMap;
-use pdf_writer::types::{CidFontType, FontFlags, OutputIntentSubtype, SystemInfo, TrappingStatus};
+use pdf_writer::types::{
+    CidFontType, ColorSpaceOperand, FontFlags, OutputIntentSubtype, SystemInfo, TrappingStatus,
+};
 use pdf_writer::{Content, Date, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use thiserror::Error;
+use tok_core::styles::Color;
 use tok_typeset::font::{FontManager, EMBEDDED_NOTO_SERIF_HEBREW};
 use tok_typeset::geometry::{GlyphBox, LineBox, PageLayoutBox, PhysicalRect};
 
@@ -47,6 +52,10 @@ pub struct PdfExportOptions {
     pub mod_date: Option<String>,
     /// Compress streams with FlateDecode (deflate/zlib) for smaller PDF output.
     pub compress_streams: bool,
+    /// Raster image assets keyed by asset path (e.g. `images/photo.png` -> PNG/JPEG bytes).
+    pub image_assets: BTreeMap<String, Vec<u8>>,
+    /// Custom ornament SVG documents keyed by asset path (e.g. `ornaments/sep.svg` -> SVG XML).
+    pub ornament_assets: BTreeMap<String, String>,
 }
 
 impl Default for PdfExportOptions {
@@ -65,6 +74,8 @@ impl Default for PdfExportOptions {
             creation_date: None,
             mod_date: None,
             compress_streams: true,
+            image_assets: BTreeMap::new(),
+            ornament_assets: BTreeMap::new(),
         }
     }
 }
@@ -455,6 +466,7 @@ impl PdfPrePressEngine {
                 frames: Vec::new(),
                 break_token: None,
                 is_blank: false,
+                ..Default::default()
             }];
             &dummy_page
         } else {
@@ -563,6 +575,11 @@ impl PdfPrePressEngine {
         let info_id = alloc();
 
         // 3. Info dictionary with PDF/X conformance keys
+        let effective_title = if options.title.trim().is_empty() {
+            "מסמך מעומד"
+        } else {
+            options.title.trim()
+        };
         let creation_str = options
             .creation_date
             .as_deref()
@@ -571,7 +588,7 @@ impl PdfPrePressEngine {
 
         {
             let mut info = pdf.document_info(info_id);
-            info.title(TextStr(&options.title));
+            info.title(TextStr(effective_title));
             info.author(TextStr(&options.author));
             info.creator(TextStr(CREATOR_TOOL));
             info.trapped(TrappingStatus::NotTrapped);
@@ -609,6 +626,132 @@ impl PdfPrePressEngine {
             id_hash = fnv1a(id_hash, font.subset.font_name.as_bytes());
         }
 
+        // 4b. Collect Spot colors across all pages and emit /Separation color spaces
+        let mut spot_colors: BTreeMap<String, (String, Ref, CmykColor)> = BTreeMap::new();
+        let register_spot = |color: &Color,
+                             map: &mut BTreeMap<String, (String, Ref, CmykColor)>,
+                             alloc: &mut dyn FnMut() -> Ref| {
+            if let Color::Spot {
+                name,
+                fallback_cmyk,
+                ..
+            } = color
+            {
+                if !name.is_empty() && !map.contains_key(name) {
+                    let idx = map.len() + 1;
+                    let res_name = format!("CS_Spot{}", idx);
+                    let cs_ref = alloc();
+                    let fallback = ColorManagementEngine::enforce_tac_limit(
+                        CmykColor::new(
+                            fallback_cmyk.0,
+                            fallback_cmyk.1,
+                            fallback_cmyk.2,
+                            fallback_cmyk.3,
+                        ),
+                        options.color_profile.max_tac_percent(),
+                    );
+                    map.insert(name.clone(), (res_name, cs_ref, fallback));
+                }
+            }
+        };
+        for p in iter_pages {
+            for f in &p.frames {
+                for l in &f.lines {
+                    for c in &l.colors {
+                        register_spot(c, &mut spot_colors, &mut alloc);
+                    }
+                }
+            }
+            for orn in &p.ornaments {
+                register_spot(&orn.color, &mut spot_colors, &mut alloc);
+            }
+        }
+        for (spot_name, (_, cs_ref, fallback)) in &spot_colors {
+            let mut sep = pdf
+                .color_space(*cs_ref)
+                .separation(Name(spot_name.as_bytes()));
+            sep.alternate_color_space().device_cmyk();
+            sep.tint_exponential()
+                .domain([0.0, 1.0])
+                .c0([0.0, 0.0, 0.0, 0.0])
+                .c1([fallback.c, fallback.m, fallback.y, fallback.k])
+                .n(1.0);
+            sep.finish();
+        }
+
+        // 4c. Collect and emit Image XObjects (+ /SMask in PDF/X-4)
+        let is_pdf_x1a = matches!(options.standard, PdfXStandard::PdfX1a2001);
+        let lookup_image_bytes = |asset_path: &str| -> Option<&[u8]> {
+            let norm = asset_path
+                .trim_start_matches('/')
+                .trim_start_matches("assets/");
+            options
+                .image_assets
+                .get(asset_path)
+                .or_else(|| options.image_assets.get(norm))
+                .or_else(|| options.image_assets.get(&format!("images/{}", norm)))
+                .map(Vec::as_slice)
+        };
+        let mut image_xobjects: BTreeMap<String, (String, Ref)> = BTreeMap::new();
+        for p_box in iter_pages {
+            if p_box.is_blank {
+                continue;
+            }
+            for placed_img in &p_box.images {
+                if image_xobjects.contains_key(&placed_img.asset_path) {
+                    continue;
+                }
+                if let Some(raw_bytes) = lookup_image_bytes(&placed_img.asset_path) {
+                    if let Ok(prep) =
+                        encode_image_xobject_data(raw_bytes, is_pdf_x1a, options.color_profile)
+                    {
+                        let smask_ref = prep.smask_flate_data.as_ref().map(|smask_bytes| {
+                            let s_ref = alloc();
+                            let mut sm = pdf.image_xobject(s_ref, smask_bytes);
+                            sm.width(prep.width as i32);
+                            sm.height(prep.height as i32);
+                            sm.color_space().device_gray();
+                            sm.bits_per_component(8);
+                            sm.filter(Filter::FlateDecode);
+                            sm.finish();
+                            s_ref
+                        });
+
+                        let img_ref = alloc();
+                        let res_name = format!("Im{}", image_xobjects.len() + 1);
+                        let mut xobj = pdf.image_xobject(img_ref, &prep.data);
+                        xobj.width(prep.width as i32);
+                        xobj.height(prep.height as i32);
+                        xobj.bits_per_component(prep.bits_per_component);
+                        match prep.color_space {
+                            PreparedColorSpace::DeviceCmyk => {
+                                xobj.color_space().device_cmyk();
+                            }
+                            PreparedColorSpace::DeviceGray => {
+                                xobj.color_space().device_gray();
+                            }
+                            PreparedColorSpace::CalRgb => {
+                                xobj.color_space().srgb();
+                            }
+                        }
+                        if prep.cmyk_decode_inverted {
+                            xobj.decode([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
+                        }
+                        if let Some(s_ref) = smask_ref {
+                            xobj.s_mask(s_ref);
+                        }
+                        xobj.filter(if prep.is_dct_jpeg {
+                            Filter::DctDecode
+                        } else {
+                            Filter::FlateDecode
+                        });
+                        xobj.finish();
+                        image_xobjects.insert(placed_img.asset_path.clone(), (res_name, img_ref));
+                    }
+                }
+            }
+        }
+
         // 5. Pages and Content Streams
         let mut page_ids = Vec::with_capacity(iter_pages.len());
         for p_box in iter_pages {
@@ -629,6 +772,10 @@ impl PdfPrePressEngine {
                 options.draw_crop_marks,
                 options.draw_registration_marks,
                 options.draw_page_numbers,
+                options.color_profile,
+                &spot_colors,
+                &image_xobjects,
+                &options.ornament_assets,
                 &embedded,
                 &registry,
                 &legacy_face,
@@ -659,6 +806,20 @@ impl PdfPrePressEngine {
                 font_dict.pair(Name(font.resource.as_bytes()), *id);
             }
             font_dict.finish();
+            if !spot_colors.is_empty() {
+                let mut cs_dict = resources.color_spaces();
+                for (res_name, cs_ref, _) in spot_colors.values() {
+                    cs_dict.pair(Name(res_name.as_bytes()), *cs_ref);
+                }
+                cs_dict.finish();
+            }
+            if !image_xobjects.is_empty() {
+                let mut xo_dict = resources.x_objects();
+                for (res_name, img_ref) in image_xobjects.values() {
+                    xo_dict.pair(Name(res_name.as_bytes()), *img_ref);
+                }
+                xo_dict.finish();
+            }
             resources.finish();
 
             page.contents(content_id);
@@ -689,7 +850,7 @@ impl PdfPrePressEngine {
         }
 
         // 8. Deterministic file identifier (required by PDF/X); also the XMP DocumentID.
-        id_hash = fnv1a(id_hash, options.title.as_bytes());
+        id_hash = fnv1a(id_hash, effective_title.as_bytes());
         id_hash = fnv1a(id_hash, creation_str.as_bytes());
         id_hash = fnv1a(id_hash, mod_str.as_bytes());
         let file_id = [id_hash.to_be_bytes(), fnv1a(id_hash, b"tok").to_be_bytes()].concat();
@@ -698,7 +859,7 @@ impl PdfPrePressEngine {
         let xmp_id = if matches!(options.standard, PdfXStandard::PdfX4) {
             let id = alloc();
             let xmp = build_xmp(
-                &options.title,
+                effective_title,
                 &options.author,
                 &xmp_date(creation_str),
                 &xmp_date(mod_str),
@@ -809,6 +970,50 @@ impl PdfPrePressEngine {
         type0.finish();
     }
 
+    fn apply_fill_color(
+        content: &mut Content,
+        color: &Color,
+        profile: IccProfileId,
+        spot_colors: &BTreeMap<String, (String, Ref, CmykColor)>,
+    ) {
+        if let Color::Spot { name, tint, .. } = color {
+            if let Some((res_name, _, _)) = spot_colors.get(name) {
+                content.set_fill_color_space(ColorSpaceOperand::Named(Name(res_name.as_bytes())));
+                let safe_tint = if tint.is_finite() {
+                    tint.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                content.set_fill_color([safe_tint]);
+                return;
+            }
+        }
+        let cmyk = ColorManagementEngine::convert_color(color, profile);
+        content.set_fill_cmyk(cmyk.c, cmyk.m, cmyk.y, cmyk.k);
+    }
+
+    fn apply_stroke_color(
+        content: &mut Content,
+        color: &Color,
+        profile: IccProfileId,
+        spot_colors: &BTreeMap<String, (String, Ref, CmykColor)>,
+    ) {
+        if let Color::Spot { name, tint, .. } = color {
+            if let Some((res_name, _, _)) = spot_colors.get(name) {
+                content.set_stroke_color_space(ColorSpaceOperand::Named(Name(res_name.as_bytes())));
+                let safe_tint = if tint.is_finite() {
+                    tint.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                content.set_stroke_color([safe_tint]);
+                return;
+            }
+        }
+        let cmyk = ColorManagementEngine::convert_color(color, profile);
+        content.set_stroke_cmyk(cmyk.c, cmyk.m, cmyk.y, cmyk.k);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn page_content(
         p_box: &PageLayoutBox,
@@ -816,6 +1021,10 @@ impl PdfPrePressEngine {
         draw_crop_marks: bool,
         draw_registration_marks: bool,
         draw_page_numbers: bool,
+        color_profile: IccProfileId,
+        spot_colors: &BTreeMap<String, (String, Ref, CmykColor)>,
+        image_xobjects: &BTreeMap<String, (String, Ref)>,
+        ornament_assets: &BTreeMap<String, String>,
         embedded: &[EmbeddedFont],
         registry: &FontRegistry<'_>,
         legacy_face: &ttf_parser::Face<'_>,
@@ -836,7 +1045,9 @@ impl PdfPrePressEngine {
         }
 
         // Set fill color to pure DeviceCMYK black (0 0 0 1 k)
+        let default_black = Color::default();
         content.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
+        let mut active_fill: Color = default_black.clone();
 
         // Origin offset by slug_pt to align inside TrimBox
         let origin_x = page_boxes.trim_box[0];
@@ -872,6 +1083,15 @@ impl PdfPrePressEngine {
             content.stroke();
         }
 
+        // Draw vertical column separator rules computed by the layout engine
+        for &(x1, y1, x2, y2) in &p_box.column_rules {
+            content.set_line_width(0.4);
+            content.set_stroke_cmyk(0.0, 0.0, 0.0, 0.65);
+            content.move_to(origin_x + x1, origin_y + (page_h - y1));
+            content.line_to(origin_x + x2, origin_y + (page_h - y2));
+            content.stroke();
+        }
+
         for frame in &p_box.frames {
             for line in &frame.lines {
                 let base_y = origin_y + (page_h - (frame.rect.y + line.baseline_y));
@@ -890,6 +1110,16 @@ impl PdfPrePressEngine {
                         .collect();
                     if cids.is_empty() {
                         continue;
+                    }
+                    let line_color = line.colors.first().unwrap_or(&default_black);
+                    if *line_color != active_fill {
+                        Self::apply_fill_color(
+                            &mut content,
+                            line_color,
+                            color_profile,
+                            spot_colors,
+                        );
+                        active_fill = line_color.clone();
                     }
                     content.begin_text();
                     content.set_font(Name(font.resource.as_bytes()), line.height);
@@ -910,6 +1140,7 @@ impl PdfPrePressEngine {
                 // placed with TJ adjustments relative to the running pen, and
                 // vertical mark offsets with the text rise, so the stream does
                 // not need a matrix per glyph.
+                let mut underlines: Vec<(f32, f32, f32, f32, Color)> = Vec::new();
                 content.begin_text();
                 let mut writer = LineTextWriter::default();
                 for g in &line.glyphs {
@@ -931,6 +1162,17 @@ impl PdfPrePressEngine {
                         content.set_text_matrix([1.0, 0.0, 0.0, 1.0, gx, base_y]);
                         writer.pen = Some(gx);
                     }
+                    let glyph_color = line.color_of(g).unwrap_or(&default_black);
+                    if *glyph_color != active_fill {
+                        writer.flush(&mut content);
+                        Self::apply_fill_color(
+                            &mut content,
+                            glyph_color,
+                            color_profile,
+                            spot_colors,
+                        );
+                        active_fill = glyph_color.clone();
+                    }
                     if writer.font != Some((slot, size)) {
                         writer.flush(&mut content);
                         content.set_font(Name(font.resource.as_bytes()), size);
@@ -940,6 +1182,29 @@ impl PdfPrePressEngine {
                         writer.flush(&mut content);
                         content.set_rise(g.y);
                         writer.rise = g.y;
+                    }
+                    if g.underline && g.width > 0.0 {
+                        let uy = base_y - size * 0.12;
+                        let thickness = (size * 0.06).max(0.4);
+                        if let Some(last) = underlines.last_mut() {
+                            if (last.1 - gx).abs() <= 0.5
+                                && (last.2 - uy).abs() <= 0.2
+                                && (last.3 - thickness).abs() <= 0.1
+                                && last.4 == *glyph_color
+                            {
+                                last.1 = gx + g.width;
+                            } else {
+                                underlines.push((
+                                    gx,
+                                    gx + g.width,
+                                    uy,
+                                    thickness,
+                                    glyph_color.clone(),
+                                ));
+                            }
+                        } else {
+                            underlines.push((gx, gx + g.width, uy, thickness, glyph_color.clone()));
+                        }
                     }
                     let advance_1000 = font
                         .subset
@@ -955,11 +1220,22 @@ impl PdfPrePressEngine {
                     content.set_rise(0.0);
                 }
                 content.end_text();
+
+                for (x0, x1, uy, thickness, ucolor) in underlines {
+                    content.set_line_width(thickness);
+                    Self::apply_stroke_color(&mut content, &ucolor, color_profile, spot_colors);
+                    content.move_to(x0, uy);
+                    content.line_to(x1, uy);
+                    content.stroke();
+                }
             }
         }
 
         // Draw page number gematria folio footer if enabled and present
         if draw_page_numbers && !p_box.page_number_gematria.is_empty() {
+            if active_fill != default_black {
+                content.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
+            }
             if let Some(slot) = registry.legacy {
                 let font = &embedded[slot];
                 let folio_font_size = 10.0;
@@ -1008,6 +1284,51 @@ impl PdfPrePressEngine {
             }
         }
 
+        // Draw placed raster images using emitted XObject resources
+        for placed_img in &p_box.images {
+            if let Some((res_name, _)) = image_xobjects.get(&placed_img.asset_path) {
+                let w = placed_img.rect.width.max(1.0);
+                let h = placed_img.rect.height.max(1.0);
+                let pdf_x = origin_x + placed_img.rect.x;
+                let pdf_y = origin_y + (page_h - (placed_img.rect.y + h));
+                content
+                    .save_state()
+                    .transform([w, 0.0, 0.0, h, pdf_x, pdf_y])
+                    .x_object(Name(res_name.as_bytes()))
+                    .restore_state();
+            }
+        }
+
+        // Compile and emit placed vector ornaments (custom asset SVG or built-in sacred preset)
+        for orn in &p_box.ornaments {
+            let custom_svg = orn.asset_path.as_ref().and_then(|ap| {
+                let norm = ap.trim_start_matches('/').trim_start_matches("assets/");
+                ornament_assets
+                    .get(ap)
+                    .or_else(|| ornament_assets.get(norm))
+                    .or_else(|| ornament_assets.get(&format!("ornaments/{}", norm)))
+                    .map(String::as_str)
+            });
+            let svg_opt = custom_svg.or_else(|| BuiltinOrnaments::get_svg(&orn.ornament_id));
+            if let Some(svg) = svg_opt {
+                let w = orn.rect.width.max(1.0);
+                let h = orn.rect.height.max(1.0);
+                let pdf_x = origin_x + orn.rect.x;
+                let pdf_y = origin_y + (page_h - (orn.rect.y + h));
+                let _ = SvgVectorCompiler::compile_into_content(
+                    svg,
+                    pdf_x,
+                    pdf_y,
+                    w,
+                    h,
+                    &orn.color,
+                    color_profile,
+                    spot_colors,
+                    &mut content,
+                );
+            }
+        }
+
         content.finish()
     }
 }
@@ -1033,6 +1354,7 @@ mod tests {
             }],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         }
     }
 
@@ -1091,6 +1413,7 @@ mod tests {
             text: "שלום עולם".to_string(),
             is_rtl: true,
             fonts: Vec::new(),
+            ..Default::default()
         };
 
         let bytes =
@@ -1219,6 +1542,7 @@ mod tests {
             height: 12.0,
             character: Some(ch),
             font_index,
+            ..Default::default()
         };
         let line = LineBox {
             line_index: 0,
@@ -1235,6 +1559,7 @@ mod tests {
             text: "xא".to_string(),
             is_rtl: true,
             fonts: vec!["Noto Serif Hebrew".to_string()],
+            ..Default::default()
         };
         let bytes =
             PdfPrePressEngine::export_pdf(&[page_with(vec![line])], &PdfExportOptions::default())
@@ -1412,6 +1737,7 @@ mod tests {
             ],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         };
 
         let options = PdfExportOptions {
@@ -1474,6 +1800,7 @@ mod tests {
             }],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         };
         let page2_blank = PageLayoutBox {
             page_index: 1,
@@ -1482,6 +1809,7 @@ mod tests {
             frames: Vec::new(),
             break_token: None,
             is_blank: true,
+            ..Default::default()
         };
 
         let options = PdfExportOptions {
@@ -1558,5 +1886,237 @@ mod tests {
         let bytes = PdfPrePressEngine::export_pdf(&[], &options).unwrap();
         let s = String::from_utf8_lossy(&bytes);
         assert!(!s.contains("xpacket") && !s.contains("/Metadata"));
+    }
+
+    #[test]
+    fn blank_title_falls_back_to_non_empty_pdfx_title() {
+        for standard in [PdfXStandard::PdfX1a2001, PdfXStandard::PdfX4] {
+            let options = PdfExportOptions {
+                standard,
+                title: "   ".to_string(),
+                compress_streams: false,
+                ..Default::default()
+            };
+            let bytes = PdfPrePressEngine::export_pdf(&[], &options).unwrap();
+            let s = String::from_utf8_lossy(&bytes);
+            assert!(
+                s.contains("/Title") && !s.contains("/Title ()"),
+                "PDF/X Info /Title must not be empty"
+            );
+        }
+    }
+
+    #[test]
+    fn typeset_and_pdf_emit_managed_cmyk_and_visual_runs() {
+        use tok_core::id::FractionalIndex;
+        use tok_core::model::{DocumentRoot, ParagraphNode};
+        use tok_core::spans::TextSpan;
+        use tok_core::styles::CharacterFormat;
+        use tok_typeset::engine::{TypesettingEngine, TypesettingEngineConfig};
+
+        let mut doc = DocumentRoot::new("Color Pipeline Test");
+        let mut para = ParagraphNode::new(FractionalIndex::initial(), "body", "שלום עולם");
+        para.spans = vec![
+            TextSpan::new(
+                0,
+                4,
+                CharacterFormat {
+                    color: Some(Color::Rgb {
+                        r: 0.86,
+                        g: 0.08,
+                        b: 0.08,
+                    }),
+                    underline: Some(true),
+                    ..Default::default()
+                },
+            ),
+            TextSpan::new(
+                5,
+                9,
+                CharacterFormat {
+                    color: Some(Color::DeviceCmyk {
+                        c: 0.0,
+                        m: 0.5,
+                        y: 0.5,
+                        k: 0.2,
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ];
+        doc.sections[0].flows[0].paragraphs = vec![para];
+
+        let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
+        let pages = engine.typeset_document(&doc);
+        assert!(!pages.is_empty());
+        let first_line = &pages[0].frames[0].lines[0];
+        assert!(
+            first_line.colors.len() >= 2,
+            "LineBox should carry distinct span colors: {:?}",
+            first_line.colors
+        );
+        assert!(
+            !first_line.visual_runs.is_empty(),
+            "LineBox must include explicit VisualLineRun entries"
+        );
+        assert!(first_line.visual_runs.iter().any(|r| r.underline));
+        assert!(first_line.glyphs.iter().any(|g| g.underline));
+
+        let pdf_bytes = PdfPrePressEngine::export_pdf(
+            &pages,
+            &PdfExportOptions {
+                compress_streams: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pdf_str = String::from_utf8_lossy(&pdf_bytes);
+        assert!(
+            pdf_str.contains(" k\n") || pdf_str.contains(" k "),
+            "Expected DeviceCMYK fill color operator 'k' in PDF stream"
+        );
+        assert!(
+            !pdf_str.contains(" rg\n") && !pdf_str.contains(" RG\n"),
+            "PDF/X must never emit DeviceRGB fill/stroke operators"
+        );
+    }
+
+    #[test]
+    fn spot_color_emits_separation_colorspace_and_scn_operators() {
+        let spot = Color::Spot {
+            name: "PANTONE 186 C".to_string(),
+            tint: 1.0,
+            fallback_cmyk: (0.0, 1.0, 0.81, 0.04),
+        };
+        let glyph = GlyphBox {
+            glyph_id: 2,
+            cluster: 0,
+            x: 10.0,
+            y: 0.0,
+            width: 8.0,
+            height: 12.0,
+            character: Some('א'),
+            font_index: 0,
+            color_index: 1,
+            underline: true,
+            italic: false,
+        };
+        let line = LineBox {
+            line_index: 0,
+            paragraph_id: None,
+            baseline_y: 24.0,
+            height: 16.0,
+            width: 120.0,
+            x_offset: 0.0,
+            is_drop_cap: false,
+            glyphs: vec![glyph],
+            text: "א".to_string(),
+            is_rtl: true,
+            fonts: vec!["Noto Serif Hebrew".to_string()],
+            colors: vec![Color::default(), spot],
+            ..Default::default()
+        };
+        let page = page_with(vec![line]);
+        let pdf_bytes = PdfPrePressEngine::export_pdf(
+            &[page],
+            &PdfExportOptions {
+                compress_streams: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pdf_str = String::from_utf8_lossy(&pdf_bytes);
+        assert!(
+            pdf_str.contains("/Separation"),
+            "Expected /Separation color space for Spot ink"
+        );
+        assert!(
+            pdf_str.contains(" cs") && pdf_str.contains(" scn"),
+            "Expected 'cs' and 'scn' Spot color selection operators"
+        );
+        assert!(
+            pdf_str.contains(" CS") && pdf_str.contains(" SCN"),
+            "Expected 'CS' and 'SCN' Spot stroke color selection operators for underline"
+        );
+    }
+
+    #[test]
+    fn embedded_png_and_builtin_ornament_render_in_pdfx() {
+        use tok_typeset::geometry::{PlacedImageBox, PlacedOrnamentBox};
+
+        // Valid minimal 1x1 RGBA PNG
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let crc = |d: &[u8]| -> u32 {
+            let mut c = 0xFFFFFFFFu32;
+            for &b in d {
+                c ^= b as u32;
+                for _ in 0..8 {
+                    c = (c >> 1) ^ (0xEDB88320 & (c & 1).wrapping_neg());
+                }
+            }
+            !c
+        };
+        let chunk = |dst: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]| {
+            dst.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            dst.extend_from_slice(tag);
+            dst.extend_from_slice(data);
+            let mut buf = tag.to_vec();
+            buf.extend_from_slice(data);
+            dst.extend_from_slice(&crc(&buf).to_be_bytes());
+        };
+        chunk(&mut png, b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]);
+        let idat = miniz_oxide::deflate::compress_to_vec_zlib(&[0, 200, 40, 20, 128], 6);
+        chunk(&mut png, b"IDAT", &idat);
+        chunk(&mut png, b"IEND", &[]);
+
+        let mut page = page_with(Vec::new());
+        page.images.push(PlacedImageBox {
+            asset_path: "images/cover.png".to_string(),
+            rect: PhysicalRect::new(80.0, 100.0, 100.0, 100.0),
+            intrinsic_width_px: 1,
+            intrinsic_height_px: 1,
+            effective_dpi_x: 0.72,
+            effective_dpi_y: 0.72,
+            paragraph_id: None,
+        });
+        page.ornaments.push(PlacedOrnamentBox {
+            ornament_id: "crown_torah".to_string(),
+            asset_path: None,
+            rect: PhysicalRect::new(100.0, 220.0, 96.0, 32.0),
+            color: Color::default(),
+        });
+
+        let mut assets = BTreeMap::new();
+        assets.insert("images/cover.png".to_string(), png);
+
+        let opts_x1a = PdfExportOptions {
+            standard: PdfXStandard::PdfX1a2001,
+            compress_streams: false,
+            image_assets: assets.clone(),
+            ..Default::default()
+        };
+        let bytes_x1a = PdfPrePressEngine::export_pdf(&[page.clone()], &opts_x1a).unwrap();
+        let s_x1a = String::from_utf8_lossy(&bytes_x1a);
+        assert!(s_x1a.contains("/Subtype /Image"));
+        assert!(s_x1a.contains("/Im1 Do"));
+        assert!(s_x1a.contains("/DeviceCMYK"));
+        assert!(!s_x1a.contains("/SMask"));
+        assert!(
+            s_x1a.contains("\nf\n") || s_x1a.contains(" f\n"),
+            "Ornament vector fill missing"
+        );
+
+        let opts_x4 = PdfExportOptions {
+            standard: PdfXStandard::PdfX4,
+            compress_streams: false,
+            image_assets: assets,
+            ..Default::default()
+        };
+        let bytes_x4 = PdfPrePressEngine::export_pdf(&[page], &opts_x4).unwrap();
+        let s_x4 = String::from_utf8_lossy(&bytes_x4);
+        assert!(
+            s_x4.contains("/SMask"),
+            "PDF/X-4 should keep alpha as /SMask"
+        );
     }
 }
