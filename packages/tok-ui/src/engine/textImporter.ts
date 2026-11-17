@@ -142,6 +142,7 @@ export interface ImportResult {
   detectedDirection: 'rtl' | 'ltr';
   wordCount: number;
   paragraphCount: number;
+  referencedFonts?: string[];
   metadata?: Record<string, unknown>;
 }
 
@@ -2165,6 +2166,23 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
   const wordCount = (allText.match(/\S+/g) || []).length;
   const stylesRecord = styleRegistry.size > 0 ? Object.fromEntries(styleRegistry.entries()) : undefined;
 
+  const fontSet = new Set<string>();
+  for (const st of styleRegistry.values()) {
+    const cfFam = st.characterFormat?.fontFamily?.trim();
+    if (cfFam) fontSet.add(cfFam);
+    const ppFam = st.paragraphPatch?.fontFamily?.trim();
+    if (ppFam) fontSet.add(ppFam);
+  }
+  for (const para of [...paragraphs, ...emittedFootnotes]) {
+    const pf = para.patch?.fontFamily?.trim();
+    if (pf) fontSet.add(pf);
+    for (const sp of para.spans || []) {
+      const sf = sp.format?.fontFamily?.trim();
+      if (sf) fontSet.add(sf);
+    }
+  }
+  const referencedFonts = Array.from(fontSet).sort((a, b) => a.localeCompare(b));
+
   return {
     title,
     paragraphs,
@@ -2178,6 +2196,7 @@ export function parseDocxXml(xml: string, options?: ImportOptions): ImportResult
     detectedDirection,
     wordCount,
     paragraphCount: paragraphs.length,
+    referencedFonts: referencedFonts.length > 0 ? referencedFonts : undefined,
     metadata: {
       footnoteCount: emittedFootnotes.length,
       tableCount: emittedTables.length,
