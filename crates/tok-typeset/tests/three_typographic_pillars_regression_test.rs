@@ -211,6 +211,7 @@ fn test_pillar1_dynamic_multi_flow_anchoring_cascades_commentaries_and_balances_
         text: format!("Line {}", idx),
         is_rtl: true,
         fonts: vec!["Frank Ruhl Libre".to_string()],
+        ..Default::default()
     };
 
     let mut page1_frames = vec![
