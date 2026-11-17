@@ -46,6 +46,42 @@ pub enum FlowType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageAttachment {
+    /// Relative path inside `.tok` package, e.g. `images/fig1.png`.
+    pub asset_path: String,
+    pub width_pt: f32,
+    pub height_pt: f32,
+    pub intrinsic_width_px: u32,
+    pub intrinsic_height_px: u32,
+    #[serde(default)]
+    pub alignment: crate::styles::TextAlignment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum OrnamentPlacement {
+    #[default]
+    AfterParagraph,
+    BeforeParagraph,
+    SectionHeaderFrame,
+    SectionFooterVignette,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrnamentRef {
+    pub ornament_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_path: Option<String>,
+    pub width_pt: f32,
+    pub height_pt: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<crate::styles::Color>,
+    #[serde(default)]
+    pub placement: OrnamentPlacement,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParagraphNode {
     pub id: NodeId,
     pub index: FractionalIndex,
@@ -63,6 +99,10 @@ pub struct ParagraphNode {
     pub numbering_scheme: Option<crate::numbering::NumberingScheme>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageAttachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ornament: Option<OrnamentRef>,
 }
 
 impl ParagraphNode {
@@ -79,7 +119,19 @@ impl ParagraphNode {
             heading_level: None,
             numbering_scheme: None,
             number_label: None,
+            image: None,
+            ornament: None,
         }
+    }
+
+    pub fn with_image(mut self, image: ImageAttachment) -> Self {
+        self.image = Some(image);
+        self
+    }
+
+    pub fn with_ornament(mut self, ornament: OrnamentRef) -> Self {
+        self.ornament = Some(ornament);
+        self
     }
 
     pub fn with_heading_level(mut self, level: crate::outline::HierarchyLevel) -> Self {
@@ -304,6 +356,18 @@ pub struct SectionNode {
     /// Detailed page break mode for this section.
     #[serde(default)]
     pub page_break_mode: crate::overrides::PageBreakMode,
+    /// Number of continuous columns for single-flow sections (1..=6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_count: Option<usize>,
+    /// Gutter width between columns in points (default 12.0pt).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_gutter_pt: Option<f32>,
+    /// Column distribution mode (`Balanced` or `Sequential`).
+    #[serde(default)]
+    pub column_distribution: crate::styles::ColumnDistributionMode,
+    /// Whether to draw vertical column separator rules between columns.
+    #[serde(default)]
+    pub draw_column_rule: bool,
 }
 
 impl SectionNode {
@@ -320,7 +384,27 @@ impl SectionNode {
             anchors: crate::multi_flow_anchor::MultiFlowAnchorMap::default(),
             start_on_odd_page: false,
             page_break_mode: crate::overrides::PageBreakMode::Auto,
+            column_count: None,
+            column_gutter_pt: None,
+            column_distribution: crate::styles::ColumnDistributionMode::default(),
+            draw_column_rule: false,
         }
+    }
+
+    pub fn with_columns(mut self, count: usize, gutter_pt: f32) -> Self {
+        self.column_count = Some(count.clamp(1, 6));
+        self.column_gutter_pt = Some(gutter_pt.max(0.0));
+        self
+    }
+
+    pub fn with_column_distribution(mut self, mode: crate::styles::ColumnDistributionMode) -> Self {
+        self.column_distribution = mode;
+        self
+    }
+
+    pub fn with_column_rule(mut self, draw: bool) -> Self {
+        self.draw_column_rule = draw;
+        self
     }
 
     /// Sets whether this section must start on an odd (recto) page.
