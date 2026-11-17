@@ -134,6 +134,81 @@ impl TokPackage {
         self.previews.insert(format!("page_{}.png", page_num), data);
     }
 
+    /// Registers a font binary inside `assets/fonts/`.
+    pub fn add_font_asset(&mut self, file_name: &str, data: Vec<u8>) {
+        let trimmed = file_name
+            .trim_start_matches('/')
+            .trim_start_matches("assets/");
+        let rel = if trimmed.starts_with("fonts/") {
+            trimmed.to_string()
+        } else {
+            format!("fonts/{}", trimmed)
+        };
+        self.add_asset(rel, data);
+    }
+
+    /// Returns all embedded font assets (`fonts/...`, bytes) in deterministic sorted order.
+    pub fn font_assets(&self) -> Vec<(&str, &[u8])> {
+        let mut out: Vec<(&str, &[u8])> = self
+            .assets
+            .iter()
+            .filter(|(k, _)| k.starts_with("fonts/"))
+            .map(|(k, v)| (k.as_str(), v.as_slice()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(b.0));
+        out
+    }
+
+    /// Registers an image binary inside `assets/images/`.
+    pub fn add_image_asset(&mut self, asset_rel_path: &str, data: Vec<u8>) {
+        let trimmed = asset_rel_path
+            .trim_start_matches('/')
+            .trim_start_matches("assets/");
+        let rel = if trimmed.starts_with("images/") {
+            trimmed.to_string()
+        } else {
+            format!("images/{}", trimmed)
+        };
+        self.add_asset(rel, data);
+    }
+
+    /// Returns all embedded image assets (`images/...`, bytes) in deterministic sorted order.
+    pub fn image_assets(&self) -> Vec<(&str, &[u8])> {
+        let mut out: Vec<(&str, &[u8])> = self
+            .assets
+            .iter()
+            .filter(|(k, _)| k.starts_with("images/"))
+            .map(|(k, v)| (k.as_str(), v.as_slice()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(b.0));
+        out
+    }
+
+    /// Registers an ornament vector asset inside `assets/ornaments/`.
+    pub fn add_ornament_asset(&mut self, file_name: &str, data: Vec<u8>) {
+        let trimmed = file_name
+            .trim_start_matches('/')
+            .trim_start_matches("assets/");
+        let rel = if trimmed.starts_with("ornaments/") {
+            trimmed.to_string()
+        } else {
+            format!("ornaments/{}", trimmed)
+        };
+        self.add_asset(rel, data);
+    }
+
+    /// Returns all embedded ornament assets (`ornaments/...`, bytes) in deterministic sorted order.
+    pub fn ornament_assets(&self) -> Vec<(&str, &[u8])> {
+        let mut out: Vec<(&str, &[u8])> = self
+            .assets
+            .iter()
+            .filter(|(k, _)| k.starts_with("ornaments/"))
+            .map(|(k, v)| (k.as_str(), v.as_slice()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(b.0));
+        out
+    }
+
     /// Saves the DocumentModel and package assets atomically to a `.tok` file.
     /// Implements Section 11.2: write to a temporary file, flush to disk,
     /// atomic rename/replace. Entries are written in a stable order.
