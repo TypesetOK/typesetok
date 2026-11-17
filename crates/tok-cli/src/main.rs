@@ -1083,6 +1083,111 @@ fn handle_sync_heading_numbers(
     Ok(())
 }
 
+fn handle_worker() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::BufRead;
+    use tok_ipc::protocol::{WorkerRequest, WorkerResponse};
+
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut out = std::io::BufWriter::new(stdout.lock());
+
+    for line_res in stdin.lock().lines() {
+        let line = match line_res {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let req: WorkerRequest = match serde_json::from_str(trimmed) {
+            Ok(r) => r,
+            Err(e) => {
+                let resp = WorkerResponse {
+                    id: 0,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Invalid WorkerRequest JSON: {}", e)),
+                };
+                let _ = serde_json::to_writer(&mut out, &resp);
+                let _ = out.write_all(b"\n");
+                let _ = out.flush();
+                continue;
+            }
+        };
+
+        let result: Result<serde_json::Value, String> = (|| {
+            if req.command != "typeset" {
+                return Err(format!("Unsupported worker command: {}", req.command));
+            }
+            let (doc, pkg_opt) = if let Some(ref json_str) = req.document_json {
+                let (model, _) = parse_document_json(json_str).map_err(|e| e.to_string())?;
+                (model, None)
+            } else if let Some(ref input_path) = req.input_path {
+                let (model, _, pkg) =
+                    load_package_or_doc(input_path, 20).map_err(|e| e.to_string())?;
+                (model, pkg)
+            } else {
+                return Err("Either document_json or input_path must be provided".to_string());
+            };
+
+            let mut extra_args: Vec<String> = Vec::new();
+            if let Some(ref fdir) = req.fonts_dir {
+                extra_args.push("--fonts-dir".to_string());
+                extra_args.push(fdir.clone());
+            }
+            if let Some(ref assets) = req.assets_from {
+                extra_args.push("--assets-from".to_string());
+                extra_args.push(assets.clone());
+            }
+
+            let assets_pkg = resolve_assets_package(pkg_opt, &extra_args);
+            let font_mgr = build_font_manager(assets_pkg.as_ref(), &extra_args);
+            let config = engine_config_from_root(doc.root());
+            let engine = TypesettingEngine::with_font_manager(config, font_mgr);
+            let pages = engine.typeset_document(doc.root());
+
+            if req.with_preflight {
+                let mut opts = PdfExportOptions::default();
+                if let Some(ref pkg) = assets_pkg {
+                    for (rel, bytes) in pkg.image_assets() {
+                        opts.image_assets.insert(rel.to_string(), bytes.to_vec());
+                    }
+                }
+                let report =
+                    PreflightEngine::evaluate(doc.root(), &pages, &engine.font_manager, &opts);
+                Ok(serde_json::json!({
+                    "pages": pages,
+                    "preflight": report,
+                }))
+            } else {
+                Ok(serde_json::to_value(&pages).map_err(|e| e.to_string())?)
+            }
+        })();
+
+        let resp = match result {
+            Ok(payload) => WorkerResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(payload),
+                error: None,
+            },
+            Err(err) => WorkerResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(err),
+            },
+        };
+        serde_json::to_writer(&mut out, &resp)?;
+        out.write_all(b"\n")?;
+        out.flush()?;
+    }
+
+    Ok(())
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {}", e);
@@ -1118,6 +1223,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
             handle_typeset_document(&args[2], &args[3], &args[4..])?;
+        }
+        "worker" => {
+            handle_worker()?;
         }
         "incremental-typeset" => {
             if args.len() < 4 {

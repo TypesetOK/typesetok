@@ -285,6 +285,34 @@ impl MessageFramer {
     }
 }
 
+/// NDJSON request sent to the persistent `tok-cli worker` process over stdin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerRequest {
+    pub id: u64,
+    pub command: String,
+    #[serde(default)]
+    pub document_json: Option<String>,
+    #[serde(default)]
+    pub input_path: Option<String>,
+    #[serde(default)]
+    pub fonts_dir: Option<String>,
+    #[serde(default)]
+    pub assets_from: Option<String>,
+    #[serde(default)]
+    pub with_preflight: bool,
+}
+
+/// NDJSON response emitted by `tok-cli worker` over stdout.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerResponse {
+    pub id: u64,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

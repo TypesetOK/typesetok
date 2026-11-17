@@ -118,6 +118,102 @@ function runCli(args: string[]): Promise<CliResult> {
   });
 }
 
+// Persistent tok-cli worker for low-latency live typesetting without temp files or process spawn overhead
+interface WorkerPending {
+  resolve: (value: any) => void;
+  reject: (err: Error) => void;
+}
+let persistentWorkerProc: ReturnType<typeof spawn> | null = null;
+let persistentWorkerBuffer = '';
+let persistentWorkerNextId = 1;
+const persistentWorkerPending = new Map<number, WorkerPending>();
+
+function resetPersistentWorker(reason: string): void {
+  if (persistentWorkerProc) {
+    try { persistentWorkerProc.kill(); } catch { /* ignore */ }
+    persistentWorkerProc = null;
+  }
+  persistentWorkerBuffer = '';
+  for (const [, p] of persistentWorkerPending.entries()) {
+    p.reject(new Error(reason));
+  }
+  persistentWorkerPending.clear();
+}
+
+function getPersistentWorker(): ReturnType<typeof spawn> {
+  if (persistentWorkerProc && !persistentWorkerProc.killed && persistentWorkerProc.stdin?.writable) {
+    return persistentWorkerProc;
+  }
+  const cli = getTokCliPath();
+  const proc = spawn(cli, ['worker'], { windowsHide: true });
+  persistentWorkerBuffer = '';
+
+  proc.stdout?.on('data', (chunk: Buffer | string) => {
+    persistentWorkerBuffer += chunk.toString();
+    let nlIdx = persistentWorkerBuffer.indexOf('\n');
+    while (nlIdx !== -1) {
+      const line = persistentWorkerBuffer.slice(0, nlIdx).trim();
+      persistentWorkerBuffer = persistentWorkerBuffer.slice(nlIdx + 1);
+      if (line) {
+        try {
+          const resp = JSON.parse(line);
+          const pending = persistentWorkerPending.get(resp.id);
+          if (pending) {
+            persistentWorkerPending.delete(resp.id);
+            if (resp.ok) pending.resolve(resp.payload);
+            else pending.reject(new Error(resp.error || 'Worker request failed'));
+          }
+        } catch (err: any) {
+          logger.warn('[WORKER] Failed to parse worker stdout line', { error: err?.message });
+        }
+      }
+      nlIdx = persistentWorkerBuffer.indexOf('\n');
+    }
+  });
+
+  proc.stderr?.on('data', (chunk: Buffer | string) => {
+    const msg = chunk.toString().trim();
+    if (msg) logger.warn('[WORKER] stderr:', { msg });
+  });
+
+  proc.on('error', (err) => {
+    resetPersistentWorker(`tok-cli worker error: ${err.message}`);
+  });
+  proc.on('close', (code) => {
+    if (persistentWorkerProc === proc) {
+      resetPersistentWorker(`tok-cli worker exited with code ${code}`);
+    }
+  });
+
+  persistentWorkerProc = proc;
+  return proc;
+}
+
+function runWorkerTypeset(reqPayload: {
+  document_json?: string;
+  input_path?: string;
+  fonts_dir?: string;
+  assets_from?: string;
+  with_preflight: boolean;
+}): Promise<any> {
+  const proc = getPersistentWorker();
+  const id = persistentWorkerNextId++;
+  return new Promise((resolve, reject) => {
+    persistentWorkerPending.set(id, { resolve, reject });
+    const line = JSON.stringify({ id, command: 'typeset', ...reqPayload }) + '\n';
+    proc.stdin?.write(line, 'utf-8', (err) => {
+      if (err) {
+        persistentWorkerPending.delete(id);
+        reject(err);
+      }
+    });
+  });
+}
+
+app.on('will-quit', () => {
+  resetPersistentWorker('Application shutting down');
+});
+
 function requireString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value) throw new Error(`Invalid ${name}`);
   return value;
@@ -949,67 +1045,35 @@ handle('tok:open-document', async (_, filePath: string) => {
   }
 });
 
-handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPath?: string; assetsFrom?: string }) => {
-  let inputPath = typeof payload?.inputPath === 'string' && payload.inputPath ? payload.inputPath : null;
-  let tempDocFile: string | null = null;
-  const tempDir = app.getPath('temp');
-  const uniqueSuffix = `${Date.now()}_${process.pid}_${Math.random().toString(36).slice(2, 9)}`;
-  const tempOutFile = path.join(tempDir, `tok_typeset_out_${uniqueSuffix}.json`);
+handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean }) => {
+  const inputPath = typeof payload?.inputPath === 'string' && payload.inputPath
+    ? assertAuthorizedDocumentPath(payload.inputPath, 'read')
+    : undefined;
+  const documentJson = payload?.document
+    ? (typeof payload.document === 'string' ? payload.document : JSON.stringify(payload.document))
+    : undefined;
 
-  try {
-    if (payload?.document) {
-      tempDocFile = path.join(tempDir, `tok_typeset_in_${uniqueSuffix}.json`);
-      const content = typeof payload.document === 'string'
-        ? payload.document
-        : JSON.stringify(payload.document, null, 2);
-      await fs.promises.writeFile(tempDocFile, content, 'utf-8');
-      inputPath = tempDocFile;
-    }
-
-    if (!inputPath) {
-      throw new Error('Either document or inputPath must be provided for typesetting');
-    }
-
-    const typesetArgs: string[] = ['typeset-document', inputPath, tempOutFile, '--with-preflight'];
-    const userFontsDir = getUserFontsDir();
-    if (fs.existsSync(userFontsDir)) {
-      typesetArgs.push('--fonts-dir', userFontsDir);
-    }
-    if (typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)) {
-      typesetArgs.push('--assets-from', payload.assetsFrom);
-    }
-    const { code, stdout, stderr } = await runCli(typesetArgs);
-    if (code !== 0) {
-      throw new Error(`tok-cli typeset-document failed with code ${code}: ${stderr || stdout}`);
-    }
-
-    if (!fs.existsSync(tempOutFile)) {
-      throw new Error(`Typeset failed: output file was not created at ${tempOutFile}`);
-    }
-
-    const rawContent = await fs.promises.readFile(tempOutFile, 'utf-8');
-    const parsed = JSON.parse(rawContent);
-    const pages = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.pages) ? parsed.pages : []);
-    const preflight = Array.isArray(parsed) ? null : (parsed?.preflight ?? null);
-    return { success: true, pages, preflight };
-  } finally {
-    if (tempDocFile) {
-      try {
-        if (fs.existsSync(tempDocFile)) {
-          await fs.promises.unlink(tempDocFile);
-        }
-      } catch (err: any) {
-        logger.warn(`[IPC] Failed to remove temp typeset in file: ${tempDocFile}`, { error: err?.message });
-      }
-    }
-    try {
-      if (fs.existsSync(tempOutFile)) {
-        await fs.promises.unlink(tempOutFile);
-      }
-    } catch (err: any) {
-      logger.warn(`[IPC] Failed to remove temp typeset out file: ${tempOutFile}`, { error: err?.message });
-    }
+  if (!documentJson && !inputPath) {
+    throw new Error('Either document or inputPath must be provided for typesetting');
   }
+
+  const userFontsDir = getUserFontsDir();
+  const fontsDir = fs.existsSync(userFontsDir) ? userFontsDir : undefined;
+  const assetsFrom = typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)
+    ? assertAuthorizedDocumentPath(payload.assetsFrom, 'read')
+    : undefined;
+
+  const parsed = await runWorkerTypeset({
+    document_json: documentJson,
+    input_path: inputPath,
+    fonts_dir: fontsDir,
+    assets_from: assetsFrom,
+    with_preflight: true,
+  });
+
+  const pages = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.pages) ? parsed.pages : []);
+  const preflight = Array.isArray(parsed) ? null : (parsed?.preflight ?? null);
+  return { success: true, pages, preflight };
 });
 
 handle('tok:run-preflight', async (_, payload: { document?: unknown; inputPath?: string; assetsFrom?: string; standard?: string; bleed?: boolean }) => {
