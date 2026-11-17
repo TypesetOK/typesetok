@@ -1031,7 +1031,7 @@ impl SvgVectorCompiler {
                         if do_fill || do_stroke {
                             let (x0, y0) = map_pt(nums[0], nums[1]);
                             content.move_to(x0, y0);
-                            for pair in nums[2..].chunks_exact(2) {
+                            for pair in nums[2..].as_chunks::<2>().0 {
                                 let (px, py) = map_pt(pair[0], pair[1]);
                                 content.line_to(px, py);
                             }

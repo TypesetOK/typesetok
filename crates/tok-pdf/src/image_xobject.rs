@@ -232,7 +232,7 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
                 ihdr_seen = true;
             }
             b"PLTE" => {
-                for rgb in chunk_data.chunks_exact(3) {
+                for rgb in chunk_data.as_chunks::<3>().0 {
                     palette.push([rgb[0], rgb[1], rgb[2]]);
                 }
             }
@@ -292,7 +292,7 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
         4 => {
             let mut gray = Vec::with_capacity(w * h);
             let mut alpha = Vec::with_capacity(w * h);
-            for px in recon.chunks_exact(2) {
+            for px in recon.as_chunks::<2>().0 {
                 gray.push(px[0]);
                 alpha.push(px[1]);
             }
@@ -318,7 +318,7 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
         6 => {
             let mut rgb = Vec::with_capacity(w * h * 3);
             let mut alpha = Vec::with_capacity(w * h);
-            for px in recon.chunks_exact(4) {
+            for px in recon.as_chunks::<4>().0 {
                 rgb.push(px[0]);
                 rgb.push(px[1]);
                 rgb.push(px[2]);

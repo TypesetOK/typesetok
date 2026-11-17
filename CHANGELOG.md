@@ -5,6 +5,17 @@
 
 ---
 
+## [0.36.1] - 2026-11-17
+- **Importance**: patch
+- **Badge**: עברית: תיקון CI ושחרור | en: CI & Release Patch
+- **Title**: עברית: תיקון Clippy והפצת גרסה 0.36.1 | en: Clippy Compliance & Release 0.36.1
+- **Summary**: עברית: מעבר מלא מ-chunks_exact ל-as_chunks במנוע ה-PDF לתאימות מלאה עם Rust Clippy העדכני, והפצת חבילת ההתקנה לגרסה 0.36.1. | en: Migrates fixed-size slice chunking in the PDF engine from chunks_exact to as_chunks for full Rust Clippy compliance and publishes the 0.36.1 release.
+
+### Changes
+- [fixes] עברית: החלפת chunks_exact ב-as_chunks ב-tok-pdf (image_xobject, ornament) למעבר חלק של בדיקות Clippy ב-CI | en: Replace fixed-size chunks_exact calls with as_chunks in tok-pdf (image_xobject, ornament) to satisfy Rust 1.100 Clippy lints
+
+---
+
 ## [0.36.0] - 2026-11-17
 - **Importance**: minor
 - **Badge**: עברית: אדריכלות מנוע | en: Engine Architecture
