@@ -140,6 +140,10 @@ export class SpreadCanvas {
   private scrollSettleTimer = 0;
   private baselineGridPt = 13;
   private baselineOffsetPt = 48;
+  private resizeObserver: ResizeObserver | null = null;
+  private onWindowPointerMove: ((e: PointerEvent) => void) | null = null;
+  private onWindowPointerUp: (() => void) | null = null;
+  private sheetEntries: Map<number, { sheet: HTMLElement; page: PageDescriptor; position: number; hydrated: boolean }> = new Map();
 
   constructor(callbacks: SpreadCanvasCallbacks) {
     this.callbacks = callbacks;
@@ -173,12 +177,12 @@ export class SpreadCanvas {
     });
 
     if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(() => {
+      this.resizeObserver = new ResizeObserver(() => {
         if (!this.programmaticScroll && this.pages.length > 0 && this.scroller.clientWidth > 0) {
           this.centerActivePage(false);
         }
       });
-      ro.observe(this.scroller);
+      this.resizeObserver.observe(this.scroller);
     }
   }
 
@@ -191,6 +195,19 @@ export class SpreadCanvas {
       cancelAnimationFrame(this.scrollRaf);
       this.scrollRaf = 0;
     }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    if (this.onWindowPointerMove) {
+      window.removeEventListener('pointermove', this.onWindowPointerMove);
+      this.onWindowPointerMove = null;
+    }
+    if (this.onWindowPointerUp) {
+      window.removeEventListener('pointerup', this.onWindowPointerUp);
+      this.onWindowPointerUp = null;
+    }
+    this.sheetEntries.clear();
     this.virtualizer.destroy();
     this.element.remove();
   }
@@ -205,12 +222,30 @@ export class SpreadCanvas {
 
   private syncActiveVirtualWindow(): void {
     const win = computeActiveWindow(this.activePageIndex, this.pages.length);
-    this.innerContainer.querySelectorAll<HTMLElement>('.tok-page-sheet[data-page-index]').forEach((sheet) => {
-      const idx = parseInt(sheet.dataset.pageIndex || '-1', 10);
+    const bufferStart = Math.max(0, win.start - 2);
+    const bufferEnd = Math.min(Math.max(0, this.pages.length - 1), win.end + 2);
+    let hydratedAny = false;
+
+    for (const [idx, entry] of this.sheetEntries.entries()) {
       const inWindow = idx >= win.start && idx <= win.end;
-      sheet.classList.toggle('tok-page-mounted', inWindow);
-      sheet.dataset.virtualMounted = String(inWindow);
-    });
+      const shouldHydrate = idx >= bufferStart && idx <= bufferEnd;
+      entry.sheet.classList.toggle('tok-page-mounted', inWindow);
+      entry.sheet.dataset.virtualMounted = String(inWindow);
+
+      if (shouldHydrate && !entry.hydrated) {
+        this.hydratePageSheet(entry.sheet, entry.page, entry.position);
+        entry.hydrated = true;
+        hydratedAny = true;
+      } else if (!shouldHydrate && entry.hydrated) {
+        entry.sheet.innerHTML = '';
+        entry.hydrated = false;
+      }
+    }
+
+    if (hydratedAny) {
+      this.updateGuides();
+      this.applyLayerStates();
+    }
   }
 
   public setPages(pages: PageDescriptor[], activeIndex = 0): void {
@@ -455,7 +490,7 @@ export class SpreadCanvas {
       e.preventDefault();
     });
 
-    window.addEventListener('pointermove', (e) => {
+    this.onWindowPointerMove = (e: PointerEvent) => {
       if (!isZoomDragging) return;
       const dx = e.clientX - zStartX;
       const dy = e.clientY - zStartY;
@@ -464,14 +499,16 @@ export class SpreadCanvas {
       const newT = Math.max(10, Math.min(parentRect.height - 45, zInitTop + dy));
       this.zoomHud.style.left = `${newL}px`;
       this.zoomHud.style.top = `${newT}px`;
-    });
+    };
+    window.addEventListener('pointermove', this.onWindowPointerMove);
 
-    window.addEventListener('pointerup', () => {
+    this.onWindowPointerUp = () => {
       if (isZoomDragging) {
         isZoomDragging = false;
         zoomDrag.style.cursor = 'grab';
       }
-    });
+    };
+    window.addEventListener('pointerup', this.onWindowPointerUp);
 
     this.zoomHud.appendChild(zoomDrag);
 
@@ -523,6 +560,7 @@ export class SpreadCanvas {
 
   private renderSpreads(): void {
     this.innerContainer.innerHTML = '';
+    this.sheetEntries.clear();
     if (this.pages.length === 0) {
       const emptyState = el('div', 'tok-canvas-empty', {
         style: 'display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;gap:12px;color:var(--tok-text-muted);font-size:14px;padding:40px;'
@@ -611,7 +649,6 @@ export class SpreadCanvas {
 
   private createPageSheet(page: PageDescriptor, position: number): HTMLElement {
     const isRecto = isRectoPage(position);
-    const isRightPage = isRightHandPage(position);
     const amud = isRecto ? 'ע״א' : 'ע״ב';
     const sheet = el('article', 'tok-page-sheet', { 'data-page-index': page.pageIndex, 'aria-label': `${tf('structurePageLabel', { g: page.gematriaNumber })} ${amud}` });
 
@@ -630,6 +667,16 @@ export class SpreadCanvas {
         this.callbacks.onDismissActionHud();
       }
     });
+
+    const pageIdx = page.pageIndex ?? position;
+    this.sheetEntries.set(pageIdx, { sheet, page, position, hydrated: false });
+    return sheet;
+  }
+
+  private hydratePageSheet(sheet: HTMLElement, page: PageDescriptor, position: number): void {
+    const isRecto = isRectoPage(position);
+    const isRightPage = isRightHandPage(position);
+    const amud = isRecto ? 'ע״א' : 'ע״ב';
 
     // Shading along the spine (the inner edge).
     const spine = el('div', 'tok-page-spine', { 'aria-hidden': 'true', 'data-layer-id': 'decorations' });
@@ -769,8 +816,6 @@ export class SpreadCanvas {
     this.applyMarginGuideStyles(baseline, page.pageIndex ?? position);
     guides.appendChild(baseline);
     sheet.appendChild(guides);
-
-    return sheet;
   }
 
   private createInteractiveFrame(params: FrameParams): HTMLElement {
@@ -1381,22 +1426,39 @@ export class SpreadCanvas {
     });
   }
 
-  /** Index (PageDescriptor.pageIndex) of the page sheet closest to the viewport's vertical center. */
+  /** Index (PageDescriptor.pageIndex) of the page sheet closest to the viewport's vertical center using O(log N) binary search over spread rows. */
   private findCenteredPage(): number | null {
-    const sheets = this.innerContainer.querySelectorAll<HTMLElement>('.tok-page-sheet[data-page-index]');
-    if (sheets.length === 0) return null;
-    const box = this.scroller.getBoundingClientRect();
-    const centerY = box.top + box.height / 2;
+    const rows = this.innerContainer.children;
+    if (rows.length === 0) return null;
+    const z = this.zoomPercent / 100;
+    const targetY = (this.scroller.scrollTop + this.scroller.clientHeight / 2) / (z || 1);
+
+    // Binary search spread rows by offsetTop/offsetHeight (avoids O(N) getBoundingClientRect)
+    let lo = 0;
+    let hi = rows.length - 1;
+    let bestRowIdx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const row = rows[mid] as HTMLElement;
+      const top = row.offsetTop;
+      const bottom = top + row.offsetHeight;
+      bestRowIdx = mid;
+      if (targetY < top) {
+        hi = mid - 1;
+      } else if (targetY > bottom) {
+        lo = mid + 1;
+      } else {
+        break;
+      }
+    }
+
+    const row = rows[bestRowIdx] as HTMLElement;
+    const sheets = row?.querySelectorAll<HTMLElement>('.tok-page-sheet[data-page-index]');
+    if (!sheets || sheets.length === 0) return null;
     let best: number | null = null;
-    let bestDist = Infinity;
     sheets.forEach((sheet) => {
-      const r = sheet.getBoundingClientRect();
-      const dist = centerY < r.top ? r.top - centerY : centerY > r.bottom ? centerY - r.bottom : 0;
       const idx = parseInt(sheet.dataset.pageIndex as string, 10);
-      // Both pages of a spread share a row: keep the current page if it is one of
-      // them, otherwise the first (right-hand) one wins the tie.
-      if (dist < bestDist || (dist === bestDist && idx === this.activePageIndex)) {
-        bestDist = dist;
+      if (best === null || idx === this.activePageIndex) {
         best = idx;
       }
     });
