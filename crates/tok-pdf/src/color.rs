@@ -127,7 +127,10 @@ impl IccProfileId {
         }
     }
 
-    /// Official PDF/X `OutputConditionIdentifier` registered at `http://www.color.org`.
+    /// Identifier of the registered press condition this profile approximates.
+    ///
+    /// Informational (CLI output, UI): the PDF itself declares a custom output condition,
+    /// because the embedded profile is a generic approximation and not that characterisation.
     pub fn output_condition_identifier(&self) -> &'static str {
         match self {
             Self::Fogra39 => "FOGRA39",
@@ -149,7 +152,8 @@ impl IccProfileId {
         }
     }
 
-    /// Registry URL for PDF/X OutputIntent.
+    /// Registry that lists the condition named by `output_condition_identifier`.
+    /// Not written to the PDF, which declares a custom (unregistered) output condition.
     pub fn registry_name(&self) -> &'static str {
         "http://www.color.org"
     }
@@ -273,6 +277,8 @@ impl ColorManagementEngine {
         // CMYK -> Lab and Lab -> CMYK `lut16Type` tag data.
         const A2B_LUT: &[u8] = include_bytes!("../assets/icc/a2b.bin");
         const B2A_LUT: &[u8] = include_bytes!("../assets/icc/b2a.bin");
+        // Lab -> gamut distance (0 inside the gamut); ICC v2 requires it for LUT-based output.
+        const GAMT: &[u8] = include_bytes!("../assets/icc/gamt.bin");
 
         let desc_str = format!("TypesetOK approximation of {}", profile.info());
         let cprt_str = "Copyright TypesetOK Pre-Press Color Engine (ISO 15076-1)";
@@ -305,10 +311,10 @@ impl ColorManagementEngine {
         wtpt_tag.extend_from_slice(&0x0000_D32Du32.to_be_bytes()); // 0.8249 in s15Fixed16
 
         // Distinct data blocks, stored in this order. Every block starts on a 4-byte boundary.
-        let blocks: [&[u8]; 5] = [&desc_tag, &cprt_tag, &wtpt_tag, A2B_LUT, B2A_LUT];
+        let blocks: [&[u8]; 6] = [&desc_tag, &cprt_tag, &wtpt_tag, A2B_LUT, B2A_LUT, GAMT];
         // Tag table: signature and the block it points at. The three rendering intents of each
         // transform share one block.
-        let tags: [(&[u8; 4], usize); 9] = [
+        let tags: [(&[u8; 4], usize); 10] = [
             (b"desc", 0),
             (b"cprt", 1),
             (b"wtpt", 2),
@@ -318,12 +324,13 @@ impl ColorManagementEngine {
             (b"B2A0", 4),
             (b"B2A1", 4),
             (b"B2A2", 4),
+            (b"gamt", 5),
         ];
 
         let header_size = 128u32;
         let tag_count = tags.len() as u32;
         let tag_table_size = 4 + tag_count * 12;
-        let mut offsets = [0u32; 5];
+        let mut offsets = [0u32; 6];
         let mut cursor = header_size + tag_table_size;
         for (offset, block) in offsets.iter_mut().zip(blocks.iter()) {
             *offset = cursor;
@@ -421,6 +428,51 @@ mod tests {
         );
     }
 
+    /// Regression: the Lab -> CMYK table used to put 100% cyan and 64% magenta under pure black
+    /// (about 364% total ink) and tinted every dark neutral with coloured inks.
+    #[test]
+    fn icc_b2a_table_keeps_neutrals_on_black_and_within_ink_limit() {
+        let icc = ColorManagementEngine::generate_icc_profile_bytes(IccProfileId::Fogra39);
+        let be32 = |at: usize| u32::from_be_bytes(icc[at..at + 4].try_into().unwrap());
+        let tag_count = be32(128) as usize;
+        let b2a_offset = (0..tag_count)
+            .map(|i| 132 + i * 12)
+            .find(|&entry| icc[entry..entry + 4] == *b"B2A0")
+            .map(|entry| be32(entry + 4) as usize)
+            .expect("B2A0 tag");
+        assert_eq!(&icc[b2a_offset..b2a_offset + 4], b"mft2");
+        assert_eq!(icc[b2a_offset + 8], 3, "B2A0 has 3 input channels (Lab)");
+        assert_eq!(icc[b2a_offset + 9], 4, "B2A0 has 4 output channels (CMYK)");
+        let grid = icc[b2a_offset + 10] as usize;
+        // 52-byte header, then three input tables of two 16-bit entries, then the grid.
+        let clut = b2a_offset + 52 + 3 * 2 * 2;
+        let node = |l: usize, a: usize, b: usize| -> [f32; 4] {
+            let at = clut + ((l * grid + a) * grid + b) * 4 * 2;
+            let mut ink = [0.0f32; 4];
+            for (i, value) in ink.iter_mut().enumerate() {
+                let hi = icc[at + i * 2];
+                let lo = icc[at + i * 2 + 1];
+                *value = f32::from(u16::from_be_bytes([hi, lo])) / 65535.0;
+            }
+            ink
+        };
+        let neutral = grid / 2;
+        for l in 0..grid {
+            let [c, m, y, _] = node(l, neutral, neutral);
+            assert!(
+                c < 0.01 && m < 0.01 && y < 0.01,
+                "neutral node {l} must use the black channel only, got c={c} m={m} y={y}"
+            );
+            for a in 0..grid {
+                for b in 0..grid {
+                    let total: f32 = node(l, a, b).iter().sum();
+                    assert!(total <= 3.0 + 1e-3, "node ({l},{a},{b}) has {total} ink");
+                }
+            }
+        }
+        assert_eq!(node(0, neutral, neutral)[3], 1.0, "L=0 is pure 100% K");
+    }
+
     #[test]
     fn color_management_engine_enforces_tac_and_preserves_pure_black() {
         // Pure RGB black -> pure 100% K (0, 0, 0, 1)
@@ -459,7 +511,7 @@ mod tests {
         let be32 = |at: usize| u32::from_be_bytes(icc_bytes[at..at + 4].try_into().unwrap());
         assert_eq!(be32(0) as usize, icc_bytes.len(), "profile size field");
         let tag_count = be32(128) as usize;
-        assert_eq!(tag_count, 9);
+        assert_eq!(tag_count, 10);
         let mut signatures = Vec::new();
         for i in 0..tag_count {
             let entry = 132 + i * 12;
@@ -478,5 +530,6 @@ mod tests {
         }
         assert!(signatures.iter().any(|s| s == b"A2B0"));
         assert!(signatures.iter().any(|s| s == b"B2A0"));
+        assert!(signatures.iter().any(|s| s == b"gamt"));
     }
 }
