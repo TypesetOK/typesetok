@@ -45,7 +45,7 @@ export interface TokIpcBridge {
   openDocument: (filePath: string) => Promise<unknown>;
   renameDocumentFile: (payload: { oldPath: string; newPath: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
   getProjectsDir: () => Promise<string>;
-  typesetDocument: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown) => Promise<{ success: boolean; pages: any[]; preflight?: unknown }>;
+  typesetDocument: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown) => Promise<{ success: boolean; layoutJson?: string; pages?: any[]; preflight?: unknown }>;
   runPreflight: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; standard?: string; bleed?: boolean }) => Promise<{ success: boolean; report?: unknown; error?: string }>;
 
   // Font Inspection & Installation (Rust Core)

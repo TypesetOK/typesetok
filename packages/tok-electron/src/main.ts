@@ -850,11 +850,10 @@ handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPat
       throw new Error(`Typeset failed: output file was not created at ${tempOutFile}`);
     }
 
-    const rawContent = await fs.promises.readFile(tempOutFile, 'utf-8');
-    const parsed = JSON.parse(rawContent);
-    const pages = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.pages) ? parsed.pages : []);
-    const preflight = Array.isArray(parsed) ? null : (parsed?.preflight ?? null);
-    return { success: true, pages, preflight };
+    // Sent as the raw string and parsed in the renderer: cloning a string over IPC is a copy,
+    // while parsing here and cloning the object tree cost as much as typesetting itself.
+    const layoutJson = await fs.promises.readFile(tempOutFile, 'utf-8');
+    return { success: true, layoutJson };
   } finally {
     if (tempDocFile) {
       try {
