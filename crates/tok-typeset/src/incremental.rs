@@ -144,10 +144,9 @@ impl IncrementalPageBreaker {
 
             // Break one page
             let single_page_slices = breaker.break_pages(&new_lines[start_idx..]);
-            if single_page_slices.is_empty() {
+            let Some(first_slice) = single_page_slices.into_iter().next() else {
                 break;
-            }
-            let first_slice = single_page_slices.into_iter().next().unwrap();
+            };
             let lines_consumed = first_slice.lines.len();
 
             if lines_consumed == 0 {

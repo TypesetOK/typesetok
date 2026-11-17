@@ -1149,7 +1149,9 @@ impl PdfPrePressEngine {
                     else {
                         continue;
                     };
-                    let font = &embedded[slot];
+                    let Some(font) = embedded.get(slot) else {
+                        continue;
+                    };
                     let Some(cid) = font.cid(gid) else {
                         continue;
                     };

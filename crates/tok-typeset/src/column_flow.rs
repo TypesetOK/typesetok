@@ -664,13 +664,13 @@ impl ColumnBalanceSolver {
                 }
             } else {
                 let s2 = Self::bounded_search(items, &prefix, num_cols, col_max_h, false);
-                if let Some(ref b2) = s2 {
+                if let Some(b2) = s2 {
                     if b2.delta <= COLUMN_BALANCE_TOLERANCE_MPT {
-                        b2.clone()
+                        b2
                     } else {
                         Self::bounded_search(items, &prefix, num_cols, col_max_h, true)
                             .filter(|b3| b3.delta + Mpt(1_000) < b2.delta)
-                            .unwrap_or_else(|| s2.unwrap())
+                            .unwrap_or(b2)
                     }
                 } else {
                     Self::bounded_search(items, &prefix, num_cols, col_max_h, true).unwrap_or_else(

@@ -461,8 +461,9 @@ impl GlobalPageBreaker {
 
         // If all remaining lines fit on this final page, take them all!
         if candidates.len() == remaining.len() {
-            let last = candidates.last().unwrap();
-            return (last.count, last.height);
+            if let Some(last) = candidates.last() {
+                return (last.count, last.height);
+            }
         }
 
         // 2. Look back within the lookahead window from the furthest candidate that fit
@@ -496,8 +497,10 @@ impl GlobalPageBreaker {
         }
 
         // Fallback: take the furthest candidate that physically fit
-        let last = candidates.last().unwrap();
-        (last.count, last.height)
+        candidates
+            .last()
+            .map(|last| (last.count, last.height))
+            .unwrap_or((1, remaining[0].line.height))
     }
 }
 

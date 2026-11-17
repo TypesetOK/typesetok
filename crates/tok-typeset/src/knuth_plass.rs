@@ -286,7 +286,7 @@ impl MeasureProfile {
         if line_index < self.widths.len() {
             self.widths[line_index]
         } else if self.repeat_last {
-            *self.widths.last().unwrap()
+            self.widths.last().copied().unwrap_or(0.0)
         } else {
             0.0
         }
@@ -1052,7 +1052,9 @@ impl<'a> BreakContext<'a> {
 
     fn spans(&self, nodes: &[Node]) -> Vec<LineSpan> {
         let mut chain = Vec::new();
-        let final_break = *self.candidates.last().unwrap();
+        let Some(&final_break) = self.candidates.last() else {
+            return Vec::new();
+        };
         let best_final_idx = nodes
             .iter()
             .enumerate()

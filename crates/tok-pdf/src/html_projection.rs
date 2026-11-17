@@ -105,12 +105,11 @@ div.tok-line {{
 
         for p in pages {
             if p.is_blank {
-                writeln!(
+                let _ = writeln!(
                     html,
                     "<div class=\"tok-page tok-page-blank tok-page-left\" data-page-index=\"{}\"></div>",
                     p.page_index
-                )
-                .unwrap();
+                );
                 continue;
             }
 
@@ -123,18 +122,17 @@ div.tok-line {{
             };
 
             let escaped_gematria = html_escape(&p.page_number_gematria);
-            writeln!(
+            let _ = writeln!(
                 html,
                 "<div class=\"{}\" data-page-index=\"{}\" data-gematria=\"{}\">",
                 page_class, p.page_index, escaped_gematria
-            )
-            .unwrap();
+            );
 
             for frame in &p.frames {
-                writeln!(html,
+                let _ = writeln!(html,
                     "  <div class=\"tok-frame\" style=\"position: absolute; left: {:.2}pt; top: {:.2}pt; width: {:.2}pt; height: {:.2}pt; overflow: hidden;\">",
                     frame.rect.x, frame.rect.y, frame.rect.width, frame.rect.height
-                ).unwrap();
+                );
 
                 for line in &frame.lines {
                     // The document is RTL; LTR lines must say so or the browser
@@ -143,20 +141,20 @@ div.tok-line {{
                     // Draw the line in the font the engine measured it with.
                     let font = line.fonts.first().map(|f| css_font(f)).unwrap_or_default();
                     let top_offset = (line.baseline_y - line.height).max(0.0);
-                    writeln!(html,
+                    let _ = writeln!(html,
                         "    <div class=\"tok-line\"{} style=\"position: absolute; top: {:.2}pt; left: 0; right: 0; height: {:.2}pt; line-height: {:.2}pt;{}\">{}</div>",
                         dir, top_offset, line.height, line.height, font, html_escape(&line.text)
-                    ).unwrap();
+                    );
                 }
 
                 html.push_str("  </div>\n");
             }
 
             // Folio (page number) footer
-            writeln!(html,
+            let _ = writeln!(html,
                 "  <div class=\"tok-folio\" style=\"position: absolute; bottom: 20pt; width: 100%; text-align: center;\">{}</div>",
                 escaped_gematria
-            ).unwrap();
+            );
 
             html.push_str("</div>\n");
         }
