@@ -250,6 +250,130 @@ const normalizeFsPath = (p: string) => {
 };
 const UI_INDEX_KEY = normalizeFsPath(UI_INDEX_PATH);
 
+const authorizedDialogPaths = new Set<string>();
+const authorizedDocDirs = new Set<string>();
+const authorizedUpdatePaths = new Set<string>();
+
+function resolveSafePath(rawPath: string): string {
+  if (rawPath.includes('\0')) {
+    throw new Error('Invalid file path: null byte not allowed');
+  }
+  return path.isAbsolute(rawPath) ? path.normalize(rawPath) : path.resolve(rawPath);
+}
+
+function isWithinDir(targetPath: string, baseDir: string): boolean {
+  const normTarget = normalizeFsPath(path.resolve(targetPath));
+  const normBase = normalizeFsPath(path.resolve(baseDir));
+  const rel = path.relative(normBase, normTarget);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function isBlockedSystemPath(resolvedPath: string): boolean {
+  const norm = normalizeFsPath(resolvedPath);
+  const blockedRoots = [
+    process.env.WINDIR,
+    process.env.SystemRoot,
+    process.env.ProgramFiles,
+    process.env['ProgramFiles(x86)'],
+  ].filter((p): p is string => Boolean(p));
+  return blockedRoots.some((root) => isWithinDir(norm, root));
+}
+
+function authorizeDialogPath(filePath: string): void {
+  const resolved = resolveSafePath(filePath);
+  const norm = normalizeFsPath(resolved);
+  authorizedDialogPaths.add(norm);
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext === '.tok') {
+    authorizedDocDirs.add(normalizeFsPath(path.dirname(resolved)));
+  }
+  if (['.exe', '.msi', '.appimage', '.dmg', '.zip'].includes(ext)) {
+    authorizedUpdatePaths.add(norm);
+  }
+}
+
+function assertAuthorizedDocumentPath(rawPath: string, mode: 'read' | 'write'): string {
+  const resolved = resolveSafePath(rawPath);
+  if (isBlockedSystemPath(resolved)) {
+    throw new Error(`Access denied to system path: ${resolved}`);
+  }
+  if (path.extname(resolved).toLowerCase() !== '.tok') {
+    throw new Error(`Only .tok document files are allowed: ${resolved}`);
+  }
+  const norm = normalizeFsPath(resolved);
+  const normDir = normalizeFsPath(path.dirname(resolved));
+  const isStartup = startupFilePath ? normalizeFsPath(resolveSafePath(startupFilePath)) === norm : false;
+  const inProjects = isWithinDir(resolved, getProjectsDir());
+  const inAuthorized = authorizedDialogPaths.has(norm) || authorizedDocDirs.has(normDir) || isStartup;
+  if (mode === 'write' && !inProjects && !inAuthorized) {
+    throw new Error(`Write access denied outside authorized document locations: ${resolved}`);
+  }
+  if (mode === 'read') {
+    authorizedDocDirs.add(normDir);
+  }
+  return resolved;
+}
+
+function assertAuthorizedFontPath(rawPath: string): string {
+  const resolved = resolveSafePath(rawPath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (!['.ttf', '.otf', '.ttc', '.woff', '.woff2'].includes(ext)) {
+    throw new Error(`Unsupported font extension: ${ext}`);
+  }
+  const norm = normalizeFsPath(resolved);
+  if (!authorizedDialogPaths.has(norm) && !isWithinDir(resolved, getUserFontsDir())) {
+    throw new Error(`Font path is not authorized: ${resolved}`);
+  }
+  return resolved;
+}
+
+function assertAuthorizedImportPath(rawPath: string): string {
+  const resolved = resolveSafePath(rawPath);
+  if (isBlockedSystemPath(resolved)) {
+    throw new Error(`Access denied to system path: ${resolved}`);
+  }
+  const ext = path.extname(resolved).toLowerCase();
+  if (!['.docx', '.md', '.txt'].includes(ext)) {
+    throw new Error(`Unsupported import file extension: ${ext}`);
+  }
+  const norm = normalizeFsPath(resolved);
+  const allowedByDir =
+    isWithinDir(resolved, getProjectsDir()) ||
+    isWithinDir(resolved, app.getPath('documents')) ||
+    isWithinDir(resolved, app.getPath('desktop')) ||
+    isWithinDir(resolved, app.getPath('downloads'));
+  if (!authorizedDialogPaths.has(norm) && !allowedByDir) {
+    throw new Error(`Import path is not authorized: ${resolved}`);
+  }
+  return resolved;
+}
+
+function assertAuthorizedUpdatePath(rawPath: string): string {
+  const resolved = resolveSafePath(rawPath);
+  const norm = normalizeFsPath(resolved);
+  if (!authorizedUpdatePaths.has(norm) && !authorizedDialogPaths.has(norm)) {
+    throw new Error(`Update installer path is not authorized: ${resolved}`);
+  }
+  return resolved;
+}
+
+function assertAuthorizedOutputPath(rawPath: string, allowedExts: string[]): string {
+  const resolved = resolveSafePath(rawPath);
+  if (isBlockedSystemPath(resolved)) {
+    throw new Error(`Access denied to system path: ${resolved}`);
+  }
+  const ext = path.extname(resolved).toLowerCase();
+  if (!allowedExts.includes(ext)) {
+    throw new Error(`Unsupported export extension: ${ext}`);
+  }
+  const norm = normalizeFsPath(resolved);
+  const normDir = normalizeFsPath(path.dirname(resolved));
+  if (!authorizedDialogPaths.has(norm) && !isWithinDir(resolved, getProjectsDir()) && !authorizedDocDirs.has(normDir)) {
+    throw new Error(`Output path is not authorized: ${resolved}`);
+  }
+  return resolved;
+}
+
 /** True for the app's own UI page (any hash/query), false for anything else. */
 function isAppUrl(url: string | undefined): boolean {
   if (!url || !url.startsWith('file:')) return false;
@@ -650,9 +774,11 @@ handle('tok:send-command', async (_, cmd: any) => {
 
 async function renderWithCli(kind: 'pdf' | 'html', payload: any): Promise<string> {
   const rawOutputPath = requireString(payload?.outputPath, 'outputPath');
-  const outputPath = path.isAbsolute(rawOutputPath) ? rawOutputPath : path.resolve(rawOutputPath);
+  const outputPath = assertAuthorizedOutputPath(rawOutputPath, kind === 'pdf' ? ['.pdf'] : ['.html', '.htm']);
 
-  let inputPath = typeof payload?.inputPath === 'string' && payload.inputPath ? payload.inputPath : null;
+  let inputPath = typeof payload?.inputPath === 'string' && payload.inputPath
+    ? assertAuthorizedDocumentPath(payload.inputPath, 'read')
+    : null;
   let tempDocFile: string | null = null;
 
   try {
@@ -729,7 +855,10 @@ handle('tok:render-html', (_, payload) => renderWithCli('html', payload));
 
 handle('tok:save-document', async (_, payload: { document?: unknown; filePath?: string; assetsFrom?: string }) => {
   const filePath = requireString(payload?.filePath, 'filePath');
-  const targetPath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
+  const targetPath = assertAuthorizedDocumentPath(filePath, 'write');
+  const safeAssetsFrom = typeof payload?.assetsFrom === 'string' && payload.assetsFrom
+    ? assertAuthorizedDocumentPath(payload.assetsFrom, 'read')
+    : undefined;
 
   if (!payload?.document) {
     throw new Error('Document content must be provided for saving');
@@ -750,8 +879,8 @@ handle('tok:save-document', async (_, payload: { document?: unknown; filePath?: 
     if (fs.existsSync(userFontsDir)) {
       saveArgs.push('--fonts-dir', userFontsDir);
     }
-    if (typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)) {
-      saveArgs.push('--assets-from', payload.assetsFrom);
+    if (safeAssetsFrom && fs.existsSync(safeAssetsFrom)) {
+      saveArgs.push('--assets-from', safeAssetsFrom);
     }
     const { code, stdout, stderr } = await runCli(saveArgs);
     if (code !== 0) {
@@ -777,7 +906,7 @@ handle('tok:save-document', async (_, payload: { document?: unknown; filePath?: 
 
 handle('tok:open-document', async (_, filePath: string) => {
   const sourcePath = requireString(filePath, 'filePath');
-  const resolvedPath = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(sourcePath);
+  const resolvedPath = assertAuthorizedDocumentPath(sourcePath, 'read');
 
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`File does not exist: ${resolvedPath}`);
@@ -995,8 +1124,8 @@ handle('tok:get-projects-dir', () => getProjectsDir());
 handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPath?: string }) => {
   const oldPath = requireString(payload?.oldPath, 'oldPath');
   const newPath = requireString(payload?.newPath, 'newPath');
-  const resolvedOld = path.isAbsolute(oldPath) ? oldPath : path.resolve(oldPath);
-  const resolvedNew = path.isAbsolute(newPath) ? newPath : path.resolve(newPath);
+  const resolvedOld = assertAuthorizedDocumentPath(oldPath, 'write');
+  const resolvedNew = assertAuthorizedDocumentPath(newPath, 'write');
   if (fs.existsSync(resolvedOld)) {
     if (fs.existsSync(resolvedNew)) {
       let sameFile = normalizeFsPath(resolvedOld) === normalizeFsPath(resolvedNew);
@@ -1025,7 +1154,7 @@ handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPat
 // Font Inspection & User Font Directory Handlers (validated by Rust Core)
 handle('tok:inspect-font', async (_, fontPath: string) => {
   const sourcePath = requireString(fontPath, 'fontPath');
-  const resolved = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(sourcePath);
+  const resolved = assertAuthorizedFontPath(sourcePath);
   if (!fs.existsSync(resolved)) {
     return { valid: false, error: 'FileNotFound', message: `Font file not found: ${resolved}` };
   }
@@ -1038,7 +1167,7 @@ handle('tok:inspect-font', async (_, fontPath: string) => {
 
 handle('tok:install-font', async (_, fontPath: string) => {
   const sourcePath = requireString(fontPath, 'fontPath');
-  const resolved = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(sourcePath);
+  const resolved = assertAuthorizedFontPath(sourcePath);
   if (!fs.existsSync(resolved)) {
     return { success: false, error: 'FileNotFound', message: `Font file not found: ${resolved}` };
   }
@@ -1134,7 +1263,7 @@ handle('tok:set-log-retention', (_, days: number) => {
 handle('tok:check-for-updates', () => updater.checkForUpdates());
 handle('tok:open-release-url', (_, url?: string) => updater.openReleaseUrl(url));
 handle('tok:download-update', async (event, url: string) => {
-  return await updater.downloadUpdate(url, (progress) => {
+  const res = await updater.downloadUpdate(url, (progress) => {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('tok:update-download-progress', progress);
@@ -1143,10 +1272,30 @@ handle('tok:download-update', async (event, url: string) => {
       // Ignore destroyed window
     }
   });
+  if (res.success && res.filePath) {
+    authorizedUpdatePaths.add(normalizeFsPath(resolveSafePath(res.filePath)));
+  }
+  return res;
 });
-handle('tok:apply-update', (_, filePath: string, silent?: boolean) => updater.applyInstaller(filePath, silent));
-handle('tok:inspect-offline-update', (_, filePath: string) => updater.inspectOfflineFile(filePath));
-handle('tok:scan-usb-updates', () => updater.scanUsbDrives());
+handle('tok:apply-update', (_, filePath: string, silent?: boolean) => {
+  const safePath = assertAuthorizedUpdatePath(requireString(filePath, 'filePath'));
+  return updater.applyInstaller(safePath, silent);
+});
+handle('tok:inspect-offline-update', (_, filePath: string) => {
+  const safePath = assertAuthorizedUpdatePath(requireString(filePath, 'filePath'));
+  return updater.inspectOfflineFile(safePath);
+});
+handle('tok:scan-usb-updates', async () => {
+  const candidates = await updater.scanUsbDrives();
+  if (Array.isArray(candidates)) {
+    for (const c of candidates) {
+      if (c?.filePath) {
+        authorizedUpdatePaths.add(normalizeFsPath(resolveSafePath(c.filePath)));
+      }
+    }
+  }
+  return candidates;
+});
 
 // Plugin Handlers
 handle('tok:get-plugins', async () => {
@@ -1176,7 +1325,8 @@ handle('tok:show-save-dialog', async (_, options?: { defaultPath?: string; filte
     defaultPath: withProjectsDir(options?.defaultPath),
     filters: options?.filters ?? [{ name: 'All Files', extensions: ['*'] }],
   });
-  if (res.canceled) return null;
+  if (res.canceled || !res.filePath) return null;
+  authorizeDialogPath(res.filePath);
   return res.filePath;
 });
 
@@ -1187,6 +1337,7 @@ handle('tok:show-open-dialog', async (_, options?: { filters?: { name: string; e
     filters: options?.filters ?? [{ name: 'TypesetOK Document', extensions: ['tok'] }],
   });
   if (res.canceled || !res.filePaths.length) return null;
+  authorizeDialogPath(res.filePaths[0]);
   return res.filePaths[0];
 });
 
@@ -1204,6 +1355,7 @@ handle('tok:show-import-dialog', async (_, options?: { filters?: { name: string;
     properties: ['openFile']
   });
   if (res.canceled || !res.filePaths.length) return null;
+  authorizeDialogPath(res.filePaths[0]);
   return res.filePaths[0];
 });
 
@@ -1215,7 +1367,7 @@ handle('tok:get-startup-file', () => startupFilePath);
 
 handle('tok:read-import-file', async (_, filePath: string) => {
   const sourcePath = requireString(filePath, 'filePath');
-  const resolvedPath = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(sourcePath);
+  const resolvedPath = assertAuthorizedImportPath(sourcePath);
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`Import file does not exist: ${resolvedPath}`);
   }
