@@ -846,20 +846,17 @@ impl CoPaginationEngine {
                 page_stream_lines.insert(fid.clone(), len);
                 *total_stream_lines.entry(fid).or_insert(0) += len;
             }
-            *total_stream_lines.entry(FlowId::new("main")).or_insert(0) +=
-                tentative_gemara_lines.len();
-            *total_stream_lines.entry(FlowId::new("rashi")).or_insert(0) += page_rashi_lines.len();
-            *total_stream_lines
-                .entry(FlowId::new("tosafot"))
-                .or_insert(0) += page_tosafot_lines.len();
+            *total_stream_lines.entry(FlowId::new("main")).or_insert(0) += gemara_len;
+            *total_stream_lines.entry(FlowId::new("rashi")).or_insert(0) += rashi_len;
+            *total_stream_lines.entry(FlowId::new("tosafot")).or_insert(0) += tosafot_len;
 
             pages.push(CoPaginatedPage {
                 page_number,
                 page_layout,
                 math,
-                gemara_lines_count: tentative_gemara_lines.len(),
-                rashi_lines_count: page_rashi_lines.len(),
-                tosafot_lines_count: page_tosafot_lines.len(),
+                gemara_lines_count: gemara_len,
+                rashi_lines_count: rashi_len,
+                tosafot_lines_count: tosafot_len,
                 rashi_expanded_lines_count: rashi_expanded_count,
                 sync_results,
                 stream_lines_count: page_stream_lines,
