@@ -32,6 +32,69 @@ impl Default for Color {
     }
 }
 
+impl Color {
+    /// Converts any color representation (RGB, CMYK, or Spot fallback) into an `#rrggbb` CSS color
+    /// for passive preview rendering in the UI.
+    pub fn to_css_rgb(&self) -> String {
+        let clamp_u8 = |v: f32| -> u8 {
+            let safe = if v.is_finite() {
+                v.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (safe * 255.0).round() as u8
+        };
+        let cmyk_to_rgb = |c: f32, m: f32, y: f32, k: f32| -> (u8, u8, u8) {
+            let uc = if c.is_finite() {
+                c.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let um = if m.is_finite() {
+                m.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let uy = if y.is_finite() {
+                y.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let uk = if k.is_finite() {
+                k.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let r = (1.0 - uc) * (1.0 - uk);
+            let g = (1.0 - um) * (1.0 - uk);
+            let b = (1.0 - uy) * (1.0 - uk);
+            (clamp_u8(r), clamp_u8(g), clamp_u8(b))
+        };
+        let (r, g, b) = match self {
+            Self::Rgb { r, g, b } => (clamp_u8(*r), clamp_u8(*g), clamp_u8(*b)),
+            Self::DeviceCmyk { c, m, y, k } => cmyk_to_rgb(*c, *m, *y, *k),
+            Self::Spot {
+                tint,
+                fallback_cmyk,
+                ..
+            } => {
+                let t = if tint.is_finite() {
+                    tint.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                cmyk_to_rgb(
+                    fallback_cmyk.0 * t,
+                    fallback_cmyk.1 * t,
+                    fallback_cmyk.2 * t,
+                    fallback_cmyk.3 * t,
+                )
+            }
+        };
+        format!("#{:02x}{:02x}{:02x}", r, g, b)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Progression {
     #[default]
@@ -46,6 +109,20 @@ pub enum TextAlignment {
     Center,
     #[default]
     Justified,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum ColumnDistributionMode {
+    #[default]
+    Balanced,
+    Sequential,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum ColumnSpanMode {
+    #[default]
+    SingleColumn,
+    SpanAllColumns,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -220,6 +297,9 @@ pub struct ParagraphStyle {
     /// Optional OpenType feature settings for the paragraph (e.g. "calt", "ss01", "ss04").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opentype_features: Option<Vec<OpenTypeFeatureSetting>>,
+    /// Whether this paragraph spans across all columns in a multi-column section.
+    #[serde(default)]
+    pub column_span: ColumnSpanMode,
 }
 
 impl Default for ParagraphStyle {
@@ -249,6 +329,7 @@ impl Default for ParagraphStyle {
             optical_margin: None,
             last_line_constraint: None,
             opentype_features: None,
+            column_span: ColumnSpanMode::SingleColumn,
         }
     }
 }
@@ -310,6 +391,9 @@ impl ParagraphStyle {
         }
         if let Some(v) = patch.break_before {
             self.break_before = v;
+        }
+        if let Some(v) = patch.column_span {
+            self.column_span = v;
         }
     }
 }
@@ -559,6 +643,8 @@ pub struct StylePatch {
     pub force_odd_page: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub break_before: Option<crate::overrides::PageBreakMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_span: Option<ColumnSpanMode>,
 }
 
 impl StylePatch {
