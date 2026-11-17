@@ -8,6 +8,21 @@
 
 import { StoryParagraph, StorySelection } from './types.js';
 
+function cloneParagraph(p: StoryParagraph): StoryParagraph {
+  return {
+    ...p,
+    spans: p.spans ? p.spans.map((s) => ({ ...s, format: s.format ? { ...s.format } : s.format })) : undefined,
+  };
+}
+
+function cloneParagraphs(paragraphs: StoryParagraph[]): StoryParagraph[] {
+  const out = new Array<StoryParagraph>(paragraphs.length);
+  for (let i = 0; i < paragraphs.length; i++) {
+    out[i] = cloneParagraph(paragraphs[i]);
+  }
+  return out;
+}
+
 
 export interface HistoryRecord {
   description: string;
@@ -68,9 +83,7 @@ export class StoryHistory {
     const isTyping = Boolean(options?.isTyping);
     const desc = options?.description || (isTyping ? 'הקלדה' : 'עריכה');
 
-    // Deep clone paragraphs to prevent external mutation
-    const cloneBefore = JSON.parse(JSON.stringify(before));
-    const cloneAfter = JSON.parse(JSON.stringify(after));
+    const cloneAfter = cloneParagraphs(after);
 
     if (
       isTyping &&
@@ -86,6 +99,13 @@ export class StoryHistory {
       this.lastTypingTime = now;
       this.redoStack = [];
       return;
+    }
+
+    const cloneBefore = new Array<StoryParagraph>(before.length);
+    for (let i = 0; i < before.length; i++) {
+      const b = before[i];
+      // Share snapshot reference when the paragraph object is identical to after[i]
+      cloneBefore[i] = i < after.length && b === after[i] ? cloneAfter[i] : cloneParagraph(b);
     }
 
     const record: HistoryRecord = {
