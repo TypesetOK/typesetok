@@ -1187,7 +1187,14 @@ handle('tok:install-font', async (_, fontPath: string) => {
   const destName = rawBase.toLowerCase().endsWith('.ttf') ? rawBase : `${rawBase}.ttf`;
   const destPath = path.join(fontsDir, destName);
   const bytes = await fs.promises.readFile(resolved);
-  await fs.promises.writeFile(destPath, bytes);
+  const tmpDest = path.join(fontsDir, `.${destName}.tmp.${process.pid}.${Date.now()}`);
+  try {
+    await fs.promises.writeFile(tmpDest, bytes);
+    await fs.promises.rename(tmpDest, destPath);
+  } catch (err) {
+    try { await fs.promises.unlink(tmpDest); } catch { /* ignore cleanup failure */ }
+    throw err;
+  }
   return {
     success: true,
     path: destPath,

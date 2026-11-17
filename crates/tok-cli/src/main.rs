@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 use tok_core::id::FractionalIndex;
@@ -11,6 +12,46 @@ use tok_pdf::preflight::PreflightEngine;
 use tok_storage::package::{TokManifest, TokPackage};
 use tok_typeset::engine::{TypesettingEngine, TypesettingEngineConfig};
 use tok_typeset::font::{FontData, FontManager};
+
+fn write_atomic(output: &str, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let out_path = Path::new(output);
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let parent = out_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = out_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("output");
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = parent.join(format!(".{}.tmp.{}.{}", file_name, std::process::id(), nanos));
+
+    let write_res = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp_path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+
+    if let Err(err) = write_res {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err.into());
+    }
+
+    if let Err(err) = fs::rename(&tmp_path, out_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err.into());
+    }
+    Ok(())
+}
 
 fn print_usage() {
     println!(
@@ -593,12 +634,7 @@ fn handle_render_pdf(
     let pdf_bytes =
         PdfPrePressEngine::export_pdf_with_fonts(&pages, &options, &engine.font_manager)?;
 
-    if let Some(parent) = Path::new(output).parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-    fs::write(output, &pdf_bytes)?;
+    write_atomic(output, &pdf_bytes)?;
     let pdf_dur = start_pdf.elapsed();
     println!(
         "  - Emitted ISO PDF/X ({} bytes, profile: {}) in {:.2?}",
@@ -632,12 +668,7 @@ fn handle_render_html(input: &str, output: &str) -> Result<(), Box<dyn std::erro
         })
         .unwrap_or((210.0, 297.0));
     let html = HtmlProjectionCompiler::compile_to_html(&pages, page_w_mm, page_h_mm);
-    if let Some(parent) = Path::new(output).parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-    fs::write(output, &html)?;
+    write_atomic(output, html.as_bytes())?;
     println!(
         "  [SUCCESS] Written Pre-paginated HTML ({} bytes) to: {}",
         html.len(),
@@ -979,14 +1010,8 @@ fn handle_open_package(input: &str, output: &str) -> Result<(), Box<dyn std::err
     println!("[TOK-CLI] Opening .tok package from: {}", input);
     let (doc, _pkg) = load_document_input(input, 1)?;
 
-    if let Some(parent) = Path::new(output).parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-
     let json_bytes = serde_json::to_vec_pretty(doc.root())?;
-    fs::write(output, json_bytes)?;
+    write_atomic(output, &json_bytes)?;
     println!("  [SUCCESS] Extracted document JSON to: {}", output);
     Ok(())
 }
@@ -1008,14 +1033,8 @@ fn handle_run_plugins(input: &str, output: &str) -> Result<(), Box<dyn std::erro
         ops_count
     );
 
-    if let Some(parent) = Path::new(output).parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-
     let json_bytes = serde_json::to_vec_pretty(&root)?;
-    fs::write(output, json_bytes)?;
+    write_atomic(output, &json_bytes)?;
     println!(
         "  [SUCCESS] Written plugin-processed DocumentRoot JSON to: {}",
         output
@@ -1060,7 +1079,7 @@ fn handle_typeset_document(
     } else {
         serde_json::to_vec_pretty(&pages)?
     };
-    fs::write(output, json_bytes)?;
+    write_atomic(output, &json_bytes)?;
     println!("  [SUCCESS] Written layout JSON to: {}", output);
     Ok(())
 }
@@ -1094,12 +1113,7 @@ fn handle_preflight(
     let report = PreflightEngine::evaluate(doc.root(), &pages, &engine.font_manager, &opts);
     let json_str = serde_json::to_string_pretty(&report)?;
     if let Some(out_path) = output_opt {
-        if let Some(parent) = Path::new(out_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
-            }
-        }
-        fs::write(out_path, json_str.as_bytes())?;
+        write_atomic(out_path, json_str.as_bytes())?;
     } else {
         println!("{}", json_str);
     }
@@ -1154,7 +1168,7 @@ fn handle_incremental_typeset(
     }
 
     let json_bytes = serde_json::to_vec_pretty(&inc_pages)?;
-    fs::write(output, json_bytes)?;
+    write_atomic(output, &json_bytes)?;
     println!(
         "  [SUCCESS] Written incremental PageLayoutBox array to: {}",
         output
@@ -1251,7 +1265,7 @@ fn handle_sync_heading_numbers(
     let affected = root.sync_outline_numbering(&config);
 
     let json_bytes = serde_json::to_vec_pretty(&root)?;
-    fs::write(output, json_bytes)?;
+    write_atomic(output, &json_bytes)?;
     println!(
         "  [SUCCESS] Synchronized heading numbering for {} items to: {}",
         affected.len(),
