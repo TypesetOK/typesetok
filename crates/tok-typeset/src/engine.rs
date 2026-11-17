@@ -3,11 +3,15 @@
 //! Orchestrates text shaping, Bidi decomposition, Knuth-Plass line breaking,
 //! 3-tier Hebrew justification, and multi-page convergence pagination.
 
+use crate::column_flow::{
+    ColumnFlowConfig, ColumnGeometry, ColumnParagraphInput, ContinuousColumnPaginator,
+};
 use crate::font::{FontManager, ShapingSession};
 use crate::footnote_paginator::{DynamicFootnotePaginator, FootnotePaginatorConfig};
 use crate::gematria::GematriaEngine;
 use crate::geometry::{
-    BreakToken, GlyphBox, LineBox, PageLayoutBox, PhysicalRect, TextFrameBox, UNKNOWN_FONT,
+    BreakToken, GlyphBox, LineBox, PageLayoutBox, PhysicalRect, PlacedImageBox, PlacedOrnamentBox,
+    TextFrameBox, VisualLineRun, UNKNOWN_FONT,
 };
 use crate::hebrew_justify::HebrewJustifier;
 use crate::knuth_plass::{KnuthPlassBreaker, LayoutItem, MeasureProfile};
@@ -98,6 +102,18 @@ fn font_slot(fonts: &mut Vec<String>, family: Option<&str>) -> u16 {
     u16::try_from(idx).unwrap_or(UNKNOWN_FONT)
 }
 
+/// Index of `color` in a line color palette, appending it when new.
+fn color_slot(colors: &mut Vec<tok_core::styles::Color>, color: &tok_core::styles::Color) -> u16 {
+    let idx = match colors.iter().position(|c| c == color) {
+        Some(idx) => idx,
+        None => {
+            colors.push(color.clone());
+            colors.len() - 1
+        }
+    };
+    u16::try_from(idx).unwrap_or(0)
+}
+
 /// UAX #9 rule L2 at item granularity: reverses every maximal run at or above
 /// each level, from the highest level down to the lowest odd level.
 fn visual_order(levels: &[(u8, usize)]) -> Vec<usize> {
@@ -131,6 +147,10 @@ struct ItemMeta {
     offset: u32,
     /// Effective font size (pt) of this item (accounts for character span / GREP scaling).
     font_size: f32,
+    color_index: u16,
+    underline: bool,
+    italic: bool,
+    font_weight: u16,
 }
 
 impl TypesettingEngine {
@@ -350,6 +370,27 @@ impl TypesettingEngine {
                     );
 
                     let rem_byte_offset = drop_layout.remaining_byte_offset as u32;
+                    let drop_color = paragraph
+                        .style_patches
+                        .iter()
+                        .filter_map(|p| p.color.as_ref())
+                        .next_back()
+                        .cloned()
+                        .or_else(|| base_style.map(|s| s.color.clone()))
+                        .unwrap_or_default();
+                    let drop_font_family = drop_layout.font_family.clone();
+                    let drop_run = VisualLineRun {
+                        text: drop_layout.text.clone(),
+                        font_family: drop_font_family.clone(),
+                        font_size_pt: drop_layout.font_size_pt,
+                        font_weight: dc_resolved
+                            .font_weight
+                            .max(tok_core::styles::FONT_WEIGHT_BOLD),
+                        italic: false,
+                        underline: false,
+                        color_css: drop_color.to_css_rgb(),
+                        color: drop_color.clone(),
+                    };
                     let mut all_lines = Vec::with_capacity(body_lines.len() + 1);
                     all_lines.push(LineBox {
                         line_index: 0,
@@ -360,9 +401,11 @@ impl TypesettingEngine {
                         glyphs: drop_layout.glyphs,
                         text: drop_layout.text,
                         is_rtl,
-                        fonts: vec![drop_layout.font_family],
+                        fonts: vec![drop_font_family],
                         is_drop_cap: true,
                         x_offset: drop_layout.window_rect.x,
+                        colors: vec![drop_color],
+                        visual_runs: vec![drop_run],
                     });
 
                     for (i, mut bl) in body_lines.into_iter().enumerate() {
@@ -374,6 +417,12 @@ impl TypesettingEngine {
                         all_lines.push(bl);
                     }
 
+                    Self::append_attachment_lines(
+                        paragraph,
+                        effective_profile.width_for_line(0),
+                        is_rtl,
+                        &mut all_lines,
+                    );
                     return all_lines;
                 }
             }
@@ -389,6 +438,68 @@ impl TypesettingEngine {
             line_height_pt,
             Some(&self.config.masoretic_typography),
         )
+    }
+
+    /// Reserves synthetic empty lines for `ParagraphNode::image` and `ParagraphNode::ornament`
+    /// so every paginator accounts for their vertical height before placing overlays.
+    fn append_attachment_lines(
+        paragraph: &ParagraphNode,
+        max_width_pt: f32,
+        is_rtl: bool,
+        lines: &mut Vec<LineBox>,
+    ) {
+        let mut modified = false;
+        if let Some(ref orn) = paragraph.ornament {
+            if orn.placement == tok_core::model::OrnamentPlacement::BeforeParagraph {
+                let h = orn.height_pt.max(1.0);
+                lines.insert(
+                    0,
+                    LineBox {
+                        line_index: 0,
+                        paragraph_id: Some(paragraph.id),
+                        baseline_y: h,
+                        height: h,
+                        width: orn.width_pt.min(max_width_pt).max(1.0),
+                        is_rtl,
+                        ..Default::default()
+                    },
+                );
+                modified = true;
+            }
+        }
+        if let Some(ref img) = paragraph.image {
+            let h = img.height_pt.max(1.0);
+            lines.push(LineBox {
+                line_index: lines.len(),
+                paragraph_id: Some(paragraph.id),
+                baseline_y: h,
+                height: h,
+                width: img.width_pt.min(max_width_pt).max(1.0),
+                is_rtl,
+                ..Default::default()
+            });
+            modified = true;
+        }
+        if let Some(ref orn) = paragraph.ornament {
+            if orn.placement != tok_core::model::OrnamentPlacement::BeforeParagraph {
+                let h = orn.height_pt.max(1.0);
+                lines.push(LineBox {
+                    line_index: lines.len(),
+                    paragraph_id: Some(paragraph.id),
+                    baseline_y: h,
+                    height: h,
+                    width: orn.width_pt.min(max_width_pt).max(1.0),
+                    is_rtl,
+                    ..Default::default()
+                });
+                modified = true;
+            }
+        }
+        if modified {
+            for (idx, line) in lines.iter_mut().enumerate() {
+                line.line_index = idx;
+            }
+        }
     }
 
     fn typeset_with_session(
@@ -457,8 +568,16 @@ impl TypesettingEngine {
         masoretic_config: Option<&crate::masoretic::MasoreticTypographyConfig>,
     ) -> Vec<LineBox> {
         let text = paragraph.text.as_str();
-        if text.trim().is_empty() || !profile.is_valid() {
+        if !profile.is_valid() {
             return Vec::new();
+        }
+        if text.trim().is_empty() {
+            if paragraph.image.is_none() && paragraph.ornament.is_none() {
+                return Vec::new();
+            }
+            let mut out = Vec::new();
+            Self::append_attachment_lines(paragraph, profile.width_for_line(0), true, &mut out);
+            return out;
         }
         let default_masoretic_cfg = crate::masoretic::MasoreticTypographyConfig::default();
         let masoretic_cfg = masoretic_config.unwrap_or(&default_masoretic_cfg);
@@ -515,6 +634,23 @@ impl TypesettingEngine {
                 .unwrap_or(u8::from(is_rtl))
         };
 
+        let base_color = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.color.as_ref())
+            .next_back()
+            .cloned()
+            .or_else(|| base_style.map(|s| s.color.clone()))
+            .unwrap_or_default();
+        let base_weight = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.font_weight)
+            .next_back()
+            .or_else(|| base_style.map(|s| s.font_weight))
+            .unwrap_or(tok_core::styles::FONT_WEIGHT_REGULAR);
+        let mut colors: Vec<tok_core::styles::Color> = vec![base_color.clone()];
+
         // 2. Build the Knuth-Plass stream: words split into same-level & same-span runs,
         //    each shaped in its own direction and character format, separated by glue.
         let mut fonts: Vec<String> = Vec::new();
@@ -547,6 +683,16 @@ impl TypesettingEngine {
 
         let mut push_word = |start: usize, end: usize, gap: Option<usize>| {
             if let Some(gap) = gap {
+                let gap_span = span_idx_at(gap).and_then(|idx| paragraph.spans.get(idx));
+                let gap_color = gap_span
+                    .and_then(|sp| sp.format.color.as_ref())
+                    .unwrap_or(&base_color);
+                let gap_color_index = color_slot(&mut colors, gap_color);
+                let gap_underline = gap_span.and_then(|sp| sp.format.underline).unwrap_or(false);
+                let gap_italic = gap_span.and_then(|sp| sp.format.italic).unwrap_or(false);
+                let gap_weight = gap_span
+                    .and_then(|sp| sp.format.font_weight)
+                    .unwrap_or(base_weight);
                 items.push(LayoutItem::Glue {
                     width: base_space,
                     stretch: base_space * SPACE_STRETCH,
@@ -557,6 +703,10 @@ impl TypesettingEngine {
                     font: space_font,
                     offset: gap as u32,
                     font_size,
+                    color_index: gap_color_index,
+                    underline: gap_underline,
+                    italic: gap_italic,
+                    font_weight: gap_weight,
                 });
             }
             let mut run_start = start;
@@ -572,6 +722,15 @@ impl TypesettingEngine {
                 let span_opt = span_idx_at(run_start).and_then(|idx| paragraph.spans.get(idx));
                 let mut run_font_size = font_size;
                 let mut baseline_shift = 0.0_f32;
+                let run_color = span_opt
+                    .and_then(|sp| sp.format.color.as_ref())
+                    .unwrap_or(&base_color);
+                let run_color_index = color_slot(&mut colors, run_color);
+                let run_underline = span_opt.and_then(|sp| sp.format.underline).unwrap_or(false);
+                let run_italic = span_opt.and_then(|sp| sp.format.italic).unwrap_or(false);
+                let run_weight = span_opt
+                    .and_then(|sp| sp.format.font_weight)
+                    .unwrap_or(base_weight);
                 if let Some(sp) = span_opt {
                     if let Some(sz) = sp.format.font_size_pt {
                         if sz.is_finite() && sz > 0.0 {
@@ -675,6 +834,10 @@ impl TypesettingEngine {
                     font: font_slot(&mut fonts, resolved_family_owned.as_deref()),
                     offset: run_start as u32,
                     font_size: run_font_size,
+                    color_index: run_color_index,
+                    underline: run_underline,
+                    italic: run_italic,
+                    font_weight: run_weight,
                 });
                 run_start = run_end;
             }
@@ -705,6 +868,10 @@ impl TypesettingEngine {
             font: space_font,
             offset: text.len() as u32,
             font_size,
+            color_index: 0,
+            underline: false,
+            italic: false,
+            font_weight: base_weight,
         });
 
         // 3. Run Knuth-Plass global line breaker matching the profile
@@ -726,23 +893,69 @@ impl TypesettingEngine {
                 .collect();
 
             let mut line_text = String::new();
+            let mut visual_runs: Vec<VisualLineRun> = Vec::new();
             for &(_, i) in &logical {
-                match &items[i] {
-                    LayoutItem::Box { text, .. } => line_text.push_str(text),
-                    LayoutItem::Glue { .. } => line_text.push(' '),
-                    LayoutItem::Penalty { .. } => {}
+                let m = meta[i];
+                let run_text = match &items[i] {
+                    LayoutItem::Box { text, .. } => text.as_str(),
+                    LayoutItem::Glue { .. } => " ",
+                    LayoutItem::Penalty { .. } => continue,
+                };
+                line_text.push_str(run_text);
+                let run_family = fonts
+                    .get(usize::from(m.font))
+                    .cloned()
+                    .unwrap_or_else(|| DEFAULT_FONT_FAMILY.to_string());
+                let run_color = colors
+                    .get(usize::from(m.color_index))
+                    .cloned()
+                    .unwrap_or_else(|| base_color.clone());
+                if let Some(last) = visual_runs.last_mut() {
+                    let same_glue_style = matches!(items[i], LayoutItem::Glue { .. })
+                        && last.color == run_color
+                        && last.underline == m.underline
+                        && last.italic == m.italic
+                        && last.font_weight == m.font_weight;
+                    if same_glue_style
+                        || (last.font_family == run_family
+                            && (last.font_size_pt - m.font_size).abs() < 0.01
+                            && last.font_weight == m.font_weight
+                            && last.italic == m.italic
+                            && last.underline == m.underline
+                            && last.color == run_color)
+                    {
+                        last.text.push_str(run_text);
+                        continue;
+                    }
                 }
+                visual_runs.push(VisualLineRun {
+                    text: run_text.to_string(),
+                    font_family: run_family,
+                    font_size_pt: m.font_size,
+                    font_weight: m.font_weight,
+                    italic: m.italic,
+                    underline: m.underline,
+                    color_css: run_color.to_css_rgb(),
+                    color: run_color,
+                });
             }
 
             let mut line_glyphs: Vec<PositionedGlyph> = Vec::new();
             let mut glyph_fonts: Vec<u16> = Vec::new();
             let mut glyph_sizes: Vec<f32> = Vec::new();
+            let mut glyph_colors: Vec<u16> = Vec::new();
+            let mut glyph_underlines: Vec<bool> = Vec::new();
+            let mut glyph_italics: Vec<bool> = Vec::new();
             for i in visual_order(&logical) {
                 match &items[i] {
                     LayoutItem::Box { glyphs, .. } => {
                         line_glyphs.extend(glyphs.iter().cloned());
                         glyph_fonts.extend(std::iter::repeat_n(meta[i].font, glyphs.len()));
                         glyph_sizes.extend(std::iter::repeat_n(meta[i].font_size, glyphs.len()));
+                        glyph_colors.extend(std::iter::repeat_n(meta[i].color_index, glyphs.len()));
+                        glyph_underlines
+                            .extend(std::iter::repeat_n(meta[i].underline, glyphs.len()));
+                        glyph_italics.extend(std::iter::repeat_n(meta[i].italic, glyphs.len()));
                     }
                     LayoutItem::Glue { .. } => {
                         line_glyphs.push(PositionedGlyph {
@@ -756,6 +969,9 @@ impl TypesettingEngine {
                         });
                         glyph_fonts.push(meta[i].font);
                         glyph_sizes.push(meta[i].font_size);
+                        glyph_colors.push(meta[i].color_index);
+                        glyph_underlines.push(meta[i].underline);
+                        glyph_italics.push(meta[i].italic);
                     }
                     LayoutItem::Penalty { .. } => {}
                 }
@@ -819,8 +1035,13 @@ impl TypesettingEngine {
             let glyph_boxes: Vec<GlyphBox> = justified
                 .glyphs
                 .into_iter()
-                .zip(glyph_fonts.into_iter().zip(glyph_sizes))
-                .map(|(g, (font_index, glyph_font_size))| {
+                .enumerate()
+                .map(|(gi, g)| {
+                    let font_index = glyph_fonts[gi];
+                    let glyph_font_size = glyph_sizes[gi];
+                    let color_index = glyph_colors[gi];
+                    let underline = glyph_underlines[gi];
+                    let italic = glyph_italics[gi];
                     let b = GlyphBox {
                         glyph_id: g.glyph_id,
                         cluster: g.cluster,
@@ -830,6 +1051,9 @@ impl TypesettingEngine {
                         height: glyph_font_size,
                         character: g.character,
                         font_index,
+                        color_index,
+                        underline,
+                        italic,
                     };
                     current_x += g.x_advance;
                     b
@@ -848,9 +1072,17 @@ impl TypesettingEngine {
                 fonts: fonts.clone(),
                 is_drop_cap: false,
                 x_offset: span.x_offset,
+                colors: colors.clone(),
+                visual_runs,
             });
         }
 
+        Self::append_attachment_lines(
+            paragraph,
+            profile.width_for_line(0),
+            is_rtl,
+            &mut result_lines,
+        );
         result_lines
     }
 
@@ -921,6 +1153,7 @@ impl TypesettingEngine {
             frames: vec![frame],
             break_token,
             is_blank: false,
+            ..Default::default()
         }
     }
 
@@ -941,6 +1174,7 @@ impl TypesettingEngine {
             frames: Vec::new(),
             break_token: None,
             is_blank: true,
+            ..Default::default()
         }
     }
 
@@ -976,51 +1210,26 @@ impl TypesettingEngine {
         }
 
         if active_config != self.config {
-            let engine = TypesettingEngine::new(active_config);
+            let engine =
+                TypesettingEngine::with_font_manager(active_config, self.font_manager.clone());
             return engine.typeset_document_internal(doc);
         }
 
         self.typeset_document_internal(doc)
     }
 
-    /// Internal implementation of document typesetting.
-    pub fn typeset_document_internal(&self, doc: &DocumentRoot) -> Vec<PageLayoutBox> {
-        let has_multi_flow = doc.sections.iter().any(|s| s.flows.len() > 1);
-        if has_multi_flow {
-            return self.typeset_document_multi_flow(doc);
-        }
-
-        let content = self.content_rect_for_side(SpreadSide::Recto);
-        let content_width = content.width;
-        let content_height = content.height;
-        let flow_id = doc
-            .sections
-            .first()
-            .and_then(|s| s.main_flow().or_else(|| s.flows.first()))
-            .map(|f| f.id.0.as_str())
-            .unwrap_or("gemara");
-
-        // Paragraphs are laid out independently, so break them in parallel;
-        // results come back in document order, keeping output deterministic.
-        let jobs: Vec<(usize, usize, &ParagraphNode)> = doc
-            .sections
-            .iter()
-            .enumerate()
-            .filter_map(|(sec_idx, sec)| sec.main_flow().map(|flow| (sec_idx, flow)))
-            .flat_map(|(sec_idx, flow)| {
-                flow.paragraphs
-                    .iter()
-                    .enumerate()
-                    .map(move |(p_idx, p)| (sec_idx, p_idx, p))
-            })
-            .collect();
-
+    /// Shapes a batch of paragraphs using the shared `ParagraphLayoutCache` and Rayon pool.
+    fn shape_paragraph_jobs<'a>(
+        &self,
+        doc: &DocumentRoot,
+        jobs: &[(usize, usize, &'a ParagraphNode, f32, &'a str)],
+    ) -> Vec<Vec<LineBox>> {
         let default_style = tok_core::styles::ParagraphStyle::default();
         let has_spans_to_resolve = !doc.grep_rules.is_empty() || !doc.character_styles.is_empty();
         let cached_lookup: Vec<(crate::layout_cache::ParagraphCacheKey, Option<Vec<LineBox>>)> = {
             let cache = self.paragraph_cache.read().unwrap();
             jobs.iter()
-                .map(|&(_, _, p)| {
+                .map(|&(_, _, p, width_pt, flow_id)| {
                     let style = doc
                         .paragraph_styles
                         .iter()
@@ -1029,13 +1238,9 @@ impl TypesettingEngine {
                     let key = if has_spans_to_resolve {
                         let mut p_eff = p.clone();
                         p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
-                        crate::layout_cache::ParagraphLayoutCache::make_key(
-                            &p_eff,
-                            style,
-                            content_width,
-                        )
+                        crate::layout_cache::ParagraphLayoutCache::make_key(&p_eff, style, width_pt)
                     } else {
-                        crate::layout_cache::ParagraphLayoutCache::make_key(p, style, content_width)
+                        crate::layout_cache::ParagraphLayoutCache::make_key(p, style, width_pt)
                     };
                     let hit = cache.get(&key).map(|c| c.lines.clone());
                     (key, hit)
@@ -1046,14 +1251,16 @@ impl TypesettingEngine {
         let misses: Vec<(
             usize,
             &ParagraphNode,
+            f32,
+            &str,
             crate::layout_cache::ParagraphCacheKey,
         )> = jobs
             .iter()
             .zip(&cached_lookup)
             .enumerate()
-            .filter_map(|(idx, (&(_, _, p), (key, cached)))| {
+            .filter_map(|(idx, (&(_, _, p, width_pt, flow_id), (key, cached)))| {
                 if cached.is_none() {
-                    Some((idx, p, key.clone()))
+                    Some((idx, p, width_pt, flow_id, key.clone()))
                 } else {
                     None
                 }
@@ -1064,7 +1271,7 @@ impl TypesettingEngine {
             .par_iter()
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
-                |sessions, &(idx, p, ref key)| {
+                |sessions, &(idx, p, width_pt, flow_id, ref key)| {
                     let mut p_eff;
                     let p_ref = if has_spans_to_resolve {
                         p_eff = p.clone();
@@ -1096,7 +1303,7 @@ impl TypesettingEngine {
                         .as_ref()
                         .is_some_and(|dc| dc.enabled)
                     {
-                        let profile = MeasureProfile::uniform(content_width);
+                        let profile = MeasureProfile::uniform(width_pt);
                         self.typeset_paragraph_shaped_with_style(
                             p_ref,
                             Some(&resolved_style),
@@ -1109,7 +1316,7 @@ impl TypesettingEngine {
                         let session = sessions
                             .entry(font_family.clone())
                             .or_insert_with(|| self.font_manager.session(&font_family));
-                        let profile = MeasureProfile::uniform(content_width);
+                        let profile = MeasureProfile::uniform(width_pt);
                         Self::typeset_with_session_shaped_full(
                             session,
                             p_ref,
@@ -1137,31 +1344,149 @@ impl TypesettingEngine {
             .map(|(idx, _, lines)| (idx, lines))
             .collect();
 
-        let laid_out: Vec<Vec<LineBox>> = cached_lookup
+        cached_lookup
             .into_iter()
             .enumerate()
             .map(|(idx, (_, hit))| {
                 hit.unwrap_or_else(|| computed_map.remove(&idx).unwrap_or_default())
             })
-            .collect();
+            .collect()
+    }
+
+    /// Attaches [`PlacedImageBox`] and [`PlacedOrnamentBox`] descriptors to single-column pages
+    /// at the synthetic reserved lines produced by [`Self::append_attachment_lines`].
+    fn attach_media_to_single_column_page(
+        page: &mut PageLayoutBox,
+        media_paras: &HashMap<tok_core::id::NodeId, &ParagraphNode>,
+        is_doc_rtl: bool,
+    ) {
+        if media_paras.is_empty() {
+            return;
+        }
+        for frame in &page.frames {
+            // Identify first and last empty-text line indices per paragraph within this frame for attachment mapping
+            let mut empty_lines_by_para: HashMap<tok_core::id::NodeId, Vec<(usize, &LineBox)>> =
+                HashMap::new();
+            for (l_idx, line) in frame.lines.iter().enumerate() {
+                if line.text.is_empty() {
+                    if let Some(pid) = line.paragraph_id {
+                        if media_paras.contains_key(&pid) {
+                            empty_lines_by_para
+                                .entry(pid)
+                                .or_default()
+                                .push((l_idx, line));
+                        }
+                    }
+                }
+            }
+            for (pid, slots) in empty_lines_by_para {
+                let Some(&para) = media_paras.get(&pid) else {
+                    continue;
+                };
+                let has_before_orn = para.ornament.as_ref().is_some_and(|o| {
+                    o.placement == tok_core::model::OrnamentPlacement::BeforeParagraph
+                });
+                let mut slot_iter = slots.iter();
+                if has_before_orn {
+                    if let (Some(orn), Some(&(_, line))) = (&para.ornament, slot_iter.next()) {
+                        let w = orn.width_pt.min(frame.rect.width).max(1.0);
+                        let h = orn.height_pt.max(1.0);
+                        let x = frame.rect.x + (frame.rect.width - w).max(0.0) * 0.5;
+                        let y = (frame.rect.y + line.baseline_y - line.height).max(frame.rect.y);
+                        page.ornaments.push(PlacedOrnamentBox {
+                            ornament_id: orn.ornament_id.clone(),
+                            asset_path: orn.asset_path.clone(),
+                            rect: PhysicalRect::new(x, y, w, h),
+                            color: orn.color.clone().unwrap_or_default(),
+                        });
+                    }
+                }
+                if let Some(img) = &para.image {
+                    if let Some(&(_, line)) = slot_iter.next() {
+                        let w = img.width_pt.min(frame.rect.width).max(1.0);
+                        let h = if img.width_pt > 0.0 && w < img.width_pt {
+                            img.height_pt * (w / img.width_pt)
+                        } else {
+                            img.height_pt.max(1.0)
+                        };
+                        let x = match img.alignment {
+                            tok_core::styles::TextAlignment::Center => {
+                                frame.rect.x + (frame.rect.width - w).max(0.0) * 0.5
+                            }
+                            tok_core::styles::TextAlignment::Left => frame.rect.x,
+                            tok_core::styles::TextAlignment::Right => {
+                                frame.rect.x + (frame.rect.width - w).max(0.0)
+                            }
+                            tok_core::styles::TextAlignment::Justified => {
+                                if is_doc_rtl {
+                                    frame.rect.x + (frame.rect.width - w).max(0.0)
+                                } else {
+                                    frame.rect.x
+                                }
+                            }
+                        };
+                        let y = (frame.rect.y + line.baseline_y - line.height).max(frame.rect.y);
+                        page.images.push(PlacedImageBox {
+                            asset_path: img.asset_path.clone(),
+                            rect: PhysicalRect::new(x, y, w, h),
+                            intrinsic_width_px: img.intrinsic_width_px,
+                            intrinsic_height_px: img.intrinsic_height_px,
+                            effective_dpi_x: if w > 0.0 {
+                                img.intrinsic_width_px as f32 * 72.0 / w
+                            } else {
+                                0.0
+                            },
+                            effective_dpi_y: if h > 0.0 {
+                                img.intrinsic_height_px as f32 * 72.0 / h
+                            } else {
+                                0.0
+                            },
+                            paragraph_id: Some(para.id),
+                        });
+                    }
+                }
+                if let Some(orn) = &para.ornament {
+                    if !has_before_orn {
+                        if let Some(&(_, line)) = slot_iter.next() {
+                            let w = orn.width_pt.min(frame.rect.width).max(1.0);
+                            let h = orn.height_pt.max(1.0);
+                            let x = frame.rect.x + (frame.rect.width - w).max(0.0) * 0.5;
+                            let y =
+                                (frame.rect.y + line.baseline_y - line.height).max(frame.rect.y);
+                            page.ornaments.push(PlacedOrnamentBox {
+                                ornament_id: orn.ornament_id.clone(),
+                                asset_path: orn.asset_path.clone(),
+                                rect: PhysicalRect::new(x, y, w, h),
+                                color: orn.color.clone().unwrap_or_default(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn paginate_single_column_sections(
+        &self,
+        doc: &DocumentRoot,
+        entries: &[(usize, usize, &ParagraphNode, Vec<LineBox>, &str)],
+        start_page_num: usize,
+        doc_forces_odd_sections: bool,
+        media_paras: &HashMap<tok_core::id::NodeId, &ParagraphNode>,
+        is_doc_rtl: bool,
+    ) -> Vec<PageLayoutBox> {
+        let content = self.content_rect_for_side(SpreadSide::Recto);
+        let content_width = content.width;
+        let content_height = content.height;
+        let default_flow_id = entries.first().map(|e| e.4).unwrap_or("gemara");
 
         let mut pagination_inputs = Vec::new();
         let mut prev_space_after: f32 = 0.0;
         let mut prev_section_idx: Option<usize> = None;
 
-        let doc_forces_odd_sections = doc.metadata.document_settings.as_ref().is_some_and(|s| {
-            s.get("chaptersStartOnOddPage")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-                || s.get("startSectionsOnOddPage")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-                || s.get("forceOddPageOnSections")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-        });
-
-        for (&(sec_idx, p_idx, p), p_lines) in jobs.iter().zip(laid_out) {
+        for (sec_idx, p_idx, p, p_lines, _flow_id) in entries {
+            let sec_idx = *sec_idx;
+            let p_idx = *p_idx;
             let is_new_section = prev_section_idx != Some(sec_idx);
             if is_new_section {
                 prev_section_idx = Some(sec_idx);
@@ -1203,7 +1528,7 @@ impl TypesettingEngine {
 
             let effective_space_before = prev_space_after.max(space_before);
             let total_lines = p_lines.len();
-            for (l_idx, line) in p_lines.into_iter().enumerate() {
+            for (l_idx, line) in p_lines.iter().cloned().enumerate() {
                 let char_offset = line
                     .glyphs
                     .iter()
@@ -1252,27 +1577,345 @@ impl TypesettingEngine {
         }
 
         let breaker = GlobalPageBreaker::new(content_height);
-        let slices = breaker.break_pages(&pagination_inputs);
+        let slices = breaker.break_pages_with_start_num(&pagination_inputs, start_page_num);
 
         let mut pages = Vec::new();
-        for (page_idx, slice) in slices.into_iter().enumerate() {
-            let page = if slice.is_blank {
-                self.new_blank_page(page_idx + 1)
+        for (idx, slice) in slices.into_iter().enumerate() {
+            let page_num = start_page_num + idx;
+            let mut page = if slice.is_blank {
+                self.new_blank_page(page_num)
             } else {
                 self.new_page(
-                    page_idx + 1,
+                    page_num,
                     content_width,
                     slice.total_height,
                     slice.lines,
                     slice.break_token,
-                    flow_id,
+                    default_flow_id,
                 )
             };
+            Self::attach_media_to_single_column_page(&mut page, media_paras, is_doc_rtl);
             pages.push(page);
+        }
+        pages
+    }
+
+    /// Internal implementation of document typesetting with per-section routing:
+    /// - Multi-flow commentary sections -> `typeset_document_multi_flow`
+    /// - Continuous multi-column or `SpanAllColumns` sections -> `ContinuousColumnPaginator`
+    /// - Standard single-column sections -> `GlobalPageBreaker`
+    pub fn typeset_document_internal(&self, doc: &DocumentRoot) -> Vec<PageLayoutBox> {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum SectionRoute {
+            SingleColumn,
+            MultiColumn,
+            MultiFlow,
+        }
+
+        let content = self.content_rect_for_side(SpreadSide::Recto);
+        let content_width = content.width;
+        let content_height = content.height;
+        let is_doc_rtl = doc.metadata.progression != tok_core::styles::Progression::Ltr;
+
+        let classify_section = |sec: &tok_core::model::SectionNode| {
+            let non_fn_flows = sec
+                .flows
+                .iter()
+                .filter(|f| f.flow_type != tok_core::model::FlowType::Footnote)
+                .count();
+            let col_req = sec.column_count.unwrap_or(1).clamp(1, 6);
+            let has_span_all = sec
+                .main_flow()
+                .or_else(|| sec.flows.first())
+                .is_some_and(|f| {
+                    f.paragraphs.iter().any(|p| {
+                        p.effective_style(&doc.paragraph_styles).column_span
+                            == tok_core::styles::ColumnSpanMode::SpanAllColumns
+                    })
+                });
+            let route =
+                if non_fn_flows > 1 || (col_req <= 1 && !has_span_all && sec.flows.len() > 1) {
+                    SectionRoute::MultiFlow
+                } else if col_req > 1 || has_span_all {
+                    SectionRoute::MultiColumn
+                } else {
+                    SectionRoute::SingleColumn
+                };
+            (route, col_req as u8)
+        };
+
+        // Fast path for legacy single-section multi-flow documents (preserves 100% existing behavior)
+        if doc.sections.len() == 1
+            && classify_section(&doc.sections[0]).0 == SectionRoute::MultiFlow
+        {
+            return self.typeset_document_multi_flow(doc);
+        }
+
+        let sec_routes: Vec<(SectionRoute, u8)> =
+            doc.sections.iter().map(&classify_section).collect();
+
+        // Collect all shaping jobs across SingleColumn and MultiColumn main flows
+        // and any MultiColumn footnote flows in one batch for Rayon + cache sharing.
+        let mut main_jobs: Vec<(usize, usize, &ParagraphNode, f32, &str)> = Vec::new();
+        let mut fn_jobs: Vec<(usize, usize, &ParagraphNode, f32, &str)> = Vec::new();
+        let mut media_paras: HashMap<tok_core::id::NodeId, &ParagraphNode> = HashMap::new();
+
+        for (sec_idx, sec) in doc.sections.iter().enumerate() {
+            let (route, col_req) = sec_routes[sec_idx];
+            if route == SectionRoute::MultiFlow {
+                continue;
+            }
+            let gutter_pt = sec.column_gutter_pt.unwrap_or(12.0);
+            let col_w = if col_req > 1 {
+                ColumnGeometry::compute(content, col_req, gutter_pt, is_doc_rtl)[0].width
+            } else {
+                content_width
+            };
+
+            if let Some(main_flow) = sec.main_flow().or_else(|| sec.flows.first()) {
+                let flow_id = main_flow.id.0.as_str();
+                for (p_idx, p) in main_flow.paragraphs.iter().enumerate() {
+                    if p.image.is_some() || p.ornament.is_some() {
+                        media_paras.insert(p.id, p);
+                    }
+                    let effective = p.effective_style(&doc.paragraph_styles);
+                    let w = if route == SectionRoute::MultiColumn
+                        && effective.column_span == tok_core::styles::ColumnSpanMode::SingleColumn
+                    {
+                        col_w
+                    } else {
+                        content_width
+                    };
+                    main_jobs.push((sec_idx, p_idx, p, w, flow_id));
+                }
+            }
+
+            if route == SectionRoute::MultiColumn {
+                for flow in &sec.flows {
+                    if flow.flow_type == tok_core::model::FlowType::Footnote {
+                        let fn_id = flow.id.0.as_str();
+                        for (p_idx, p) in flow.paragraphs.iter().enumerate() {
+                            fn_jobs.push((sec_idx, p_idx, p, content_width, fn_id));
+                        }
+                    }
+                }
+            }
+        }
+
+        let main_laid_out = self.shape_paragraph_jobs(doc, &main_jobs);
+        let fn_laid_out = if fn_jobs.is_empty() {
+            Vec::new()
+        } else {
+            self.shape_paragraph_jobs(doc, &fn_jobs)
+        };
+
+        type SecMainEntry<'a> = (usize, usize, &'a ParagraphNode, Vec<LineBox>, &'a str);
+        let mut sec_main_entries: HashMap<usize, Vec<SecMainEntry<'_>>> = HashMap::new();
+        for (&(sec_idx, p_idx, p, _, flow_id), lines) in main_jobs.iter().zip(main_laid_out) {
+            sec_main_entries
+                .entry(sec_idx)
+                .or_default()
+                .push((sec_idx, p_idx, p, lines, flow_id));
+        }
+        let mut sec_fn_lines: HashMap<usize, (String, Vec<LineBox>)> = HashMap::new();
+        for (&(sec_idx, _, _, _, fn_id), lines) in fn_jobs.iter().zip(fn_laid_out) {
+            let entry = sec_fn_lines
+                .entry(sec_idx)
+                .or_insert_with(|| (fn_id.to_string(), Vec::new()));
+            entry.1.extend(lines);
+        }
+
+        let doc_forces_odd_sections = doc.metadata.document_settings.as_ref().is_some_and(|s| {
+            s.get("chaptersStartOnOddPage")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+                || s.get("startSectionsOnOddPage")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                || s.get("forceOddPageOnSections")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+        });
+
+        let mut pages: Vec<PageLayoutBox> = Vec::new();
+        let mut pending_single: Vec<(usize, usize, &ParagraphNode, Vec<LineBox>, &str)> =
+            Vec::new();
+
+        for (sec_idx, sec) in doc.sections.iter().enumerate() {
+            let (route, col_req) = sec_routes[sec_idx];
+            match route {
+                SectionRoute::SingleColumn => {
+                    if let Some(entries) = sec_main_entries.remove(&sec_idx) {
+                        pending_single.extend(entries);
+                    }
+                }
+                SectionRoute::MultiColumn => {
+                    if !pending_single.is_empty() {
+                        let start_num = pages.len() + 1;
+                        let batch = self.paginate_single_column_sections(
+                            doc,
+                            &pending_single,
+                            start_num,
+                            doc_forces_odd_sections,
+                            &media_paras,
+                            is_doc_rtl,
+                        );
+                        pages.extend(batch);
+                        pending_single.clear();
+                    }
+
+                    let entries = sec_main_entries.remove(&sec_idx).unwrap_or_default();
+                    let sec_starts_odd = sec_idx > 0
+                        && (sec.start_on_odd_page
+                            || sec.page_break_mode == tok_core::overrides::PageBreakMode::OddPage
+                            || doc_forces_odd_sections);
+                    let flow_id = entries
+                        .first()
+                        .map(|e| e.4.to_string())
+                        .unwrap_or_else(|| "main".to_string());
+
+                    let mut col_inputs = Vec::with_capacity(entries.len());
+                    for (i, (_, _, p, lines, f_id)) in entries.into_iter().enumerate() {
+                        let style = p.effective_style(&doc.paragraph_styles);
+                        let mut force_odd = p.has_forced_odd_page_break_before()
+                            || style.force_odd_page
+                            || style.break_before == tok_core::overrides::PageBreakMode::OddPage;
+                        if i == 0 && sec_starts_odd {
+                            force_odd = true;
+                        }
+                        let mut break_before = if p.has_forced_page_break_before() {
+                            tok_core::overrides::PageBreakMode::Page
+                        } else {
+                            style.break_before
+                        };
+                        if i == 0
+                            && sec_idx > 0
+                            && sec.page_break_mode != tok_core::overrides::PageBreakMode::Auto
+                        {
+                            break_before = sec.page_break_mode;
+                        }
+                        col_inputs.push(ColumnParagraphInput {
+                            section_idx: sec_idx,
+                            paragraph_idx: i,
+                            paragraph_id: Some(p.id),
+                            flow_id: f_id.to_string(),
+                            lines,
+                            space_before_pt: style.space_before_pt.max(0.0),
+                            space_after_pt: style.space_after_pt.max(0.0),
+                            keep_with_next: style.keep_with_next,
+                            keep_together: p
+                                .overrides
+                                .as_ref()
+                                .is_some_and(|o| o.keep_lines_together),
+                            orphan_control: style.orphan_control,
+                            widow_control: style.widow_control,
+                            break_before,
+                            force_odd_page: force_odd,
+                            column_span: style.column_span,
+                            is_rtl: style
+                                .direction
+                                .map(|d| d != tok_core::styles::Progression::Ltr)
+                                .unwrap_or(is_doc_rtl),
+                            alignment: style.alignment,
+                            image: p.image.clone(),
+                            ornament: p.ornament.clone(),
+                        });
+                    }
+
+                    let (fn_flow_id, fn_lines) = sec_fn_lines
+                        .remove(&sec_idx)
+                        .unwrap_or_else(|| ("notes".to_string(), Vec::new()));
+                    let cfg = ColumnFlowConfig {
+                        section_idx: sec_idx,
+                        start_page_num: pages.len() + 1,
+                        flow_id,
+                        page_dimensions: PhysicalRect::new(
+                            0.0,
+                            0.0,
+                            self.config.page_width_pt,
+                            self.config.page_height_pt,
+                        ),
+                        column_count: col_req,
+                        column_gutter_pt: sec.column_gutter_pt.unwrap_or(12.0),
+                        column_distribution: sec.column_distribution,
+                        draw_column_rule: sec.draw_column_rule,
+                        is_rtl: is_doc_rtl,
+                        footnote_flow_id: fn_flow_id,
+                        footnote_config: FootnotePaginatorConfig::default(),
+                    };
+                    let col_pages = ContinuousColumnPaginator::paginate_section(
+                        &col_inputs,
+                        &fn_lines,
+                        &cfg,
+                        |side| self.content_rect_for_side(side),
+                    );
+                    pages.extend(col_pages);
+                }
+                SectionRoute::MultiFlow => {
+                    if !pending_single.is_empty() {
+                        let start_num = pages.len() + 1;
+                        let batch = self.paginate_single_column_sections(
+                            doc,
+                            &pending_single,
+                            start_num,
+                            doc_forces_odd_sections,
+                            &media_paras,
+                            is_doc_rtl,
+                        );
+                        pages.extend(batch);
+                        pending_single.clear();
+                    }
+
+                    if sec_idx > 0
+                        && (sec.start_on_odd_page
+                            || sec.page_break_mode == tok_core::overrides::PageBreakMode::OddPage
+                            || doc_forces_odd_sections)
+                        && (pages.len() + 1).is_multiple_of(2)
+                    {
+                        pages.push(self.new_blank_page(pages.len() + 1));
+                    }
+
+                    let mut sub_doc = doc.clone();
+                    sub_doc.sections = vec![sec.clone()];
+                    let offset = pages.len();
+                    for mut p in self.typeset_document_multi_flow(&sub_doc) {
+                        p.page_index += offset;
+                        p.page_number_gematria =
+                            GematriaEngine::to_hebrew_numeral(p.page_index + 1);
+                        pages.push(p);
+                    }
+                }
+            }
+        }
+
+        if !pending_single.is_empty() {
+            let start_num = pages.len() + 1;
+            let batch = self.paginate_single_column_sections(
+                doc,
+                &pending_single,
+                start_num,
+                doc_forces_odd_sections,
+                &media_paras,
+                is_doc_rtl,
+            );
+            pages.extend(batch);
         }
 
         if pages.is_empty() {
-            pages.push(self.new_page(1, content_width, content_height, Vec::new(), None, flow_id));
+            let fallback_flow = doc
+                .sections
+                .first()
+                .and_then(|s| s.main_flow().or_else(|| s.flows.first()))
+                .map(|f| f.id.0.as_str())
+                .unwrap_or("gemara");
+            pages.push(self.new_page(
+                1,
+                content_width,
+                content_height,
+                Vec::new(),
+                None,
+                fallback_flow,
+            ));
         }
 
         pages
@@ -2655,6 +3298,9 @@ impl TypesettingEngine {
                                         height: orig_g.height,
                                         character: jg.character,
                                         font_index: orig_g.font_index,
+                                        color_index: orig_g.color_index,
+                                        underline: orig_g.underline,
+                                        italic: orig_g.italic,
                                     };
                                     curr_x += jg.x_advance;
                                     b
@@ -2927,6 +3573,7 @@ impl TypesettingEngine {
                 frames: page_frames,
                 break_token,
                 is_blank: false,
+                ..Default::default()
             });
 
             current_page_num += 1;
@@ -4878,5 +5525,60 @@ mod tests {
         assert!(lines[0].is_drop_cap);
         assert_eq!(lines[0].text, "מֵאֵימָתַי");
         assert_eq!(lines[0].height, 32.0); // 2 lines * 16.0
+    }
+
+    #[test]
+    fn test_mixed_section_routing_and_blank_verso_to_two_column_section() {
+        use tok_core::model::{DocumentRoot, Flow, FlowId, FlowType, ParagraphNode, SectionNode};
+
+        let mut doc = DocumentRoot::new("מבחן ניתוב מדורים מעורב");
+        // Section 0: single column opening on odd page 1
+        doc.sections[0].flows[0].paragraphs = vec![ParagraphNode::new(
+            tok_core::id::FractionalIndex::new("a"),
+            "default-body",
+            "מדור ראשון בטור יחיד לפתיחת הספר.",
+        )];
+
+        // Section 1: start on odd page with 2 columns + divider rule
+        let mut sec1 = SectionNode::new("פרק שני דו טורי", "body")
+            .with_columns(2, 14.0)
+            .with_column_distribution(tok_core::styles::ColumnDistributionMode::Balanced)
+            .with_column_rule(true)
+            .with_start_on_odd_page(true);
+        let mut f1 = Flow::new(FlowId::new("main"), FlowType::Main);
+        for i in 0..8 {
+            f1.add_paragraph(ParagraphNode::new(
+                tok_core::id::FractionalIndex::new(format!("b{:02}", i)),
+                "default-body",
+                "שורה נוספת בעמוד הדו טורי לבדיקת חלוקה שווה בין הטורים.",
+            ));
+        }
+        sec1.flows = vec![f1];
+        doc.sections.push(sec1);
+
+        let eng = engine();
+        let pages = eng.typeset_document(&doc);
+        assert!(
+            pages.len() >= 3,
+            "Expected at least 3 pages (S0 page 1, blank verso page 2, S1 page 3), got {}",
+            pages.len()
+        );
+        assert!(!pages[0].is_blank);
+        assert!(
+            pages[1].is_blank,
+            "Page 2 must be Blank Verso before odd section 1"
+        );
+        assert!(!pages[2].is_blank);
+        assert_eq!(pages[2].page_number_gematria, "ג׳");
+        assert_eq!(
+            pages[2].frames.len(),
+            2,
+            "Section 1 must render 2 RTL columns on page 3"
+        );
+        assert!(
+            pages[2].frames[0].rect.x > pages[2].frames[1].rect.x,
+            "RTL column 0 must be on the right"
+        );
+        assert_eq!(pages[2].column_rules.len(), 1);
     }
 }
