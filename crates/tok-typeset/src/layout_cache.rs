@@ -86,6 +86,37 @@ impl Default for ParagraphLayoutCache {
     }
 }
 
+fn hash_color(c: &tok_core::styles::Color, hasher: &mut impl Hasher) {
+    match c {
+        tok_core::styles::Color::Rgb { r, g, b } => {
+            0u8.hash(hasher);
+            r.to_bits().hash(hasher);
+            g.to_bits().hash(hasher);
+            b.to_bits().hash(hasher);
+        }
+        tok_core::styles::Color::DeviceCmyk { c, m, y, k } => {
+            1u8.hash(hasher);
+            c.to_bits().hash(hasher);
+            m.to_bits().hash(hasher);
+            y.to_bits().hash(hasher);
+            k.to_bits().hash(hasher);
+        }
+        tok_core::styles::Color::Spot {
+            name,
+            tint,
+            fallback_cmyk,
+        } => {
+            2u8.hash(hasher);
+            name.hash(hasher);
+            tint.to_bits().hash(hasher);
+            fallback_cmyk.0.to_bits().hash(hasher);
+            fallback_cmyk.1.to_bits().hash(hasher);
+            fallback_cmyk.2.to_bits().hash(hasher);
+            fallback_cmyk.3.to_bits().hash(hasher);
+        }
+    }
+}
+
 impl ParagraphLayoutCache {
     pub fn new() -> Self {
         Self {
@@ -144,6 +175,37 @@ impl ParagraphLayoutCache {
                 llc.min_words.hash(&mut hasher);
                 llc.balance_slack.hash(&mut hasher);
             }
+            if let Some(ref c) = patch.color {
+                hash_color(c, &mut hasher);
+            }
+            if let Some(cs) = patch.column_span {
+                (cs as u8).hash(&mut hasher);
+            }
+            if let Some(dir) = patch.direction {
+                (dir as u8).hash(&mut hasher);
+            }
+            if let Some(tr) = patch.tracking_em {
+                tr.to_bits().hash(&mut hasher);
+            }
+        }
+        if let Some(ref img) = p.image {
+            img.asset_path.hash(&mut hasher);
+            img.width_pt.to_bits().hash(&mut hasher);
+            img.height_pt.to_bits().hash(&mut hasher);
+            img.intrinsic_width_px.hash(&mut hasher);
+            img.intrinsic_height_px.hash(&mut hasher);
+            (img.alignment as u8).hash(&mut hasher);
+            img.caption.hash(&mut hasher);
+        }
+        if let Some(ref orn) = p.ornament {
+            orn.ornament_id.hash(&mut hasher);
+            orn.asset_path.hash(&mut hasher);
+            orn.width_pt.to_bits().hash(&mut hasher);
+            orn.height_pt.to_bits().hash(&mut hasher);
+            (orn.placement as u8).hash(&mut hasher);
+            if let Some(ref c) = orn.color {
+                hash_color(c, &mut hasher);
+            }
         }
         if let Some(overrides) = &p.overrides {
             overrides.keep_lines_together.hash(&mut hasher);
@@ -170,6 +232,15 @@ impl ParagraphLayoutCache {
             span.format.font_weight.hash(&mut hasher);
             span.format.italic.hash(&mut hasher);
             span.format.underline.hash(&mut hasher);
+            if let Some(ref c) = span.format.color {
+                hash_color(c, &mut hasher);
+            }
+            if let Some(bs) = span.format.baseline_shift_pt {
+                bs.to_bits().hash(&mut hasher);
+            }
+            if let Some(mv) = span.format.masoretic_variant {
+                (mv as u8).hash(&mut hasher);
+            }
         }
         hasher.finish()
     }
@@ -187,6 +258,8 @@ impl ParagraphLayoutCache {
         s.indent_end_pt.to_bits().hash(&mut hasher);
         (s.alignment as u8).hash(&mut hasher);
         (s.ahalterm_stretch as u8).hash(&mut hasher);
+        hash_color(&s.color, &mut hasher);
+        (s.column_span as u8).hash(&mut hasher);
         if let Some(dc) = &s.drop_cap {
             dc.enabled.hash(&mut hasher);
             dc.lines.hash(&mut hasher);
