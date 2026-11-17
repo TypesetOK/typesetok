@@ -258,6 +258,15 @@ export class TypesetOkApp {
   }
 
   private initUI(): void {
+    this.initPluginEngine();
+    this.initTopBar();
+    this.initWorkbenchShell();
+    this.initInspector();
+    this.initStatusAndHud();
+    this.initStartupState();
+  }
+
+  private initPluginEngine(): void {
     // 1. Initialize Plugin Engine
     this.pluginEngine = new PluginEngine(
       (cmd) => this.commandPalette?.registerItem(cmd as any),
@@ -307,7 +316,9 @@ export class TypesetOkApp {
       toggleMarginsGuide: () => this.canvas?.toggleMarginsGuide(),
       toggleBaselineGuide: () => this.canvas?.toggleBaselineGuide(),
     });
+  }
 
+  private initTopBar(): void {
     // 2. Top System Bar (Modern, seamless, no grey toolbar)
     this.topBar = new TopSystemBar({
       onMenuAction: (action, data) => this.handleSystemAction(action, data),
@@ -323,7 +334,9 @@ export class TypesetOkApp {
       onRenameDocument: (newTitle) => this.renameDocument(newTitle)
     });
     this.root.appendChild(this.topBar.element);
+  }
 
+  private initWorkbenchShell(): void {
     // 3. Main Workbench Perimeter
     this.workbench = document.createElement('div');
     this.workbench.className = 'tok-workbench-main';
@@ -444,7 +457,9 @@ export class TypesetOkApp {
     this.workbench.appendChild(this.storyContainer);
     this.workbench.appendChild(this.splitDivider);
     this.workbench.appendChild(this.canvas.element);
+  }
 
+  private initInspector(): void {
     // 3d. Left Side (Trailing in RTL): Contextual Inspector
     this.inspector = new ContextualInspector({
       onDocumentChange: (settings) => {
@@ -597,6 +612,10 @@ export class TypesetOkApp {
       });
     }
 
+    this.initStatusBar();
+  }
+
+  private initStatusBar(): void {
     // 4. Status Bar (26px)
     this.statusBar = new StatusBar({
       onZoomChange: (z) => this.canvas.setZoom(z),
@@ -616,7 +635,9 @@ export class TypesetOkApp {
     // The structure bar starts on the Gemara flow; show its localized name.
     this.activeFlowId = 'gemara';
     this.statusBar.updateStats({ activeFlow: this.flowDisplayName(this.activeFlowId) });
+  }
 
+  private initStatusAndHud(): void {
     // 5. Action HUD (Floating, anchored)
     this.actionHud = new ActionHud({
       onFontChange: (f) => {
@@ -678,7 +699,9 @@ export class TypesetOkApp {
 
     // Global keyboard shortcuts supporting Hebrew & English layouts
     this.bindKeyboardShortcuts();
+  }
 
+  private initStartupState(): void {
     // 7. Welcome / Settings / About are created lazily on first open (see getters below).
 
     // Load plugins once the first frame is on screen: discovery/compilation happens
@@ -729,7 +752,9 @@ export class TypesetOkApp {
         if (startupFile && !this.hasOpenDocument) {
           this.openProjectFile(startupFile);
         }
-      }).catch(() => {});
+      }).catch((err: unknown) => {
+        console.warn('[TOK] Failed to read async startup file:', err);
+      });
     }
   }
 
