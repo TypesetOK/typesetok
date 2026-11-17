@@ -1285,23 +1285,33 @@ export function documentStateToDocumentRoot(
 
   // Merge user custom styles from state if present
   if (state.styles) {
-    for (const [sid, sty] of Object.entries(state.styles)) {
+    type StyleInput = ParagraphStyleJson & {
+      fontFamily?: string;
+      fontWeight?: number;
+      fontSizePt?: number;
+      lineHeightPt?: number;
+      spaceBeforePt?: number;
+      spaceAfterPt?: number;
+      firstLineIndentPt?: number;
+    };
+    for (const [sid, rawSty] of Object.entries(state.styles)) {
+      const sty = rawSty as StyleInput;
       const normStyle: ParagraphStyleJson = {
         id: sty.id || sid,
         name: sty.name || sid,
-        font_family: (sty as any).fontFamily || sty.font_family || 'Frank Ruhl Libre',
-        font_weight: (sty as any).fontWeight || sty.font_weight || 400,
-        font_size_pt: (sty as any).fontSizePt || sty.font_size_pt || 12,
-        line_height_pt: (sty as any).lineHeightPt || sty.line_height_pt || 14,
-        space_before_pt: (sty as any).spaceBeforePt || sty.space_before_pt || 0,
-        space_after_pt: (sty as any).spaceAfterPt || sty.space_after_pt || 0,
-        first_line_indent_pt: (sty as any).firstLineIndentPt || sty.first_line_indent_pt || 0,
+        font_family: sty.fontFamily || sty.font_family || 'Frank Ruhl Libre',
+        font_weight: sty.fontWeight || sty.font_weight || 400,
+        font_size_pt: sty.fontSizePt || sty.font_size_pt || 12,
+        line_height_pt: sty.lineHeightPt || sty.line_height_pt || 14,
+        space_before_pt: sty.spaceBeforePt || sty.space_before_pt || 0,
+        space_after_pt: sty.spaceAfterPt || sty.space_after_pt || 0,
+        first_line_indent_pt: sty.firstLineIndentPt || sty.first_line_indent_pt || 0,
         alignment: sty.alignment || 'Justified',
-        ahalterm_stretch: (sty as any).ahalterm_stretch || 'AutoVariable',
-        color: (sty as any).color || { DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 } },
-        keep_with_next: (sty as any).keep_with_next ?? false,
-        orphan_control: (sty as any).orphan_control ?? 2,
-        widow_control: (sty as any).widow_control ?? 2
+        ahalterm_stretch: sty.ahalterm_stretch || 'AutoVariable',
+        color: sty.color || { DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 } },
+        keep_with_next: sty.keep_with_next ?? false,
+        orphan_control: sty.orphan_control ?? 2,
+        widow_control: sty.widow_control ?? 2
       };
       const idx = defaultStyles.findIndex((s) => s.id === sid);
       if (idx >= 0) {

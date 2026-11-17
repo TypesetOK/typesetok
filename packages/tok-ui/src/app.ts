@@ -22,7 +22,7 @@ import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
 import { TextCleanupModal } from './components/TextCleanupModal';
 import { CleanupOptions, cleanupParagraphs } from './engine/textCleanup';
 import { PluginEngine } from './plugins/PluginEngine';
-import { StoryEditor, StoryParagraph } from 'tok-story-editor';
+import { StoryEditor, StoryParagraph, CharacterFormat } from 'tok-story-editor';
 import { PageDescriptor } from 'tok-viewer';
 import { ViewMode, MultiFlowItem } from './types';
 import { i18n, t, tf } from './i18n';
@@ -481,7 +481,7 @@ export class TypesetOkApp {
         const sel = this.storyEditor?.getStorySelection();
         const activeFlowParas = (this.activeFlowId ? this.documentState.flows[this.activeFlowId] : []) || [];
         if (sel && !sel.isCollapsed) {
-          const fmt: any = {};
+          const fmt: CharacterFormat = {};
           if (typo.fontFamily) fmt.fontFamily = typo.fontFamily;
           if (typo.fontSizePt) fmt.fontSizePt = typo.fontSizePt;
           if (typo.fontWeight) fmt.fontWeight = typo.fontWeight;
@@ -2610,7 +2610,7 @@ export class TypesetOkApp {
     }
   }
 
-  private loadDocumentRoot(docRoot: any, filePath: string, title?: string): Promise<void> {
+  private loadDocumentRoot(docRoot: Parameters<typeof documentRootToDocumentState>[0], filePath: string, title?: string): Promise<void> {
     this.resetDocumentSession();
     this.statusBar?.setBusy(true, 'טוען מסמך...');
     const baseName = filePath.split(/[\\/]/).pop() || filePath;
