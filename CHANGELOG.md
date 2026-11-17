@@ -5,6 +5,32 @@
 
 ---
 
+## [0.36.0] - 2026-11-17
+- **Importance**: minor
+- **Badge**: עברית: אדריכלות מנוע | en: Engine Architecture
+- **Title**: עברית: מנוע עימוד רציף, צבע מלא, תמונות, עיטורים וקדם-דפוס אמיתי ב-Rust | en: Clean-Room Rust Engine Separation, Multi-Column Balancing, Media & Real Preflight
+- **Summary**: עברית: הפרדה מוחלטת בין מנוע הליבה ב-Rust לשכבת הממשק הפסיבית: תמיכה מלאה בטורים רציפים (עד 6 טורים) ואיזון 5-שלבי, ריצות עיצוב מפורשות בצבע CMYK ו-Spot, אימות גופנים וחילוץ חסרים, שילוב תמונות ועיטורים וקטוריים ב-PDF/X-1a וב-PDF/X-4, ובדיקת קדם-דפוס אמיתית. | en: Full clean-room separation between the Rust core engine and the passive UI layer: continuous multi-column pagination (up to 6 columns) with a 5-stage height-balance solver, explicit per-run CMYK/Spot color rendering, font embedding/coverage validation, raster XObject images and SVG-to-PDF vector ornaments, and real Rust preflight diagnostics.
+
+### Highlights
+- [cleanroom-multicolumn] icon: layers | badge: עברית: עימוד טורים, en: Multi-Column Engine
+  - Title: עברית: מעמד טורים רציף ואיזון 5-שלבי | en: Continuous Multi-Column Paginator & 5-Stage Balance Solver
+  - Description: עברית: חלוקת מדורים לטורים בסדר RTL עם חציית טורים לכותרות, קווי הפרדה, ופתרון מדרגי לאיזון גבהי טורים בדיוק של תתי-נקודה (Mpt). | en: Per-section RTL column layout with spanning headers, column separator rules, and millipoint-accurate 5-stage height balancing.
+- [cleanroom-color-fonts] icon: file-check | badge: עברית: צבע וגופנים, en: Color & Fonts
+  - Title: עברית: צבעי CMYK/Spot מפורשים וניהול גופנים מאובטח | en: Explicit CMYK/Spot Visual Runs & Font License Validation
+  - Description: עברית: פלט מפורש של ריצות עיצוב ב-Rust הזהה לתצוגה ול-PDF, אימות פרופיל ICC, דחיית WOFF/CFF ובדיקת כיסוי ניקוד וטעמים. | en: Explicit Rust VisualLineRun output unifying canvas and PDF rendering, LUT16 ICC verification, WOFF/CFF rejection, and Hebrew/Niqqud/Taamim glyph coverage checks.
+- [cleanroom-media-preflight] icon: sparkle | badge: עברית: מדיה וקדם-דפוס, en: Media & Preflight
+  - Title: עברית: תמונות, עיטורים וקטוריים ודו"ח Preflight אמיתי | en: Raster Images, Vector Ornaments & Live Preflight Report
+  - Description: עברית: מפענח PNG/JPEG ללא תלויות, מהדר SVG-to-PDF לעיטורי קודש והזרקת דו"ח קדם-דפוס חי מהמנוע אל הממשק וחלונית הייצוא. | en: Zero-dependency PNG/JPEG XObject encoder, SVG-to-PDF ornament compiler, and live Rust PreflightEngine diagnostics in ContextualInspector and ExportDialog.
+
+### Changes
+- [fixes] עברית: מניעת דריסת קובץ קיים בשינוי שם מסמך (Issue #34), סנכרון כותרת פנימית ב-`.tok`, וכתיבת כותרת PDF/X תקינה במקום מחרוזת ריקה | en: Guard against overwriting existing target files on rename (Issue #34), sync internal `.tok` title metadata, and enforce non-empty PDF/X titles
+- [features] עברית: הוספת `VisualLineRun`, תמיכה מלאה ב-`Spot /Separation` ו-CMYK מנוהל לריצות עיצוב, קו תחתון ולקווי הפרדה | en: Add explicit `VisualLineRun` and managed CMYK / Spot `/Separation` operators across typesetting, underlines, column rules, and canvas preview
+- [typography] עברית: מנוע עימוד רב-טורי רציף `ContinuousColumnPaginator` עם פתרון איזון 5-שלבי, הערות שוליים וקווי הפרדה ב-`tok-typeset` | en: Add millipoint `Mpt`, `ContinuousColumnPaginator`, 5-stage height-balance solver, column rules, and per-section routing in `tok-typeset`
+- [features] עברית: אימות רישוי גופנים (`fsType`), כיסוי עברית/ניקוד/טעמים, חילוץ רשימת גופנים בייבוא DOCX וחלונית `MissingFontsModal` | en: Add `OS/2 fsType` and Hebrew coverage validation, `.tok` asset packaging, `MissingFontsModal`, and Electron font management
+- [features] עברית: מפענח תמונות (שטיחת אלפא ב-PDF/X-1a ו-`/SMask` ב-PDF/X-4), מהדר עיטורים וקטוריים מ-SVG ו-`PreflightEngine` מחובר לממשק המשתמש | en: Add pure-Rust PNG/JPEG XObjects, built-in and custom SVG vector ornaments, and real `PreflightEngine` checks wired to Electron IPC, `ContextualInspector`, and `ExportDialog`
+
+---
+
 ## [0.35.2] - 2026-11-09
 - **Importance**: patch
 - **Badge**: עברית: תיקון ושדרוג | en: Fixes & Update Improvements
