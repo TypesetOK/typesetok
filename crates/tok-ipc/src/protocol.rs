@@ -67,6 +67,10 @@ pub enum IpcCommand {
         node_id: NodeId,
     },
     RecalculateHeadingNumbers,
+    RegisterFont {
+        family_name: String,
+        ttf_bytes_base64: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -173,6 +177,11 @@ pub enum IpcEvent {
     HeadingNumberingUpdated {
         outline: tok_core::outline::DocumentOutline,
         affected_paragraphs: Vec<(NodeId, String)>,
+    },
+    FontRegistered {
+        family_name: String,
+        valid: bool,
+        message: String,
     },
     Error {
         code: u32,
