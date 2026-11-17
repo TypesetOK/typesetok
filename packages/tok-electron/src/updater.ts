@@ -558,7 +558,7 @@ export class TokUpdater {
    * Deep-scans removable drives and external storage devices for TypesetOK installers.
    * Scans root directories and 1-level deep common installation/download folders.
    */
-  public scanUsbDrives(): OfflineUpdateCandidate[] {
+  public async scanUsbDrives(): Promise<OfflineUpdateCandidate[]> {
     const candidates: OfflineUpdateCandidate[] = [];
     const seenPaths = new Set<string>();
 
@@ -566,22 +566,37 @@ export class TokUpdater {
 
     if (process.platform === 'win32') {
       const letters = ['D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'U', 'V', 'W', 'X', 'Y', 'Z'];
-      for (const l of letters) {
-        const root = `${l}:\\`;
-        if (fs.existsSync(root)) searchRoots.push(root);
+      const checks = await Promise.all(
+        letters.map(async (l) => {
+          const root = `${l}:\\`;
+          try {
+            await fs.promises.access(root);
+            return root;
+          } catch {
+            return null;
+          }
+        })
+      );
+      for (const r of checks) {
+        if (r) searchRoots.push(r);
       }
     } else {
       // Unix / Linux / macOS mount points
       const unixMounts = ['/media', '/run/media', '/mnt', '/Volumes'];
       for (const m of unixMounts) {
-        if (fs.existsSync(m)) {
-          try {
-            const sub = fs.readdirSync(m);
-            for (const s of sub) {
-              const full = path.join(m, s);
-              if (fs.existsSync(full)) searchRoots.push(full);
+        try {
+          const sub = await fs.promises.readdir(m);
+          for (const s of sub) {
+            const full = path.join(m, s);
+            try {
+              await fs.promises.access(full);
+              searchRoots.push(full);
+            } catch {
+              // skip inaccessible mount
             }
-          } catch {}
+          }
+        } catch {
+          // mount point does not exist
         }
       }
     }
@@ -602,11 +617,11 @@ export class TokUpdater {
 
     for (const root of searchRoots) {
       try {
-        const entries = fs.readdirSync(root);
+        const entries = await fs.promises.readdir(root);
         for (const entry of entries) {
           const fullPath = path.join(root, entry);
           let stat;
-          try { stat = fs.statSync(fullPath); } catch { continue; }
+          try { stat = await fs.promises.stat(fullPath); } catch { continue; }
 
           if (stat.isFile()) {
             if (!seenPaths.has(fullPath)) {
@@ -619,7 +634,7 @@ export class TokUpdater {
             const shouldDeepScan = subfolderKeywords.some((kw) => lowerDir.includes(kw));
             if (shouldDeepScan) {
               try {
-                const subEntries = fs.readdirSync(fullPath);
+                const subEntries = await fs.promises.readdir(fullPath);
                 for (const sub of subEntries) {
                   const subFullPath = path.join(fullPath, sub);
                   if (!seenPaths.has(subFullPath)) {
@@ -628,7 +643,9 @@ export class TokUpdater {
                     if (cand) candidates.push(cand);
                   }
                 }
-              } catch {}
+              } catch {
+                // skip unreadable subfolder
+              }
             }
           }
         }

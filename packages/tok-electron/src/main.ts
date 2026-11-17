@@ -2,7 +2,11 @@ import { app, BrowserWindow, ipcMain, shell, dialog, IpcMainInvokeEvent } from '
 import * as path from 'path';
 import * as fs from 'fs';
 import * as zlib from 'zlib';
-import { spawn, execFileSync } from 'child_process';
+import { promisify } from 'util';
+import { spawn, execFile, execFileSync } from 'child_process';
+
+const inflateRawAsync = promisify(zlib.inflateRaw);
+const execFileAsync = promisify(execFile);
 import { fileURLToPath } from 'url';
 import { buildApplicationMenu } from './menu';
 import { logger } from './logger';
@@ -124,13 +128,13 @@ function getUserFontsDir(): string {
 }
 
 /** Extracts and decompresses XML parts from a DOCX zip buffer */
-function extractDocxPartsFromBuffer(buffer: Buffer): {
+async function extractDocxPartsFromBuffer(buffer: Buffer): Promise<{
   documentXml: string | null;
   footnotesXml?: string;
   endnotesXml?: string;
   numberingXml?: string;
   stylesXml?: string;
-} {
+}> {
   if (buffer.length < 30) return { documentXml: null };
   if (buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
     return { documentXml: null };
@@ -175,7 +179,7 @@ function extractDocxPartsFromBuffer(buffer: Buffer): {
           if (compressionMethod === 0) {
             extracted[fileName] = entryBytes.toString('utf-8');
           } else if (compressionMethod === 8) {
-            extracted[fileName] = zlib.inflateRawSync(entryBytes).toString('utf-8');
+            extracted[fileName] = (await inflateRawAsync(entryBytes)).toString('utf-8');
           }
         }
       }
@@ -199,7 +203,7 @@ function extractDocxPartsFromBuffer(buffer: Buffer): {
       if (compressionMethod === 0) {
         extracted[fileName] = entryBytes.toString('utf-8');
       } else if (compressionMethod === 8) {
-        extracted[fileName] = zlib.inflateRawSync(entryBytes).toString('utf-8');
+        extracted[fileName] = (await inflateRawAsync(entryBytes)).toString('utf-8');
       }
     }
     if (compressedSize === 0 && (buffer.readUInt16LE(offset + 6) & 0x08) !== 0) break;
@@ -1076,6 +1080,34 @@ handle('tok:run-preflight', async (_, payload: { document?: unknown; inputPath?:
 // What the user picked in the Windows installer (language and projects folder), read once from the registry.
 // The language is requested synchronously by the preload on first run, because the renderer needs it before it starts.
 let installRegistryCache: { language: InstallLanguage | null; projectsDir: string | null } | undefined;
+let installRegistryPromise: Promise<{ language: InstallLanguage | null; projectsDir: string | null }> | null = null;
+
+async function readInstallRegistryAsync(): Promise<{ language: InstallLanguage | null; projectsDir: string | null }> {
+  if (installRegistryCache) return installRegistryCache;
+  if (!installRegistryPromise) {
+    installRegistryPromise = (async () => {
+      const info: { language: InstallLanguage | null; projectsDir: string | null } = { language: null, projectsDir: null };
+      if (process.platform === 'win32') {
+        for (const root of ['HKCU', 'HKLM']) {
+          try {
+            const { stdout } = await execFileAsync('reg', ['query', `${root}\\Software\\TypesetOK`], { encoding: 'utf8', timeout: 3000, windowsHide: true });
+            info.language ||= parseInstallLanguage(stdout);
+            info.projectsDir ||= parseInstallProjectsDir(stdout);
+          } catch {
+            // key missing (portable run, dev build): keep the defaults
+          }
+        }
+      }
+      installRegistryCache = info;
+      return info;
+    })();
+  }
+  return installRegistryPromise;
+}
+
+// Warm registry cache asynchronously on startup so IPC callers hit memory instead of blocking
+void readInstallRegistryAsync();
+
 function readInstallRegistry(): { language: InstallLanguage | null; projectsDir: string | null } {
   if (installRegistryCache) return installRegistryCache;
   const info: { language: InstallLanguage | null; projectsDir: string | null } = { language: null, projectsDir: null };
@@ -1428,7 +1460,7 @@ handle('tok:read-import-file', async (_, filePath: string) => {
   let stylesXml: string | undefined;
   if (ext === '.docx') {
     try {
-      const parts = extractDocxPartsFromBuffer(buffer);
+      const parts = await extractDocxPartsFromBuffer(buffer);
       if (parts.documentXml) docxXml = parts.documentXml;
       footnotesXml = parts.footnotesXml;
       endnotesXml = parts.endnotesXml;
@@ -1456,8 +1488,7 @@ handle('tok:read-import-file', async (_, filePath: string) => {
 
 handle('tok:decompress-raw', async (_, dataBase64: string) => {
   const buf = Buffer.from(requireString(dataBase64, 'dataBase64'), 'base64');
-  const zlib = await import('node:zlib');
-  const decompressed = zlib.inflateRawSync(buf);
+  const decompressed = await inflateRawAsync(buf);
   return decompressed.toString('base64');
 });
 
