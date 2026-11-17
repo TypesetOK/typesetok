@@ -7,6 +7,7 @@ import {
   GrepRuleData
 } from '../types';
 import { getBuiltinGrepRules, getDefaultMultiApparatusConfigs } from '../engine/documentBridge';
+import type { PreflightReport, PreflightStatus } from '../engine/typesetBridge';
 import { IconName } from '../icons';
 import { t, tf, i18n } from '../i18n';
 import { el, icon, button, iconButton, switchRow, segmented, selectField } from '../ui';
@@ -75,6 +76,8 @@ export class ContextualInspector {
     gematriaFormat: 'talmudic',
     preflightStatus: 'clean'
   };
+
+  private preflightReport: PreflightReport | null = null;
 
   private selectedFrame: TextFrameData = {
     id: 'frame-1',
@@ -182,6 +185,21 @@ export class ContextualInspector {
     const trimmed = title.trim();
     if (!trimmed || this.documentSettings.title === trimmed) return;
     this.documentSettings.title = trimmed;
+    if (this.mode === 'zero') {
+      this.render();
+    }
+  }
+
+  public setPreflightReport(report: PreflightReport | null): void {
+    this.preflightReport = report;
+    if (report) {
+      this.documentSettings.preflightStatus =
+        report.overall_status === 'Fail'
+          ? 'error'
+          : report.overall_status === 'Warning'
+          ? 'warning'
+          : 'clean';
+    }
     if (this.mode === 'zero') {
       this.render();
     }
@@ -444,6 +462,39 @@ export class ContextualInspector {
     ));
     c.appendChild(gridCard);
 
+    // 3b. Columns & Layout Distribution
+    const colCard = this.createCard(t('inspColumnsTitle'));
+    colCard.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspColumnsCount')));
+    colCard.appendChild(segmented(t('inspColumnsCount'), [
+      { id: '1', label: '1' },
+      { id: '2', label: '2' },
+      { id: '3', label: '3' },
+      { id: '4', label: '4' }
+    ], String(this.documentSettings.columns || 1), (id) => {
+      const columns = Number(id);
+      this.documentSettings.columns = columns;
+      this.callbacks.onDocumentChange({ columns });
+      this.render();
+    }, { fill: true }));
+    colCard.appendChild(this.createScrubber(t('inspColumnGap'), this.documentSettings.columnGapMm ?? 5, t('unitMm'), 0, 30, (v) => {
+      this.documentSettings.columnGapMm = v;
+      this.callbacks.onDocumentChange({ columnGapMm: v });
+    }));
+    colCard.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspColumnDist')));
+    colCard.appendChild(segmented(t('inspColumnDist'), [
+      { id: 'balanced', label: t('inspColumnBalanced') },
+      { id: 'sequential', label: t('inspColumnSequential') }
+    ], this.documentSettings.columnDistribution || 'balanced', (id) => {
+      const dist = id as 'balanced' | 'sequential';
+      this.documentSettings.columnDistribution = dist;
+      this.callbacks.onDocumentChange({ columnDistribution: dist });
+    }, { fill: true }));
+    colCard.appendChild(switchRow(t('inspDrawColumnRule'), Boolean(this.documentSettings.drawColumnRule), (v) => {
+      this.documentSettings.drawColumnRule = v;
+      this.callbacks.onDocumentChange({ drawColumnRule: v });
+    }, { focusKey: 'draw-column-rule' }));
+    c.appendChild(colCard);
+
     // 4. Multi-Apparatus Footnotes
     this.appendMultiApparatusCard(c);
 
@@ -452,13 +503,26 @@ export class ContextualInspector {
 
     c.appendChild(el('div', 'tok-insp-spacer'));
 
-    // 4. Continuous print check
-    c.appendChild(this.createCheckCard(t('inspPreflight'), [
-      { label: t('inspProdStatus'), value: t('inspReadyForPrint'), ok: true },
-      { label: t('inspColorProfile'), value: 'ISO Coated v2 (100% K)', ok: true },
-      { label: t('inspOverset'), value: t('inspNoIssues'), ok: true },
-      { label: t('inspImageRes'), value: t('inspImageResOk'), ok: true }
-    ]));
+    // 4. Continuous print check (strictly populated from Rust PreflightEngine)
+    if (this.preflightReport) {
+      const pfItems = [
+        {
+          label: t('inspColorProfile'),
+          value: `${this.preflightReport.profile_name} · ${this.preflightReport.pdfx_standard}`,
+          status: this.preflightReport.overall_status
+        },
+        ...this.preflightReport.checks.map((ck) => ({
+          label: ck.title,
+          value: ck.summary,
+          status: ck.status
+        }))
+      ];
+      c.appendChild(this.createCheckCard(t('inspPreflight'), pfItems));
+    } else {
+      c.appendChild(this.createCheckCard(t('inspPreflight'), [
+        { label: t('inspProdStatus'), value: t('inspPreflightWaiting'), status: 'Warning' }
+      ]));
+    }
   }
 
   // =========================================================================
@@ -648,8 +712,15 @@ export class ContextualInspector {
     // 2. Font & Spacing
     this.appendTypographyCard(c);
 
-    // 3. Alignment
+    // 3. Alignment & Column Span
     this.appendAlignCard(c);
+    const spanCard = this.createCard(t('inspColumnsTitle'));
+    spanCard.appendChild(switchRow(t('inspSpanAllColumns'), this.typographySettings.columnSpan === 'SpanAllColumns', (v) => {
+      const span = v ? 'SpanAllColumns' : 'SingleColumn';
+      this.typographySettings.columnSpan = span;
+      this.callbacks.onTypographyChange({ columnSpan: span });
+    }, { focusKey: 'span-all-columns' }));
+    c.appendChild(spanCard);
 
     // 4. Three-tier Hebrew justification
     const j = this.typographySettings.justification;
@@ -1110,21 +1181,32 @@ export class ContextualInspector {
   }
 
   /** Bottom card with a status badge and a list of checks. */
-  private createCheckCard(title: string, items: { label: string; value: string; ok: boolean }[]): HTMLElement {
+  private createCheckCard(
+    title: string,
+    items: { label: string; value: string; ok?: boolean; status?: PreflightStatus }[]
+  ): HTMLElement {
     const card = el('div', 'tok-check-card');
     const head = el('div', 'tok-check-head');
     head.appendChild(el('span', undefined, undefined, title));
-    const allOk = items.every((i) => i.ok);
-    const badge = el('span', `tok-badge ${allOk ? 'tok-badge-success' : 'tok-badge-warning'}`);
+    const resolveStatus = (i: { ok?: boolean; status?: PreflightStatus }): PreflightStatus =>
+      i.status ?? (i.ok === false ? 'Warning' : 'Pass');
+    const hasFail = items.some((i) => resolveStatus(i) === 'Fail');
+    const hasWarn = items.some((i) => resolveStatus(i) === 'Warning');
+    const badgeCls = hasFail ? 'tok-badge-error' : hasWarn ? 'tok-badge-warning' : 'tok-badge-success';
+    const badgeLabel = hasFail ? t('inspPreflightFail') : hasWarn ? t('inspPreflightWarn') : t('inspReadyForPrint');
+    const badge = el('span', `tok-badge ${badgeCls}`);
     badge.appendChild(el('span', 'tok-dot', { 'aria-hidden': 'true' }));
-    badge.appendChild(el('span', undefined, undefined, allOk ? t('inspReadyForPrint') : t('exportCheckWarnings')));
+    badge.appendChild(el('span', undefined, undefined, badgeLabel));
     head.appendChild(badge);
     card.appendChild(head);
     const list = el('ul', 'tok-check-list');
     for (const item of items) {
+      const st = resolveStatus(item);
       const li = el('li');
-      const mark = el('span', item.ok ? 'tok-ok' : 'tok-warn');
-      mark.appendChild(icon(item.ok ? 'check' : 'warning', 15));
+      const markCls = st === 'Fail' ? 'tok-err' : st === 'Warning' ? 'tok-warn' : 'tok-ok';
+      const iconName: IconName = st === 'Fail' ? 'close' : st === 'Warning' ? 'warning' : 'check';
+      const mark = el('span', markCls);
+      mark.appendChild(icon(iconName, 15));
       li.appendChild(mark);
       li.appendChild(el('span', undefined, { style: 'flex:1' }, item.label));
       li.appendChild(el('span', undefined, { style: 'color:var(--tok-text-primary)' }, item.value));
