@@ -193,6 +193,7 @@ mod tests {
                 fonts: Vec::new(),
                 is_drop_cap: false,
                 x_offset: 0.0,
+                ..Default::default()
             },
             section_idx: sec,
             paragraph_idx: p,
