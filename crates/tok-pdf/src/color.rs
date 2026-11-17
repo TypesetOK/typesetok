@@ -532,4 +532,177 @@ mod tests {
         assert!(signatures.iter().any(|s| s == b"B2A0"));
         assert!(signatures.iter().any(|s| s == b"gamt"));
     }
+
+    #[test]
+    fn icc_profiles_validate_a2b_and_b2a_lut16_transforms_across_all_profiles() {
+        fn parse_mft2(icc: &[u8], tag: &[u8; 4]) -> (usize, usize, usize, Vec<u16>) {
+            let be32 = |at: usize| u32::from_be_bytes(icc[at..at + 4].try_into().unwrap());
+            let tag_count = be32(128) as usize;
+            let offset = (0..tag_count)
+                .map(|i| 132 + i * 12)
+                .find(|&entry| icc[entry..entry + 4] == *tag)
+                .map(|entry| be32(entry + 4) as usize)
+                .expect("tag must exist");
+            assert_eq!(&icc[offset..offset + 4], b"mft2");
+            let in_ch = icc[offset + 8] as usize;
+            let out_ch = icc[offset + 9] as usize;
+            let grid = icc[offset + 10] as usize;
+            let in_entries = u16::from_be_bytes([icc[offset + 48], icc[offset + 49]]) as usize;
+            let clut_offset = offset + 52 + in_ch * in_entries * 2;
+            let total_nodes = grid.pow(in_ch as u32) * out_ch;
+            let mut clut = Vec::with_capacity(total_nodes);
+            for i in 0..total_nodes {
+                let at = clut_offset + i * 2;
+                clut.push(u16::from_be_bytes([icc[at], icc[at + 1]]));
+            }
+            (in_ch, out_ch, grid, clut)
+        }
+
+        fn interp_3d(grid: usize, out_ch: usize, clut: &[u16], x: [f32; 3]) -> Vec<f32> {
+            let n = (grid - 1) as f32;
+            let fx = x.map(|v| (v.clamp(0.0, 1.0) * n).min(n - 1e-6));
+            let i0 = fx.map(|v| v.floor() as usize);
+            let i1 = i0.map(|i| (i + 1).min(grid - 1));
+            let d = [
+                fx[0] - i0[0] as f32,
+                fx[1] - i0[1] as f32,
+                fx[2] - i0[2] as f32,
+            ];
+            let mut out = vec![0.0_f32; out_ch];
+            for mask in 0..8 {
+                let b0 = if (mask & 1) == 0 { i0[0] } else { i1[0] };
+                let b1 = if (mask & 2) == 0 { i0[1] } else { i1[1] };
+                let b2 = if (mask & 4) == 0 { i0[2] } else { i1[2] };
+                let w = (if (mask & 1) == 0 { 1.0 - d[0] } else { d[0] })
+                    * (if (mask & 2) == 0 { 1.0 - d[1] } else { d[1] })
+                    * (if (mask & 4) == 0 { 1.0 - d[2] } else { d[2] });
+                let base = ((b0 * grid + b1) * grid + b2) * out_ch;
+                for c in 0..out_ch {
+                    out[c] += w * (f32::from(clut[base + c]) / 65535.0);
+                }
+            }
+            out
+        }
+
+        fn interp_4d(grid: usize, out_ch: usize, clut: &[u16], x: [f32; 4]) -> Vec<f32> {
+            let n = (grid - 1) as f32;
+            let fx = x.map(|v| (v.clamp(0.0, 1.0) * n).min(n - 1e-6));
+            let i0 = fx.map(|v| v.floor() as usize);
+            let i1 = i0.map(|i| (i + 1).min(grid - 1));
+            let d = [
+                fx[0] - i0[0] as f32,
+                fx[1] - i0[1] as f32,
+                fx[2] - i0[2] as f32,
+                fx[3] - i0[3] as f32,
+            ];
+            let mut out = vec![0.0_f32; out_ch];
+            for mask in 0..16 {
+                let b0 = if (mask & 1) == 0 { i0[0] } else { i1[0] };
+                let b1 = if (mask & 2) == 0 { i0[1] } else { i1[1] };
+                let b2 = if (mask & 4) == 0 { i0[2] } else { i1[2] };
+                let b3 = if (mask & 8) == 0 { i0[3] } else { i1[3] };
+                let w = (if (mask & 1) == 0 { 1.0 - d[0] } else { d[0] })
+                    * (if (mask & 2) == 0 { 1.0 - d[1] } else { d[1] })
+                    * (if (mask & 4) == 0 { 1.0 - d[2] } else { d[2] })
+                    * (if (mask & 8) == 0 { 1.0 - d[3] } else { d[3] });
+                let base = (((b0 * grid + b1) * grid + b2) * grid + b3) * out_ch;
+                for c in 0..out_ch {
+                    out[c] += w * (f32::from(clut[base + c]) / 65535.0);
+                }
+            }
+            out
+        }
+
+        fn srgb_to_pcs_lab_norm(r: f32, g: f32, b: f32) -> [f32; 3] {
+            let lin = |v: f32| {
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            let (rl, gl, bl) = (lin(r), lin(g), lin(b));
+            let x = 0.4360747 * rl + 0.3850649 * gl + 0.1430804 * bl;
+            let y = 0.2225045 * rl + 0.7168786 * gl + 0.0606169 * bl;
+            let z = 0.0139322 * rl + 0.0971045 * gl + 0.7141733 * bl;
+            let f = |t: f32| {
+                if t > 216.0 / 24389.0 {
+                    t.cbrt()
+                } else {
+                    (24389.0 / 27.0 * t + 16.0) / 116.0
+                }
+            };
+            let fx = f(x / 0.9642);
+            let fy = f(y / 1.0);
+            let fz = f(z / 0.8249);
+            let l = 116.0 * fy - 16.0;
+            let a = 500.0 * (fx - fy);
+            let bb = 200.0 * (fy - fz);
+            [
+                ((l * 65280.0 / 100.0) / 65535.0).clamp(0.0, 1.0),
+                (((a + 128.0) * 256.0) / 65535.0).clamp(0.0, 1.0),
+                (((bb + 128.0) * 256.0) / 65535.0).clamp(0.0, 1.0),
+            ]
+        }
+
+        for profile in [
+            IccProfileId::Fogra39,
+            IccProfileId::Fogra51,
+            IccProfileId::IsoCoatedV2,
+            IccProfileId::Gracol2013,
+            IccProfileId::Swop2006,
+        ] {
+            let icc = ColorManagementEngine::generate_icc_profile_bytes(profile);
+            let (a2b_in, a2b_out, a2b_grid, a2b_clut) = parse_mft2(&icc, b"A2B0");
+            assert_eq!((a2b_in, a2b_out, a2b_grid), (4, 3, 9));
+            let (b2a_in, b2a_out, b2a_grid, b2a_clut) = parse_mft2(&icc, b"B2A0");
+            assert_eq!((b2a_in, b2a_out, b2a_grid), (3, 4, 9));
+            let (gamt_in, gamt_out, gamt_grid, _gamt_clut) = parse_mft2(&icc, b"gamt");
+            assert_eq!((gamt_in, gamt_out, gamt_grid), (3, 1, 17));
+
+            // 1. Pure black sRGB(0,0,0) -> B2A0 -> (0,0,0,1)
+            let black_cmyk = interp_3d(b2a_grid, 4, &b2a_clut, srgb_to_pcs_lab_norm(0.0, 0.0, 0.0));
+            assert!(
+                black_cmyk[0] < 0.01
+                    && black_cmyk[1] < 0.01
+                    && black_cmyk[2] < 0.01
+                    && black_cmyk[3] > 0.99,
+                "{:?}: pure black B2A0 got {:?}",
+                profile,
+                black_cmyk
+            );
+
+            // 2. Pure white sRGB(1,1,1) -> B2A0 -> (0,0,0,0)
+            let white_cmyk = interp_3d(b2a_grid, 4, &b2a_clut, srgb_to_pcs_lab_norm(1.0, 1.0, 1.0));
+            assert!(
+                white_cmyk.iter().all(|&v| v < 0.02),
+                "{:?}: pure white B2A0 got {:?}",
+                profile,
+                white_cmyk
+            );
+
+            // 3. Round-trip neutral gray and primary CMYK -> A2B0 -> B2A0
+            let sample_cmyk = [0.25_f32, 0.50, 0.0, 0.125];
+            let pcs_lab = interp_4d(a2b_grid, 3, &a2b_clut, sample_cmyk);
+            let roundtrip = interp_3d(b2a_grid, 4, &b2a_clut, [pcs_lab[0], pcs_lab[1], pcs_lab[2]]);
+            let tac: f32 = roundtrip.iter().sum();
+            assert!(tac <= 3.0 + 1e-3, "roundtrip TAC exceeded 300%: {tac}");
+            let lab_rt = interp_4d(
+                a2b_grid,
+                3,
+                &a2b_clut,
+                [roundtrip[0], roundtrip[1], roundtrip[2], roundtrip[3]],
+            );
+            let max_lab_err = pcs_lab
+                .iter()
+                .zip(&lab_rt)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(
+                max_lab_err < 0.08,
+                "{:?}: 9^3 B2A0 roundtrip Lab error {max_lab_err} exceeds threshold",
+                profile
+            );
+        }
+    }
 }
