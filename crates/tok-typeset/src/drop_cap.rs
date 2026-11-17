@@ -303,6 +303,7 @@ impl HebrewDropCapShaper {
                     height: font_size,
                     character: g.character,
                     font_index: 0,
+                    ..Default::default()
                 };
                 curr_x += g.x_advance;
                 gb
