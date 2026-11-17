@@ -307,14 +307,31 @@ impl TokPackage {
 
         // 3. Read document.json (bypass intermediate serde_json::Value when schema is current)
         let doc_text = read_text_entry(&mut archive, "document.json")?;
-        let root: DocumentRoot =
-            if manifest.schema_version == crate::migration::CURRENT_SCHEMA_VERSION {
-                serde_json::from_str(&doc_text)?
-            } else {
-                let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
-                let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
-                serde_json::from_value(migrated_doc_json)?
-            };
+        let root: DocumentRoot = if manifest.schema_version
+            == crate::migration::CURRENT_SCHEMA_VERSION
+        {
+            match serde_json::from_str::<DocumentRoot>(&doc_text) {
+                Ok(parsed) => {
+                    MigrationPipeline::validate_version(&parsed.metadata.schema_version)?;
+                    if parsed.metadata.schema_version == crate::migration::CURRENT_SCHEMA_VERSION {
+                        parsed
+                    } else {
+                        let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
+                        let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
+                        serde_json::from_value(migrated_doc_json)?
+                    }
+                }
+                Err(_) => {
+                    let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
+                    let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
+                    serde_json::from_value(migrated_doc_json)?
+                }
+            }
+        } else {
+            let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
+            let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
+            serde_json::from_value(migrated_doc_json)?
+        };
 
         // 4. Read assets and previews
         let mut assets = HashMap::new();

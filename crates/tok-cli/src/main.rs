@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 use tok_core::id::FractionalIndex;
-use tok_core::model::{DocumentModel, DocumentRoot, Flow, FlowId, FlowType, ParagraphNode};
+use tok_core::model::{DocumentModel, DocumentRoot, ParagraphNode};
 use tok_core::ui_state::{convert_multi_flow_state_to_root, RawMultiFlowState};
 use tok_pdf::html_projection::HtmlProjectionCompiler;
 use tok_pdf::pdf_engine::{PdfExportOptions, PdfPrePressEngine, PdfXStandard};
