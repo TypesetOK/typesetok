@@ -783,16 +783,23 @@ impl CoPaginationEngine {
                 })
                 .count();
 
-            // 5. Build physical page frames matching SpreadMathematics
-            let mut frames = Vec::new();
+            let gemara_len = tentative_gemara_lines.len();
+            let rashi_len = page_rashi_lines.len();
+            let tosafot_len = page_tosafot_lines.len();
+            let additional_lens: Vec<(FlowId, usize)> = page_additional_lines
+                .iter()
+                .map(|(fid, lines)| (fid.clone(), lines.len()))
+                .collect();
+
+            // 5. Build physical page frames matching SpreadMathematics (move vectors without cloning)
+            let mut frames = Vec::with_capacity(math.columns.len());
             for col in &math.columns {
                 let lines = match col.stream_id.as_str() {
-                    "main" => tentative_gemara_lines.clone(),
-                    "rashi" => page_rashi_lines.clone(),
-                    "tosafot" => page_tosafot_lines.clone(),
+                    "main" => std::mem::take(&mut tentative_gemara_lines),
+                    "rashi" => std::mem::take(&mut page_rashi_lines),
+                    "tosafot" => std::mem::take(&mut page_tosafot_lines),
                     _ => page_additional_lines
-                        .get(&FlowId::new(&col.stream_id))
-                        .cloned()
+                        .remove(&FlowId::new(&col.stream_id))
                         .unwrap_or_default(),
                 };
 
@@ -827,17 +834,17 @@ impl CoPaginationEngine {
                 ..Default::default()
             };
 
-            total_gemara_lines += tentative_gemara_lines.len();
-            total_rashi_lines += page_rashi_lines.len();
-            total_tosafot_lines += page_tosafot_lines.len();
+            total_gemara_lines += gemara_len;
+            total_rashi_lines += rashi_len;
+            total_tosafot_lines += tosafot_len;
 
             let mut page_stream_lines: HashMap<FlowId, usize> = HashMap::new();
-            page_stream_lines.insert(FlowId::new("main"), tentative_gemara_lines.len());
-            page_stream_lines.insert(FlowId::new("rashi"), page_rashi_lines.len());
-            page_stream_lines.insert(FlowId::new("tosafot"), page_tosafot_lines.len());
-            for (fid, lines) in &page_additional_lines {
-                page_stream_lines.insert(fid.clone(), lines.len());
-                *total_stream_lines.entry(fid.clone()).or_insert(0) += lines.len();
+            page_stream_lines.insert(FlowId::new("main"), gemara_len);
+            page_stream_lines.insert(FlowId::new("rashi"), rashi_len);
+            page_stream_lines.insert(FlowId::new("tosafot"), tosafot_len);
+            for (fid, len) in additional_lens {
+                page_stream_lines.insert(fid.clone(), len);
+                *total_stream_lines.entry(fid).or_insert(0) += len;
             }
             *total_stream_lines.entry(FlowId::new("main")).or_insert(0) +=
                 tentative_gemara_lines.len();
