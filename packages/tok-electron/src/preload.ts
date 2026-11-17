@@ -45,7 +45,13 @@ export interface TokIpcBridge {
   openDocument: (filePath: string) => Promise<unknown>;
   renameDocumentFile: (payload: { oldPath: string; newPath: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
   getProjectsDir: () => Promise<string>;
-  typesetDocument: (payload: { document?: unknown; inputPath?: string } | unknown) => Promise<{ success: boolean; pages: any[] }>;
+  typesetDocument: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown) => Promise<{ success: boolean; pages: any[]; preflight?: unknown }>;
+  runPreflight: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; standard?: string; bleed?: boolean }) => Promise<{ success: boolean; report?: unknown; error?: string }>;
+
+  // Font Inspection & Installation (Rust Core)
+  inspectFont: (fontPath: string) => Promise<{ valid: boolean; error?: string; message?: string; report?: any }>;
+  installFont: (fontPath: string) => Promise<{ success: boolean; path?: string; error?: string; message?: string; report?: any }>;
+  listUserFonts: () => Promise<{ fileName: string; path: string; base64Data: string; report?: any }[]>;
 
   // Heading & Outline Numbering
   configureHeadingNumbering: (config: unknown) => Promise<unknown>;
@@ -183,11 +189,24 @@ const tokIpc: TokIpcBridge = {
   getProjectsDir: async () => {
     return await ipcRenderer.invoke('tok:get-projects-dir');
   },
-  typesetDocument: async (payload: { document?: unknown; inputPath?: string } | unknown) => {
-    const normPayload = (payload && typeof payload === 'object' && ('document' in payload || 'inputPath' in payload))
+  typesetDocument: async (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown) => {
+    const normPayload = (payload && typeof payload === 'object' && ('document' in payload || 'inputPath' in payload || 'assetsFrom' in payload))
       ? payload
       : { document: payload };
     return await ipcRenderer.invoke('tok:typeset-document', normPayload);
+  },
+  runPreflight: async (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; standard?: string; bleed?: boolean }) => {
+    return await ipcRenderer.invoke('tok:run-preflight', payload);
+  },
+
+  inspectFont: async (fontPath: string) => {
+    return await ipcRenderer.invoke('tok:inspect-font', fontPath);
+  },
+  installFont: async (fontPath: string) => {
+    return await ipcRenderer.invoke('tok:install-font', fontPath);
+  },
+  listUserFonts: async () => {
+    return await ipcRenderer.invoke('tok:list-user-fonts');
   },
 
   // System
