@@ -21,6 +21,7 @@ pub mod column_flow;
 pub mod diagnostics;
 pub mod drop_cap;
 pub mod engine;
+#[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
 pub mod font;
 pub mod footnote_paginator;
@@ -28,6 +29,7 @@ pub mod gematria;
 pub mod geometry;
 pub mod hebrew_justify;
 pub mod hit_test;
+pub mod html_projection;
 pub mod incremental;
 pub mod knuth_plass;
 pub mod layout_cache;

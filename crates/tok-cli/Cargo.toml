@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 tok-core = { workspace = true }
-tok-typeset = { workspace = true }
+tok-typeset = { workspace = true, features = ["fixtures"] }
 tok-pdf = { workspace = true }
 tok-storage = { workspace = true }
 tok-plugin-host = { path = "../tok-plugin-host" }

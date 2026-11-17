@@ -7,7 +7,7 @@
 
 use std::fmt::Write;
 use tok_typeset::font::BOLD_SUFFIX;
-use tok_typeset::geometry::PageLayoutBox;
+use crate::geometry::PageLayoutBox;
 
 /// The engine's embedded families, in fallback order (see tok-typeset's FontManager).
 const FONT_STACK: &str =
@@ -194,7 +194,7 @@ fn html_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tok_typeset::geometry::{LineBox, PhysicalRect, TextFrameBox};
+    use crate::geometry::{LineBox, PhysicalRect, TextFrameBox};
 
     #[test]
     fn test_html_projection_containment_rules() {

@@ -14,3 +14,6 @@ thiserror = { workspace = true }
 subsetter = "0.2"
 ttf-parser = "0.24"
 miniz_oxide = "0.9"
+
+[dev-dependencies]
+tok-typeset = { workspace = true, features = ["fixtures"] }

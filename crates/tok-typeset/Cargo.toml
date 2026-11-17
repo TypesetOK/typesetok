@@ -17,6 +17,9 @@ log = { workspace = true }
 ttf-parser = "0.24"
 cassowary = { workspace = true }
 
+[features]
+fixtures = []
+
 [[bench]]
 name = "incremental_benchmark"
 harness = false
