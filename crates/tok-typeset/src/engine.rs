@@ -658,17 +658,26 @@ impl TypesettingEngine {
         let space_gid = session.space_glyph_id().unwrap_or(3);
         let base_space = font_size * SPACE_EM;
 
-        // Map byte offsets to active span index (if paragraph.spans is non-empty)
+        // Map byte offsets to active span index in O(chars + spans)
         let span_at_byte: Vec<Option<usize>> = if paragraph.spans.is_empty() {
             Vec::new()
         } else {
+            let mut char_bytes: Vec<usize> = text.char_indices().map(|(b, _)| b).collect();
+            char_bytes.push(text.len());
+            let total_chars = char_bytes.len().saturating_sub(1);
             let mut map = vec![None; text.len() + 1];
-            for (char_idx, (byte_idx, ch)) in text.char_indices().enumerate() {
-                let active_span = paragraph
-                    .spans
-                    .iter()
-                    .position(|s| char_idx >= s.start && char_idx < s.end);
-                map[byte_idx..byte_idx + ch.len_utf8()].fill(active_span);
+            for (span_idx, s) in paragraph.spans.iter().enumerate() {
+                let c_start = s.start.min(total_chars);
+                let c_end = s.end.min(total_chars);
+                if c_start < c_end {
+                    let b_start = char_bytes[c_start];
+                    let b_end = char_bytes[c_end];
+                    for slot in &mut map[b_start..b_end] {
+                        if slot.is_none() {
+                            *slot = Some(span_idx);
+                        }
+                    }
+                }
             }
             map
         };
@@ -3514,14 +3523,21 @@ impl TypesettingEngine {
                 .collect();
 
             if col_indices.len() >= 2 {
-                let mut cols_subset: Vec<TextFrameBox> =
-                    col_indices.iter().map(|&i| bal_frames[i].clone()).collect();
+                let mut cols_subset: Vec<TextFrameBox> = col_indices
+                    .iter()
+                    .map(|&i| std::mem::replace(&mut bal_frames[i], TextFrameBox {
+                        frame_id: String::new(),
+                        flow_id: String::new(),
+                        rect: crate::geometry::PhysicalRect::new(0.0, 0.0, 0.0, 0.0),
+                        lines: Vec::new(),
+                    }))
+                    .collect();
                 crate::co_pagination::SharedColumnHeightBalancer::balance_page_frames(
                     &mut cols_subset,
                     &height_balance_config,
                 );
-                for (subset_idx, &orig_idx) in col_indices.iter().enumerate() {
-                    bal_frames[orig_idx] = cols_subset[subset_idx].clone();
+                for (orig_idx, balanced) in col_indices.into_iter().zip(cols_subset) {
+                    bal_frames[orig_idx] = balanced;
                 }
             }
             page_frames = bal_frames;

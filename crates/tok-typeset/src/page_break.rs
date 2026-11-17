@@ -230,6 +230,109 @@ impl GlobalPageBreaker {
     /// this breaker checks the parity of the upcoming page. If the previous content ended on an odd page
     /// (meaning the upcoming page would be an even Verso page), an intentional `PageSlice::blank()`
     /// is automatically injected to guarantee that the opening heading is placed on an odd (Recto) page.
+    /// Breaks the next single page from `lines` given the 1-based `upcoming_page_num`.
+    pub fn break_next_page(
+        &self,
+        lines: &[PaginationLineInput],
+        upcoming_page_num: usize,
+    ) -> Option<PageSlice> {
+        if lines.is_empty() {
+            return None;
+        }
+        let upcoming_item = &lines[0];
+        if upcoming_item.line_in_paragraph == 0
+            && upcoming_item.force_odd_page_break_before
+            && upcoming_page_num.is_multiple_of(2)
+        {
+            return Some(PageSlice::blank());
+        }
+        let (slice, _) = self.break_single_slice(lines);
+        Some(slice)
+    }
+
+    fn break_single_slice(&self, remaining: &[PaginationLineInput]) -> (PageSlice, usize) {
+        let (end_idx, total_height) = self.find_best_page_break(remaining);
+        let page_lines_input = &remaining[..end_idx];
+
+        // Position lines vertically within this page slice with top-of-page margin collapsing
+        let mut page_lines = Vec::with_capacity(page_lines_input.len());
+        let mut curr_y = 0.0f32;
+        let mut prev_sec = None;
+        let mut active_drop_cap_bottom = 0.0f32;
+        let mut prev_was_drop_cap_for_para: Option<usize> = None;
+
+        for (l_idx, item) in page_lines_input.iter().enumerate() {
+            if prev_sec != Some(item.section_idx) {
+                prev_sec = Some(item.section_idx);
+            }
+
+            if item.line.is_drop_cap {
+                let margin = if l_idx > 0 { item.space_before } else { 0.0 };
+                curr_y = curr_y.max(active_drop_cap_bottom) + margin;
+                let mut line = item.line.clone();
+                line.line_index = l_idx;
+                let rel_baseline = if line.baseline_y > 0.0 && line.baseline_y <= line.height {
+                    line.baseline_y
+                } else {
+                    line.height * 0.78
+                };
+                line.baseline_y = curr_y + rel_baseline;
+                active_drop_cap_bottom = active_drop_cap_bottom.max(curr_y + line.height);
+                prev_was_drop_cap_for_para = Some(item.paragraph_idx);
+                page_lines.push(line);
+                continue;
+            }
+
+            let is_first_after_dc = prev_was_drop_cap_for_para == Some(item.paragraph_idx);
+            prev_was_drop_cap_for_para = None;
+
+            let margin = if item.line_in_paragraph == 0 && l_idx > 0 && !is_first_after_dc {
+                item.space_before
+            } else {
+                0.0
+            };
+
+            if item.line_in_paragraph == 0 && !is_first_after_dc {
+                curr_y = curr_y.max(active_drop_cap_bottom);
+            }
+
+            curr_y += margin;
+            let mut line = item.line.clone();
+            line.line_index = l_idx;
+            line.baseline_y = curr_y + line.height;
+            curr_y += line.height;
+
+            if item.line_in_paragraph + 1 == item.total_lines_in_paragraph {
+                curr_y = curr_y.max(active_drop_cap_bottom);
+                active_drop_cap_bottom = 0.0;
+            }
+
+            page_lines.push(line);
+        }
+
+        let break_token = if end_idx < remaining.len() {
+            let next_item = &remaining[end_idx];
+            Some(BreakToken {
+                section_index: next_item.section_idx,
+                paragraph_index: next_item.paragraph_idx,
+                char_offset: next_item.char_offset,
+                paragraph_id: next_item.paragraph_id,
+            })
+        } else {
+            None
+        };
+
+        (
+            PageSlice {
+                lines: page_lines,
+                total_height,
+                break_token,
+                is_blank: false,
+            },
+            end_idx,
+        )
+    }
+
     pub fn break_pages_with_start_num(
         &self,
         lines: &[PaginationLineInput],
@@ -254,84 +357,8 @@ impl GlobalPageBreaker {
                 }
             }
 
-            let (end_idx, total_height) = self.find_best_page_break(&lines[start_idx..]);
-            let page_lines_input = &lines[start_idx..start_idx + end_idx];
-
-            // Position lines vertically within this page slice with top-of-page margin collapsing
-            let mut page_lines = Vec::with_capacity(page_lines_input.len());
-            let mut curr_y = 0.0f32;
-            let mut prev_sec = None;
-            let mut active_drop_cap_bottom = 0.0f32;
-            let mut prev_was_drop_cap_for_para: Option<usize> = None;
-
-            for (l_idx, item) in page_lines_input.iter().enumerate() {
-                if prev_sec != Some(item.section_idx) {
-                    prev_sec = Some(item.section_idx);
-                }
-
-                if item.line.is_drop_cap {
-                    let margin = if l_idx > 0 { item.space_before } else { 0.0 };
-                    curr_y = curr_y.max(active_drop_cap_bottom) + margin;
-                    let mut line = item.line.clone();
-                    line.line_index = l_idx;
-                    let rel_baseline = if line.baseline_y > 0.0 && line.baseline_y <= line.height {
-                        line.baseline_y
-                    } else {
-                        line.height * 0.78
-                    };
-                    line.baseline_y = curr_y + rel_baseline;
-                    active_drop_cap_bottom = active_drop_cap_bottom.max(curr_y + line.height);
-                    prev_was_drop_cap_for_para = Some(item.paragraph_idx);
-                    page_lines.push(line);
-                    continue;
-                }
-
-                let is_first_after_dc = prev_was_drop_cap_for_para == Some(item.paragraph_idx);
-                prev_was_drop_cap_for_para = None;
-
-                let margin = if item.line_in_paragraph == 0 && l_idx > 0 && !is_first_after_dc {
-                    item.space_before
-                } else {
-                    0.0
-                };
-
-                if item.line_in_paragraph == 0 && !is_first_after_dc {
-                    curr_y = curr_y.max(active_drop_cap_bottom);
-                }
-
-                curr_y += margin;
-                let mut line = item.line.clone();
-                line.line_index = l_idx;
-                line.baseline_y = curr_y + line.height;
-                curr_y += line.height;
-
-                if item.line_in_paragraph + 1 == item.total_lines_in_paragraph {
-                    curr_y = curr_y.max(active_drop_cap_bottom);
-                    active_drop_cap_bottom = 0.0;
-                }
-
-                page_lines.push(line);
-            }
-
-            let break_token = if start_idx + end_idx < lines.len() {
-                let next_item = &lines[start_idx + end_idx];
-                Some(BreakToken {
-                    section_index: next_item.section_idx,
-                    paragraph_index: next_item.paragraph_idx,
-                    char_offset: next_item.char_offset,
-                    paragraph_id: next_item.paragraph_id,
-                })
-            } else {
-                None
-            };
-
-            pages.push(PageSlice {
-                lines: page_lines,
-                total_height,
-                break_token,
-                is_blank: false,
-            });
-
+            let (slice, end_idx) = self.break_single_slice(&lines[start_idx..]);
+            pages.push(slice);
             start_idx += end_idx;
         }
 

@@ -329,22 +329,21 @@ fn parse_document_json(
         return Ok((DocumentModel::new(root), manifest));
     }
 
-    // 2. Migration pipeline (for older schemas)
+    // 2. Parse as generic Value once, then try Migration pipeline or RawMultiFlowState
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
-        if let Ok(migrated) = tok_storage::migration::MigrationPipeline::migrate_document_json(val)
+        if let Ok(migrated) =
+            tok_storage::migration::MigrationPipeline::migrate_document_json(val.clone())
         {
             if let Ok(root) = serde_json::from_value::<DocumentRoot>(migrated) {
                 let manifest = manifest_for_root(&root);
                 return Ok((DocumentModel::new(root), manifest));
             }
         }
-    }
-
-    // 3. Raw MultiFlowDocumentState from UI
-    if let Ok(raw_state) = serde_json::from_str::<RawMultiFlowState>(content) {
-        let root = convert_multi_flow_state_to_root(raw_state);
-        let manifest = manifest_for_root(&root);
-        return Ok((DocumentModel::new(root), manifest));
+        if let Ok(raw_state) = serde_json::from_value::<RawMultiFlowState>(val) {
+            let root = convert_multi_flow_state_to_root(raw_state);
+            let manifest = manifest_for_root(&root);
+            return Ok((DocumentModel::new(root), manifest));
+        }
     }
 
     Err("Invalid document JSON: could not parse as DocumentRoot or MultiFlowDocumentState".into())

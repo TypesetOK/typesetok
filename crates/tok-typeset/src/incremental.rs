@@ -142,11 +142,17 @@ impl IncrementalPageBreaker {
                 }
             }
 
-            // Break one page
-            let single_page_slices = breaker.break_pages(&new_lines[start_idx..]);
-            let Some(first_slice) = single_page_slices.into_iter().next() else {
+            // Break one page without re-breaking the rest of the document (O(P) instead of O(P^2))
+            let Some(first_slice) =
+                breaker.break_next_page(&new_lines[start_idx..], result_pages.len() + 1)
+            else {
                 break;
             };
+            if first_slice.is_blank {
+                recomputed_count += 1;
+                result_pages.push(first_slice);
+                continue;
+            }
             let lines_consumed = first_slice.lines.len();
 
             if lines_consumed == 0 {
