@@ -18,6 +18,8 @@ export interface DocumentSettings {
   marginOutsideMm: number;
   columns: number;
   columnGapMm: number;
+  columnDistribution?: 'balanced' | 'sequential';
+  drawColumnRule?: boolean;
   baselineGridPt: number;
   baselineOffsetPt: number;
   gematriaFormat: 'standard' | 'with-geresh' | 'talmudic';
@@ -98,6 +100,7 @@ export interface TypographySettings {
   knuthPlassEnabled: boolean;
   normalizeNiqqud: boolean;
   shieldDivineNames: boolean;
+  columnSpan?: 'SingleColumn' | 'SpanAllColumns';
   keepLinesTogether: number; // Orphans/widows minimum lines
   dropCap?: DropCapSettings;
 }
