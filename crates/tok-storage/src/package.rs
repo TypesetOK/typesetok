@@ -312,8 +312,9 @@ impl TokPackage {
         {
             match serde_json::from_str::<DocumentRoot>(&doc_text) {
                 Ok(parsed) => {
-                    MigrationPipeline::validate_version(&parsed.metadata.schema_version)?;
-                    if parsed.metadata.schema_version == crate::migration::CURRENT_SCHEMA_VERSION {
+                    if parsed.metadata.schema_version == crate::migration::CURRENT_SCHEMA_VERSION
+                        || parsed.metadata.schema_version == "1.0"
+                    {
                         parsed
                     } else {
                         let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
