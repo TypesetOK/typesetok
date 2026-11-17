@@ -2,6 +2,32 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tok_core::id::NodeId;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WaiverRecord {
+    pub code: String,
+    pub reason: String,
+    pub approved_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutDiagnostic {
+    pub code: String,
+    pub severity: DiagnosticSeverity,
+    pub message: String,
+    pub page_index: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom_delta_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiver: Option<WaiverRecord>,
+}
+
 /// Detailed diagnostic summary of an incremental or full recomputation pass.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecomputeReport {
