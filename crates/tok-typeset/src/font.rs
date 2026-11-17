@@ -12,8 +12,11 @@
 
 use crate::shaper::{ShapedRun, TextShaper};
 use rustybuzz::Face;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use thiserror::Error;
 
 pub static EMBEDDED_FRANK_RUHL_LIBRE: &[u8] =
     include_bytes!("../../../assets/fonts/FrankRuhlLibre-Regular.ttf");
@@ -46,6 +49,93 @@ pub struct FontMetrics {
     pub y_min: i16,
     pub x_max: i16,
     pub y_max: i16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EmbeddingPermission {
+    Installable,
+    Editable,
+    PreviewAndPrint,
+    Restricted,
+    BitmapOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
+pub enum FontLoadError {
+    #[error(
+        "Web font formats (WOFF/WOFF2) are not supported for PDF/X prepress; supply a TTF font."
+    )]
+    RejectWoff,
+    #[error("OpenType CFF (.otf) PostScript outlines are not yet supported; supply a TrueType-flavored (.ttf) font with a 'glyf' table.")]
+    RejectCff,
+    #[error("Invalid font binary: {0}")]
+    InvalidFontBinary(String),
+    #[error("Font OS/2 fsType=0x0002 restricts embedding (Restricted License); commercial PDF embedding prohibited.")]
+    RestrictedLicense,
+    #[error("Font OS/2 fsType indicates Bitmap-Only embedding, which is incompatible with vector PDF/X.")]
+    BitmapOnlyEmbedding,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FontInspectionReport {
+    pub family_name: String,
+    pub postscript_name: Option<String>,
+    pub weight: u16,
+    pub is_bold: bool,
+    pub is_italic: bool,
+    pub glyph_count: u16,
+    pub units_per_em: u16,
+    pub fs_type: u16,
+    pub embedding_permission: EmbeddingPermission,
+    pub is_embeddable: bool,
+    pub has_hebrew_letters: bool,
+    pub hebrew_coverage_pct: f32,
+    pub niqqud_coverage_pct: f32,
+    pub taamim_coverage_pct: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissingFontDiagnostic {
+    pub family_name: String,
+    pub missing_family: bool,
+    pub missing_hebrew_coverage: bool,
+    pub missing_niqqud_coverage: bool,
+    pub missing_taamim_coverage: bool,
+    pub affected_paragraphs: usize,
+}
+
+const HEBREW_LETTERS_COUNT: usize = 27; // U+05D0..=U+05EA
+const NIQQUD_CODEPOINTS: [char; 16] = [
+    '\u{05B0}', '\u{05B1}', '\u{05B2}', '\u{05B3}', '\u{05B4}', '\u{05B5}', '\u{05B6}', '\u{05B7}',
+    '\u{05B8}', '\u{05B9}', '\u{05BA}', '\u{05BB}', '\u{05BC}', '\u{05C1}', '\u{05C2}', '\u{05C7}',
+];
+
+fn extract_name_string(face: &ttf_parser::Face<'_>, target_id: u16) -> Option<String> {
+    let mut fallback: Option<String> = None;
+    for name in face.names() {
+        if name.name_id != target_id {
+            continue;
+        }
+        if name.is_unicode() {
+            if let Some(s) = name.to_string() {
+                let t = s.trim();
+                if !t.is_empty() {
+                    if name.platform_id == ttf_parser::PlatformId::Windows {
+                        return Some(t.to_string());
+                    }
+                    if fallback.is_none() {
+                        fallback = Some(t.to_string());
+                    }
+                }
+            }
+        } else if name.platform_id == ttf_parser::PlatformId::Macintosh && fallback.is_none() {
+            let s = String::from_utf8_lossy(name.name).trim().to_string();
+            if !s.is_empty() {
+                fallback = Some(s);
+            }
+        }
+    }
+    fallback
 }
 
 #[derive(Clone)]
@@ -103,6 +193,148 @@ impl FontData {
     /// Parses a shaping face over this font's bytes.
     pub fn shaping_face(&self) -> Option<Face<'_>> {
         Face::from_slice(&self.raw_bytes, 0)
+    }
+
+    /// Inspects raw font bytes (enforcing TTF/glyf format & OS/2 fsType rules) without failing on
+    /// Restricted/BitmapOnly so diagnostics callers can still inspect `report.embedding_permission`,
+    /// OR validates strictly in [`Self::validate_and_inspect`].
+    pub fn inspect_font_bytes(
+        bytes: &[u8],
+        fallback_family: &str,
+    ) -> Result<(Self, FontInspectionReport), FontLoadError> {
+        if bytes.len() < 12 {
+            return Err(FontLoadError::InvalidFontBinary(
+                "file smaller than 12-byte sfnt header".to_string(),
+            ));
+        }
+        if &bytes[0..4] == b"wOFF" || &bytes[0..4] == b"wOF2" {
+            return Err(FontLoadError::RejectWoff);
+        }
+        let face = ttf_parser::Face::parse(bytes, 0)
+            .map_err(|e| FontLoadError::InvalidFontBinary(e.to_string()))?;
+        if face.units_per_em() == 0 {
+            return Err(FontLoadError::InvalidFontBinary(
+                "unitsPerEm is zero".to_string(),
+            ));
+        }
+        if face.tables().glyf.is_none() {
+            return Err(FontLoadError::RejectCff);
+        }
+
+        let fs_type = face
+            .raw_face()
+            .table(ttf_parser::Tag::from_bytes(b"OS/2"))
+            .and_then(|tbl| {
+                if tbl.len() >= 10 {
+                    Some(u16::from_be_bytes([tbl[8], tbl[9]]))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
+        let embedding_permission = if (fs_type & 0x0200) != 0 {
+            EmbeddingPermission::BitmapOnly
+        } else if (fs_type & 0x0002) != 0 && (fs_type & 0x000C) == 0 {
+            EmbeddingPermission::Restricted
+        } else if (fs_type & 0x0008) != 0 {
+            EmbeddingPermission::Editable
+        } else if (fs_type & 0x0004) != 0 {
+            EmbeddingPermission::PreviewAndPrint
+        } else {
+            EmbeddingPermission::Installable
+        };
+        let is_embeddable = !matches!(
+            embedding_permission,
+            EmbeddingPermission::Restricted | EmbeddingPermission::BitmapOnly
+        );
+
+        let parsed_family = extract_name_string(&face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+            .or_else(|| extract_name_string(&face, ttf_parser::name_id::FAMILY))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| fallback_family.trim().to_string());
+        let final_family = if parsed_family.is_empty() {
+            "CustomFont".to_string()
+        } else {
+            parsed_family
+        };
+        let postscript_name = extract_name_string(&face, ttf_parser::name_id::POST_SCRIPT_NAME);
+
+        let weight = face.weight().to_number();
+        let is_bold = weight >= 600 || face.is_bold();
+        let is_italic = face.is_italic();
+
+        let mut heb_hits = 0usize;
+        for cp in 0x05D0u32..=0x05EAu32 {
+            if let Some(ch) = char::from_u32(cp) {
+                if face.glyph_index(ch).is_some() {
+                    heb_hits += 1;
+                }
+            }
+        }
+        let niqqud_hits = NIQQUD_CODEPOINTS
+            .iter()
+            .filter(|&&ch| face.glyph_index(ch).is_some())
+            .count();
+        let mut taamim_hits = 0usize;
+        let taamim_total = (0x05AFu32 - 0x0591u32 + 1) as usize;
+        for cp in 0x0591u32..=0x05AFu32 {
+            if let Some(ch) = char::from_u32(cp) {
+                if face.glyph_index(ch).is_some() {
+                    taamim_hits += 1;
+                }
+            }
+        }
+
+        let report = FontInspectionReport {
+            family_name: final_family.clone(),
+            postscript_name,
+            weight,
+            is_bold,
+            is_italic,
+            glyph_count: face.number_of_glyphs(),
+            units_per_em: face.units_per_em(),
+            fs_type,
+            embedding_permission,
+            is_embeddable,
+            has_hebrew_letters: heb_hits == HEBREW_LETTERS_COUNT,
+            hebrew_coverage_pct: (heb_hits as f32 / HEBREW_LETTERS_COUNT as f32) * 100.0,
+            niqqud_coverage_pct: (niqqud_hits as f32 / NIQQUD_CODEPOINTS.len() as f32) * 100.0,
+            taamim_coverage_pct: (taamim_hits as f32 / taamim_total as f32) * 100.0,
+        };
+
+        let bbox = face.global_bounding_box();
+        let metrics = FontMetrics {
+            units_per_em: face.units_per_em(),
+            ascender: face.ascender(),
+            descender: face.descender(),
+            line_gap: face.line_gap(),
+            cap_height: face.capital_height(),
+            x_height: face.x_height(),
+            x_min: bbox.x_min,
+            y_min: bbox.y_min,
+            x_max: bbox.x_max,
+            y_max: bbox.y_max,
+        };
+        let font_data = Self {
+            family_name: final_family,
+            raw_bytes: Arc::new(bytes.to_vec()),
+            metrics,
+        };
+        Ok((font_data, report))
+    }
+
+    /// Strictly validates external font bytes for TrueType outlines and embeddable license flags.
+    pub fn validate_and_inspect(
+        bytes: &[u8],
+        fallback_family: &str,
+    ) -> Result<(Self, FontInspectionReport), FontLoadError> {
+        let (font_data, report) = Self::inspect_font_bytes(bytes, fallback_family)?;
+        match report.embedding_permission {
+            EmbeddingPermission::Restricted => Err(FontLoadError::RestrictedLicense),
+            EmbeddingPermission::BitmapOnly => Err(FontLoadError::BitmapOnlyEmbedding),
+            _ => Ok((font_data, report)),
+        }
     }
 }
 
@@ -244,6 +476,10 @@ pub struct FontManager {
     weights: BTreeMap<String, BTreeMap<u16, String>>,
     default_hebrew_family: String,
     fallback_families: Vec<String>,
+    /// Families/faces loaded from external TTF files or `.tok` packages.
+    external_keys: BTreeSet<String>,
+    /// Cached inspection reports keyed by registered face name.
+    inspection_reports: BTreeMap<String, FontInspectionReport>,
 }
 
 impl Default for FontManager {
@@ -294,11 +530,231 @@ impl FontManager {
             weights: BTreeMap::new(),
             default_hebrew_family: String::new(),
             fallback_families: Vec::new(),
+            external_keys: BTreeSet::new(),
+            inspection_reports: BTreeMap::new(),
         }
     }
 
     pub fn register_font(&mut self, font: FontData) {
         self.fonts.insert(font.family_name.clone(), Arc::new(font));
+    }
+
+    /// Validates external font bytes and registers the font + weight entry on success.
+    pub fn register_external_font_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+        fallback_family: &str,
+    ) -> Result<FontInspectionReport, FontLoadError> {
+        let (font_data, report) = FontData::validate_and_inspect(&bytes, fallback_family)?;
+        let base_family = report.family_name.clone();
+        let face_key = if report.is_bold && !base_family.ends_with(" Bold") {
+            format!("{} Bold", base_family)
+        } else {
+            base_family.clone()
+        };
+        let mut stored = font_data;
+        stored.family_name = face_key.clone();
+        self.fonts.insert(face_key.clone(), Arc::new(stored));
+        self.register_weight(&base_family, report.weight, &face_key);
+        if !self.fonts.contains_key(&base_family) {
+            if let Some(arc) = self.fonts.get(&face_key).cloned() {
+                self.fonts.insert(base_family.clone(), arc);
+            }
+        }
+        self.external_keys.insert(face_key.clone());
+        self.inspection_reports.insert(face_key, report.clone());
+        Ok(report)
+    }
+
+    /// Scans `dir` deterministically for `.ttf` / `.otf` files and registers valid external fonts.
+    pub fn load_fonts_from_dir(
+        &mut self,
+        dir: &Path,
+    ) -> Vec<(PathBuf, Result<FontInspectionReport, FontLoadError>)> {
+        let mut results = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return results;
+        };
+        let mut paths: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok().map(|ent| ent.path()))
+            .filter(|p| {
+                p.is_file()
+                    && p.extension().and_then(|s| s.to_str()).is_some_and(|ext| {
+                        ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf")
+                    })
+            })
+            .collect();
+        paths.sort();
+
+        for path in paths {
+            let fallback = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("CustomFont")
+                .to_string();
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    let res = self.register_external_font_bytes(bytes, &fallback);
+                    results.push((path, res));
+                }
+                Err(e) => {
+                    results.push((path, Err(FontLoadError::InvalidFontBinary(e.to_string()))));
+                }
+            }
+        }
+        results
+    }
+
+    /// Returns all externally registered fonts `(face_name, FontData)` not embedded by default.
+    pub fn external_fonts(&self) -> Vec<(String, Arc<FontData>)> {
+        self.external_keys
+            .iter()
+            .filter_map(|k| self.fonts.get(k).map(|f| (k.clone(), Arc::clone(f))))
+            .collect()
+    }
+
+    /// Returns true if `family` (exact or alias) exists in the manager without falling back blindly.
+    pub fn is_family_available(&self, family: &str) -> bool {
+        self.fonts.contains_key(family)
+    }
+
+    /// Returns inspection report for `family` (computing lazily from loaded font bytes if needed).
+    pub fn inspect_registered_family(&self, family: &str) -> Option<FontInspectionReport> {
+        if let Some(r) = self.inspection_reports.get(family) {
+            return Some(r.clone());
+        }
+        self.font_exact(family)
+            .and_then(|f| FontData::inspect_font_bytes(&f.raw_bytes, &f.family_name).ok())
+            .map(|(_, r)| r)
+    }
+
+    /// Scans `doc` paragraphs, styles, and character formats to report missing families
+    /// or fonts missing Hebrew/Niqqud/Taamim glyphs actually needed by the document text.
+    pub fn find_missing_or_incomplete_fonts(
+        &self,
+        doc: &tok_core::model::DocumentRoot,
+    ) -> Vec<MissingFontDiagnostic> {
+        struct Usage {
+            paras: usize,
+            needs_hebrew: bool,
+            needs_niqqud: bool,
+            needs_taamim: bool,
+        }
+        let mut usage_by_family: BTreeMap<String, Usage> = BTreeMap::new();
+        for s in &doc.paragraph_styles {
+            if !s.font_family.trim().is_empty() {
+                usage_by_family
+                    .entry(s.font_family.clone())
+                    .or_insert(Usage {
+                        paras: 0,
+                        needs_hebrew: false,
+                        needs_niqqud: false,
+                        needs_taamim: false,
+                    });
+            }
+        }
+        for cs in &doc.character_styles {
+            if let Some(fam) = &cs.font_family {
+                if !fam.trim().is_empty() {
+                    usage_by_family.entry(fam.clone()).or_insert(Usage {
+                        paras: 0,
+                        needs_hebrew: false,
+                        needs_niqqud: false,
+                        needs_taamim: false,
+                    });
+                }
+            }
+        }
+
+        for sec in &doc.sections {
+            for flow in &sec.flows {
+                for p in &flow.paragraphs {
+                    let eff = p.effective_style(&doc.paragraph_styles);
+                    let has_heb = p
+                        .text
+                        .chars()
+                        .any(|c| ('\u{05D0}'..='\u{05EA}').contains(&c));
+                    let has_niq = p.text.chars().any(|c| NIQQUD_CODEPOINTS.contains(&c));
+                    let has_taa = p
+                        .text
+                        .chars()
+                        .any(|c| ('\u{0591}'..='\u{05AF}').contains(&c));
+
+                    if !eff.font_family.trim().is_empty() {
+                        let u = usage_by_family
+                            .entry(eff.font_family.clone())
+                            .or_insert(Usage {
+                                paras: 0,
+                                needs_hebrew: false,
+                                needs_niqqud: false,
+                                needs_taamim: false,
+                            });
+                        u.paras += 1;
+                        u.needs_hebrew |= has_heb;
+                        u.needs_niqqud |= has_niq;
+                        u.needs_taamim |= has_taa;
+                    }
+                    for sp in &p.spans {
+                        if let Some(fam) = &sp.format.font_family {
+                            if !fam.trim().is_empty() {
+                                let slice: String = p
+                                    .text
+                                    .chars()
+                                    .skip(sp.start)
+                                    .take(sp.end.saturating_sub(sp.start))
+                                    .collect();
+                                let u = usage_by_family.entry(fam.clone()).or_insert(Usage {
+                                    paras: 0,
+                                    needs_hebrew: false,
+                                    needs_niqqud: false,
+                                    needs_taamim: false,
+                                });
+                                u.paras += 1;
+                                u.needs_hebrew |= slice
+                                    .chars()
+                                    .any(|c| ('\u{05D0}'..='\u{05EA}').contains(&c));
+                                u.needs_niqqud |=
+                                    slice.chars().any(|c| NIQQUD_CODEPOINTS.contains(&c));
+                                u.needs_taamim |= slice
+                                    .chars()
+                                    .any(|c| ('\u{0591}'..='\u{05AF}').contains(&c));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        for (fam, u) in usage_by_family {
+            if !self.is_family_available(&fam) {
+                out.push(MissingFontDiagnostic {
+                    family_name: fam,
+                    missing_family: true,
+                    missing_hebrew_coverage: u.needs_hebrew,
+                    missing_niqqud_coverage: u.needs_niqqud,
+                    missing_taamim_coverage: u.needs_taamim,
+                    affected_paragraphs: u.paras,
+                });
+                continue;
+            }
+            if let Some(rep) = self.inspect_registered_family(&fam) {
+                let missing_heb = u.needs_hebrew && !rep.has_hebrew_letters;
+                let missing_niq = u.needs_niqqud && rep.niqqud_coverage_pct < 50.0;
+                let missing_taa = u.needs_taamim && rep.taamim_coverage_pct < 50.0;
+                if missing_heb || missing_niq || missing_taa {
+                    out.push(MissingFontDiagnostic {
+                        family_name: fam,
+                        missing_family: false,
+                        missing_hebrew_coverage: missing_heb,
+                        missing_niqqud_coverage: missing_niq,
+                        missing_taamim_coverage: missing_taa,
+                        affected_paragraphs: u.paras,
+                    });
+                }
+            }
+        }
+        out
     }
 
     pub fn alias_font(&mut self, alias: &str, target_family: &str) {
@@ -577,5 +1033,119 @@ mod tests {
         let session = mgr.session("Noto Serif Hebrew");
         let (_, choice) = session.shape("Typeset", 12.0, false);
         assert_eq!(session.family_of(choice), Some("David Libre"));
+    }
+
+    fn patch_sfnt_table<F>(base_ttf: &[u8], tag: &[u8; 4], mut f: F) -> Vec<u8>
+    where
+        F: FnMut(&mut [u8], usize, usize),
+    {
+        let mut bytes = base_ttf.to_vec();
+        let num_tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+        for i in 0..num_tables {
+            let rec = 12 + i * 16;
+            if &bytes[rec..rec + 4] == tag {
+                let offset = u32::from_be_bytes([
+                    bytes[rec + 8],
+                    bytes[rec + 9],
+                    bytes[rec + 10],
+                    bytes[rec + 11],
+                ]) as usize;
+                let len = u32::from_be_bytes([
+                    bytes[rec + 12],
+                    bytes[rec + 13],
+                    bytes[rec + 14],
+                    bytes[rec + 15],
+                ]) as usize;
+                f(&mut bytes, rec, offset);
+                let _ = len;
+                break;
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn validates_fstype_woff_cff_and_hebrew_coverage() {
+        // 1. WOFF / WOFF2 rejected
+        assert_eq!(
+            FontData::validate_and_inspect(b"wOFF\x00\x01\x00\x00\x00\x00\x00\x20extra", "Bad")
+                .unwrap_err(),
+            FontLoadError::RejectWoff
+        );
+        assert_eq!(
+            FontData::validate_and_inspect(b"wOF2\x00\x01\x00\x00\x00\x00\x00\x20extra", "Bad")
+                .unwrap_err(),
+            FontLoadError::RejectWoff
+        );
+
+        // 2. Embedded Noto Serif Hebrew is Installable and has full Hebrew + Niqqud + Taamim
+        let (font, report) =
+            FontData::validate_and_inspect(EMBEDDED_NOTO_SERIF_HEBREW, "Fallback").unwrap();
+        assert_eq!(font.family_name, "Noto Serif Hebrew");
+        assert!(report.is_embeddable);
+        assert!(report.has_hebrew_letters);
+        assert!(report.hebrew_coverage_pct > 99.0);
+        assert!(report.niqqud_coverage_pct > 90.0);
+        assert!(report.taamim_coverage_pct > 80.0);
+
+        // 3. CFF-only font (no glyf table) rejected
+        let cff_like = patch_sfnt_table(EMBEDDED_NOTO_SERIF_HEBREW, b"glyf", |buf, rec, _| {
+            buf[rec..rec + 4].copy_from_slice(b"CFF ");
+        });
+        assert_eq!(
+            FontData::validate_and_inspect(&cff_like, "CFF").unwrap_err(),
+            FontLoadError::RejectCff
+        );
+
+        // 4. OS/2 fsType enforcement: 0x0002 Restricted -> Err, 0x0200 BitmapOnly -> Err, 0x0004/0x0008 -> Ok
+        let restricted = patch_sfnt_table(EMBEDDED_NOTO_SERIF_HEBREW, b"OS/2", |buf, _, off| {
+            buf[off + 8..off + 10].copy_from_slice(&0x0002u16.to_be_bytes());
+        });
+        assert_eq!(
+            FontData::validate_and_inspect(&restricted, "Restricted").unwrap_err(),
+            FontLoadError::RestrictedLicense
+        );
+
+        let bitmap_only = patch_sfnt_table(EMBEDDED_NOTO_SERIF_HEBREW, b"OS/2", |buf, _, off| {
+            buf[off + 8..off + 10].copy_from_slice(&0x0200u16.to_be_bytes());
+        });
+        assert_eq!(
+            FontData::validate_and_inspect(&bitmap_only, "Bitmap").unwrap_err(),
+            FontLoadError::BitmapOnlyEmbedding
+        );
+
+        let editable = patch_sfnt_table(EMBEDDED_NOTO_SERIF_HEBREW, b"OS/2", |buf, _, off| {
+            buf[off + 8..off + 10].copy_from_slice(&0x0008u16.to_be_bytes());
+        });
+        let (_, rep_ed) = FontData::validate_and_inspect(&editable, "Ed").unwrap();
+        assert_eq!(rep_ed.embedding_permission, EmbeddingPermission::Editable);
+    }
+
+    #[test]
+    fn finds_missing_or_incomplete_fonts_in_document() {
+        use tok_core::id::FractionalIndex;
+        use tok_core::model::{DocumentRoot, ParagraphNode};
+        use tok_core::styles::ParagraphStyle;
+
+        let mgr = FontManager::default();
+        let mut doc = DocumentRoot::new("Missing Fonts Test");
+        doc.paragraph_styles.push(ParagraphStyle {
+            id: "custom-missing".to_string(),
+            name: "Custom Missing".to_string(),
+            font_family: "NonExistentDavid".to_string(),
+            ..Default::default()
+        });
+        doc.sections[0].flows[0].paragraphs = vec![ParagraphNode::new(
+            FractionalIndex::initial(),
+            "custom-missing",
+            "שלום עולם",
+        )];
+
+        let diags = mgr.find_missing_or_incomplete_fonts(&doc);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].family_name, "NonExistentDavid");
+        assert!(diags[0].missing_family);
+        assert!(diags[0].missing_hebrew_coverage);
+        assert_eq!(diags[0].affected_paragraphs, 1);
     }
 }
