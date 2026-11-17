@@ -24,8 +24,8 @@ pub use header::{
 };
 pub use id::{FractionalIndex, NodeId, Ulid};
 pub use model::{
-    DocumentMetadata, DocumentModel, DocumentRoot, Flow, FlowId, FlowType, ParagraphNode,
-    SectionNode,
+    DocumentMetadata, DocumentModel, DocumentRoot, Flow, FlowId, FlowType, ImageAttachment,
+    OrnamentPlacement, OrnamentRef, ParagraphNode, SectionNode,
 };
 pub use multi_flow_anchor::{AnchorDefinition, AnchorId, CommentaryLink, MultiFlowAnchorMap};
 pub use normalizer::{canonicalize_hebrew, HebrewMarkCategory, HebrewNormalizer};
@@ -41,7 +41,7 @@ pub use spans::{
 };
 pub use styles::{
     evaluate_live_grep_spans, AhaltermStretchMode, CharacterFormat, CharacterStyle, Color,
-    DropCapConfig, GrepRule, LastLineConstraintConfig, OpticalMarginConfig, ParagraphStyle,
-    Progression, StylePatch, TextAlignment,
+    ColumnDistributionMode, ColumnSpanMode, DropCapConfig, GrepRule, LastLineConstraintConfig,
+    OpticalMarginConfig, ParagraphStyle, Progression, StylePatch, TextAlignment,
 };
 pub use transaction::{AtomicOperation, CompoundTransaction, TransactionStack};
