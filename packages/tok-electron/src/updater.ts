@@ -299,13 +299,13 @@ export class TokUpdater {
       const sha256 = await this.downloadFileStreaming(downloadUrl, partPath, onProgress);
 
       if (!this.validateExecutableBinary(partPath)) {
-        try { fs.unlinkSync(partPath); } catch {}
+        try { fs.unlinkSync(partPath); } catch (e: any) { logger.warn('[UPDATER] Failed to remove invalid .part file', { error: e?.message }); }
         return { success: false, error: 'קובץ ההתקנה שהורד אינו קובץ הפעלה תקין או שנפגם במהלך ההורדה' };
       }
 
       // Atomic rename from .part to final installer path
       if (fs.existsSync(targetPath)) {
-        try { fs.unlinkSync(targetPath); } catch {}
+        try { fs.unlinkSync(targetPath); } catch (e: any) { logger.warn('[UPDATER] Failed to remove existing installer before rename', { error: e?.message }); }
       }
       fs.renameSync(partPath, targetPath);
 
@@ -428,25 +428,25 @@ export class TokUpdater {
           });
 
           fileStream.on('error', (err: any) => {
-            try { fs.unlinkSync(destinationPath); } catch {}
+            try { fs.unlinkSync(destinationPath); } catch (e: any) { logger.warn('[UPDATER] Failed to unlink partial file on stream error', { error: e?.message }); }
             reject(err);
           });
 
           res.on('error', (err: any) => {
-            try { fs.unlinkSync(destinationPath); } catch {}
+            try { fs.unlinkSync(destinationPath); } catch (e: any) { logger.warn('[UPDATER] Failed to unlink partial file on response error', { error: e?.message }); }
             reject(err);
           });
         }
       );
 
       req.on('error', (err: any) => {
-        try { fs.unlinkSync(destinationPath); } catch {}
+        try { fs.unlinkSync(destinationPath); } catch (e: any) { logger.warn('[UPDATER] Failed to unlink partial file on request error', { error: e?.message }); }
         reject(err);
       });
 
       req.setTimeout(60000, () => {
         req.destroy();
-        try { fs.unlinkSync(destinationPath); } catch {}
+        try { fs.unlinkSync(destinationPath); } catch (e: any) { logger.warn('[UPDATER] Failed to unlink partial file on timeout', { error: e?.message }); }
         reject(new Error('פסק זמן בהורדת קובץ העדכון (60 שניות)'));
       });
     });
@@ -479,7 +479,7 @@ export class TokUpdater {
         });
       } else {
         // macOS or Linux AppImage
-        try { fs.chmodSync(filePath, 0o755); } catch {}
+        try { fs.chmodSync(filePath, 0o755); } catch (e: any) { logger.warn('[UPDATER] Failed to chmod installer', { error: e?.message }); }
         proc = spawn(filePath, [], {
           detached: true,
           stdio: 'ignore'

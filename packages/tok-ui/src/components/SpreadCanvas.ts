@@ -169,7 +169,9 @@ export class SpreadCanvas {
         const z = parseInt(savedZoom, 10);
         if (z >= MIN_ZOOM && z <= MAX_ZOOM) this.zoomPercent = z;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[CANVAS] Failed to restore canvas preferences:', err);
+    }
 
     i18n.onChange(() => {
       this.scroller.setAttribute('aria-label', t('canvasAria'));
@@ -328,7 +330,9 @@ export class SpreadCanvas {
     this.zoomPercent = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoom)));
     try {
       localStorage.setItem('tok_canvas_zoom', String(this.zoomPercent));
-    } catch {}
+    } catch (err) {
+      console.warn('[CANVAS] Failed to persist zoom level:', err);
+    }
     if (this.innerContainer) {
       this.innerContainer.style.transform = `scale(${this.zoomPercent / 100})`;
       this.updateZoomBox();
@@ -408,7 +412,9 @@ export class SpreadCanvas {
   private saveGuides(): void {
     try {
       localStorage.setItem('tok_canvas_guides', JSON.stringify({ margins: this.showMargins, baseline: this.showBaseline }));
-    } catch {}
+    } catch (err) {
+      console.warn('[CANVAS] Failed to persist guide preferences:', err);
+    }
   }
 
   public getGuides(): { margins: boolean; baseline: boolean } {

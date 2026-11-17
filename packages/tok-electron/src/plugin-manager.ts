@@ -75,7 +75,9 @@ export function isSaferEnvironment(): boolean {
     for (const p of candidates) {
       if (fs.existsSync(p)) return true;
     }
-  } catch {}
+  } catch (err: any) {
+    logger.warn('[PLUGINS] Failed checking Safer installation paths', { error: err?.message });
+  }
   return process.argv.includes('--safer') || process.env.SAFER_MODE === '1';
 }
 
@@ -187,7 +189,9 @@ export class TokPluginManager {
           if (await pathExists(p)) {
             try {
               await fsp.rm(p, { recursive: true, force: true });
-            } catch {}
+            } catch (err: any) {
+              logger.warn('[PLUGINS] Failed removing legacy starter plugin dir', { dir: p, error: err?.message });
+            }
           }
         }
       }

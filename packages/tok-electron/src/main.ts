@@ -234,12 +234,16 @@ function extractFilePathFromArgs(args: string[]): string | null {
       if (fs.existsSync(arg) && fs.statSync(arg).isFile()) {
         return path.resolve(arg);
       }
-    } catch {}
+    } catch (err: any) {
+      logger.debug?.('[MAIN] Failed to stat CLI arg path', { arg, error: err?.message });
+    }
     if (/\.(tok|docx|md|txt|json)$/i.test(arg)) {
       try {
         const resolved = path.resolve(arg);
         if (fs.existsSync(resolved)) return resolved;
-      } catch {}
+      } catch (err: any) {
+        logger.debug?.('[MAIN] Failed to resolve CLI arg path', { arg, error: err?.message });
+      }
     }
   }
   return null;
@@ -1136,12 +1140,16 @@ function getProjectsDir(): string {
     try {
       if (!fs.existsSync(regDir)) fs.mkdirSync(regDir, { recursive: true });
       if (fs.statSync(regDir).isDirectory()) return regDir;
-    } catch {}
+    } catch (err: any) {
+      logger.warn('[MAIN] Configured projects directory unavailable; falling back to Documents', { regDir, error: err?.message });
+    }
   }
   const defaultDir = path.join(app.getPath('documents'), 'TypesetOK');
   try {
     if (!fs.existsSync(defaultDir)) fs.mkdirSync(defaultDir, { recursive: true });
-  } catch {}
+  } catch (err: any) {
+    logger.warn('[MAIN] Failed to ensure default projects directory', { defaultDir, error: err?.message });
+  }
   return defaultDir;
 }
 
@@ -1207,7 +1215,9 @@ handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPat
           if (oldStat.ino && newStat.ino && oldStat.ino === newStat.ino && oldStat.dev === newStat.dev) {
             sameFile = true;
           }
-        } catch {}
+        } catch (err: any) {
+          logger.warn('[IPC] Failed to compare inode during rename check', { error: err?.message });
+        }
       }
       if (!sameFile) {
         return { success: false, error: 'TARGET_EXISTS' };
