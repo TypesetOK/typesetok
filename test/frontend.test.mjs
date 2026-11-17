@@ -3795,6 +3795,11 @@ describe('Home screen, dialogs and About screen', () => {
     const rename = appCode.slice(appCode.indexOf('public async renameDocument'), appCode.indexOf('public setDirty'));
     assert.ok(rename.includes('/\\.tok$/i.test(oldPath)'), 'only a .tok project file is renamed on disk');
     assert.ok(rename.includes('name: `${trimmed}.tok`'), 'the recent entry carries the title exactly as typed, not the sanitized file name');
+    assert.ok(rename.includes('TARGET_EXISTS'), 'aborts cleanly when target .tok file already exists');
+    assert.ok(rename.includes('saveDocumentToFile(this.currentFilePath, { silent: true })'), 'syncs internal metadata.title and manifest.json after .tok rename');
+
+    const mainCode = read('packages/tok-electron/src/main.ts');
+    assert.ok(mainCode.includes("error: 'TARGET_EXISTS'"), 'Electron rename handler checks destination existence before renaming');
   });
 
   test('TEMPLATE_TITLES in app.ts contains no demo projects', () => {
