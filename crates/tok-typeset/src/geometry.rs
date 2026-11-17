@@ -6,7 +6,7 @@ pub struct PhysicalPoint {
     pub y: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct PhysicalRect {
     pub x: f32,
     pub y: f32,
@@ -46,7 +46,7 @@ impl PhysicalRect {
 /// renderers resolve such glyphs through their `character`.
 pub const UNKNOWN_FONT: u16 = u16::MAX;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct GlyphBox {
     pub glyph_id: u32,
     /// UTF-8 byte offset of the glyph's cluster in the paragraph text.
@@ -60,9 +60,31 @@ pub struct GlyphBox {
     /// meaningful in that font.
     #[serde(default)]
     pub font_index: u16,
+    /// Index into the owning line's [`LineBox::colors`]; `0` is the paragraph's base color.
+    #[serde(default)]
+    pub color_index: u16,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub underline: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub italic: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VisualLineRun {
+    pub text: String,
+    pub font_family: String,
+    pub font_size_pt: f32,
+    pub font_weight: u16,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub italic: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub underline: bool,
+    /// CSS-compatible hex string computed by Rust for passive UI painting.
+    pub color_css: String,
+    pub color: tok_core::styles::Color,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct LineBox {
     pub line_index: usize,
     pub paragraph_id: Option<tok_core::id::NodeId>,
@@ -84,6 +106,12 @@ pub struct LineBox {
     /// Horizontal offset of this line relative to the text frame (in pt).
     #[serde(default)]
     pub x_offset: f32,
+    /// Palette of colors referenced by `GlyphBox::color_index` (index 0 = paragraph base color).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<tok_core::styles::Color>,
+    /// Explicit visual runs produced by Rust so the UI paints runs without text-matching heuristics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub visual_runs: Vec<VisualLineRun>,
 }
 
 impl LineBox {
@@ -92,6 +120,13 @@ impl LineBox {
         self.fonts
             .get(usize::from(glyph.font_index))
             .map(String::as_str)
+    }
+
+    /// Color of a glyph on this line, falling back to paragraph base color or default black.
+    pub fn color_of(&self, glyph: &GlyphBox) -> Option<&tok_core::styles::Color> {
+        self.colors
+            .get(usize::from(glyph.color_index))
+            .or_else(|| self.colors.first())
     }
 
     /// Horizontal extent `(left, right)` of the inked line relative to its
@@ -127,6 +162,27 @@ pub struct BreakToken {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlacedImageBox {
+    pub asset_path: String,
+    pub rect: PhysicalRect,
+    pub intrinsic_width_px: u32,
+    pub intrinsic_height_px: u32,
+    pub effective_dpi_x: f32,
+    pub effective_dpi_y: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paragraph_id: Option<tok_core::id::NodeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlacedOrnamentBox {
+    pub ornament_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_path: Option<String>,
+    pub rect: PhysicalRect,
+    pub color: tok_core::styles::Color,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PageLayoutBox {
     pub page_index: usize,
     pub page_number_gematria: String,
@@ -137,6 +193,18 @@ pub struct PageLayoutBox {
     /// to force an opening chapter/siman onto an odd Recto page).
     #[serde(default)]
     pub is_blank: bool,
+    /// Vertical column separator rules `(x1, y1, x2, y2)` in page coordinates (pt).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub column_rules: Vec<(f32, f32, f32, f32)>,
+    /// Structured layout & balance diagnostics produced by the Rust engine.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<crate::diagnostics::LayoutDiagnostic>,
+    /// Embedded images placed on this page with computed effective DPI.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<PlacedImageBox>,
+    /// Vector ornaments placed on this page.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ornaments: Vec<PlacedOrnamentBox>,
 }
 
 impl PageLayoutBox {
@@ -154,6 +222,10 @@ impl PageLayoutBox {
             frames,
             break_token,
             is_blank: false,
+            column_rules: Vec::new(),
+            diagnostics: Vec::new(),
+            images: Vec::new(),
+            ornaments: Vec::new(),
         }
     }
 
@@ -169,6 +241,10 @@ impl PageLayoutBox {
             frames: Vec::new(),
             break_token: None,
             is_blank: true,
+            column_rules: Vec::new(),
+            diagnostics: Vec::new(),
+            images: Vec::new(),
+            ornaments: Vec::new(),
         }
     }
 }
