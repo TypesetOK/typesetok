@@ -91,6 +91,77 @@ export interface ColorJson {
     g: number;
     b: number;
   };
+  Spot?: {
+    name: string;
+    tint: number;
+    fallback_cmyk: [number, number, number, number];
+  };
+}
+
+export function cssColorToColorJson(css?: string): ColorJson | undefined {
+  if (!css) return undefined;
+  const v = css.trim().toLowerCase();
+  if (!v) return undefined;
+
+  let r: number | undefined;
+  let g: number | undefined;
+  let b: number | undefined;
+
+  const hex6 = /^#([0-9a-f]{6})$/.exec(v);
+  if (hex6) {
+    r = parseInt(hex6[1].slice(0, 2), 16) / 255;
+    g = parseInt(hex6[1].slice(2, 4), 16) / 255;
+    b = parseInt(hex6[1].slice(4, 6), 16) / 255;
+  } else {
+    const hex3 = /^#([0-9a-f]{3})$/.exec(v);
+    if (hex3) {
+      r = parseInt(hex3[1][0] + hex3[1][0], 16) / 255;
+      g = parseInt(hex3[1][1] + hex3[1][1], 16) / 255;
+      b = parseInt(hex3[1][2] + hex3[1][2], 16) / 255;
+    } else {
+      const rgbMatch = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+)?\s*\)$/.exec(v);
+      if (rgbMatch) {
+        r = Math.min(255, Math.max(0, parseInt(rgbMatch[1], 10))) / 255;
+        g = Math.min(255, Math.max(0, parseInt(rgbMatch[2], 10))) / 255;
+        b = Math.min(255, Math.max(0, parseInt(rgbMatch[3], 10))) / 255;
+      }
+    }
+  }
+
+  if (r === undefined || g === undefined || b === undefined) {
+    return undefined;
+  }
+  // Preserve pure black as 100% K in CMYK for pre-press safety.
+  if (r <= 1e-4 && g <= 1e-4 && b <= 1e-4) {
+    return { DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 } };
+  }
+  return { Rgb: { r, g, b } };
+}
+
+export function colorJsonToCss(color?: ColorJson): string | undefined {
+  if (!color) return undefined;
+  if (color.DeviceCmyk) {
+    const { c, m, y, k } = color.DeviceCmyk;
+    const r = Math.round((1 - Math.min(1, Math.max(0, c))) * (1 - Math.min(1, Math.max(0, k))) * 255);
+    const g = Math.round((1 - Math.min(1, Math.max(0, m))) * (1 - Math.min(1, Math.max(0, k))) * 255);
+    const b = Math.round((1 - Math.min(1, Math.max(0, y))) * (1 - Math.min(1, Math.max(0, k))) * 255);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  if (color.Rgb) {
+    const r = Math.round(Math.min(1, Math.max(0, color.Rgb.r)) * 255);
+    const g = Math.round(Math.min(1, Math.max(0, color.Rgb.g)) * 255);
+    const b = Math.round(Math.min(1, Math.max(0, color.Rgb.b)) * 255);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  if (color.Spot) {
+    const t = Math.min(1, Math.max(0, color.Spot.tint));
+    const [c, m, y, k] = color.Spot.fallback_cmyk;
+    const r = Math.round((1 - Math.min(1, Math.max(0, c * t))) * (1 - Math.min(1, Math.max(0, k * t))) * 255);
+    const g = Math.round((1 - Math.min(1, Math.max(0, m * t))) * (1 - Math.min(1, Math.max(0, k * t))) * 255);
+    const b = Math.round((1 - Math.min(1, Math.max(0, y * t))) * (1 - Math.min(1, Math.max(0, k * t))) * 255);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  return undefined;
 }
 
 export interface ParagraphStyleJson {
@@ -125,6 +196,7 @@ export interface StylePatchJson {
   indent_start_pt?: number;
   indent_end_pt?: number;
   direction?: 'Rtl' | 'Ltr';
+  column_span?: 'SingleColumn' | 'SpanAllColumns';
 }
 
 export interface CharacterFormatJson {
@@ -728,6 +800,25 @@ export function syncOutlineNumberingToStoryParagraphs(
   return affected;
 }
 
+export interface ImageAttachmentJson {
+  asset_path: string;
+  width_pt: number;
+  height_pt: number;
+  alt_text?: string;
+  caption?: string;
+}
+
+export type OrnamentPlacementJson = 'BeforeParagraph' | 'AfterParagraph' | 'SectionFooter';
+
+export interface OrnamentRefJson {
+  ornament_id: string;
+  asset_path?: string;
+  width_pt: number;
+  height_pt: number;
+  placement?: OrnamentPlacementJson;
+  color?: ColorJson;
+}
+
 export interface ParagraphNodeJson {
   id: string;
   index: string;
@@ -738,6 +829,8 @@ export interface ParagraphNodeJson {
   heading_level?: HierarchyLevelJson;
   numbering_scheme?: NumberingSchemeJson;
   number_label?: string;
+  image?: ImageAttachmentJson;
+  ornament?: OrnamentRefJson;
 }
 
 export function patchToStylePatchJson(patch: ParagraphStylePatch): StylePatchJson {
@@ -753,6 +846,11 @@ export function patchToStylePatchJson(patch: ParagraphStylePatch): StylePatchJso
   if (patch.indentEndPt !== undefined) json.indent_end_pt = patch.indentEndPt;
   if (patch.alignment !== undefined) json.alignment = patch.alignment;
   if (patch.direction !== undefined) json.direction = patch.direction;
+  if (patch.color !== undefined) {
+    const colorJson = cssColorToColorJson(patch.color);
+    if (colorJson) json.color = colorJson;
+  }
+  if (patch.columnSpan !== undefined) json.column_span = patch.columnSpan;
   return json;
 }
 
@@ -769,6 +867,9 @@ export function stylePatchJsonToPatch(json: StylePatchJson): ParagraphStylePatch
   if (json.indent_end_pt != null) patch.indentEndPt = json.indent_end_pt;
   if (json.alignment != null) patch.alignment = json.alignment;
   if (json.direction != null) patch.direction = json.direction;
+  const cssColor = colorJsonToCss(json.color);
+  if (cssColor) patch.color = cssColor;
+  if (json.column_span != null) patch.columnSpan = json.column_span;
   return patch;
 }
 
@@ -783,6 +884,10 @@ export function spanToSpanJson(span: TextSpan): TextSpanJson {
   if (fmt.italic != null) fmtJson.italic = fmt.italic;
   if (fmt.underline != null) fmtJson.underline = fmt.underline;
   if (fmt.trackingEm != null) fmtJson.tracking_em = fmt.trackingEm;
+  if (fmt.color != null) {
+    const colorJson = cssColorToColorJson(fmt.color);
+    if (colorJson) fmtJson.color = colorJson;
+  }
   if (fmt.linkUrl != null) fmtJson.link_url = fmt.linkUrl;
   return {
     start: span.start,
@@ -803,16 +908,8 @@ export function spanJsonToSpan(json: TextSpanJson): TextSpan {
   if (fmt.underline != null) format.underline = fmt.underline;
   if (fmt.tracking_em != null) format.trackingEm = fmt.tracking_em;
   if (fmt.link_url != null) format.linkUrl = fmt.link_url;
-  if (fmt.color?.DeviceCmyk) {
-    const k = Math.min(1, Math.max(0, fmt.color.DeviceCmyk.k));
-    const gray = Math.round((1 - k) * 255);
-    format.color = `rgb(${gray}, ${gray}, ${gray})`;
-  } else if (fmt.color?.Rgb) {
-    const r = Math.round(fmt.color.Rgb.r * 255);
-    const g = Math.round(fmt.color.Rgb.g * 255);
-    const b = Math.round(fmt.color.Rgb.b * 255);
-    format.color = `rgb(${r}, ${g}, ${b})`;
-  }
+  const cssColor = colorJsonToCss(fmt.color);
+  if (cssColor) format.color = cssColor;
   return {
     start: json.start,
     end: json.end,
@@ -887,6 +984,10 @@ export interface SectionNodeJson {
   name: string;
   page_style: string;
   flows: FlowJson[];
+  column_count?: number;
+  column_gutter_pt?: number;
+  column_distribution?: 'Balanced' | 'Sequential';
+  draw_column_rule?: boolean;
 }
 
 export interface DocumentMetadataJson {
@@ -1133,6 +1234,25 @@ export function documentStateToDocumentRoot(
       }
 
       const spansJson: TextSpanJson[] = (p.spans || []).map(spanToSpanJson);
+      const imageJson: ImageAttachmentJson | undefined = p.image
+        ? {
+            asset_path: p.image.assetPath,
+            width_pt: p.image.widthPt,
+            height_pt: p.image.heightPt,
+            ...(p.image.altText ? { alt_text: p.image.altText } : {}),
+            ...(p.image.caption ? { caption: p.image.caption } : {}),
+          }
+        : undefined;
+      const ornamentJson: OrnamentRefJson | undefined = p.ornament
+        ? {
+            ornament_id: p.ornament.ornamentId,
+            width_pt: p.ornament.widthPt,
+            height_pt: p.ornament.heightPt,
+            ...(p.ornament.assetPath ? { asset_path: p.ornament.assetPath } : {}),
+            ...(p.ornament.placement ? { placement: p.ornament.placement } : {}),
+            ...(p.ornament.color ? { color: cssColorToColorJson(p.ornament.color) } : {}),
+          }
+        : undefined;
 
       return {
         id: pid,
@@ -1140,7 +1260,9 @@ export function documentStateToDocumentRoot(
         style_id: styleId,
         text: stripHtmlTags(p.text || ''),
         style_patches: stylePatches,
-        spans: spansJson.length > 0 ? spansJson : undefined
+        spans: spansJson.length > 0 ? spansJson : undefined,
+        ...(imageJson ? { image: imageJson } : {}),
+        ...(ornamentJson ? { ornament: ornamentJson } : {}),
       };
     });
 
@@ -1251,7 +1373,19 @@ export function documentStateToDocumentRoot(
         id: generateCrockfordUlid(),
         name: docTitle,
         page_style: 'chapter-first',
-        flows
+        flows,
+        ...(isProse || state.templateType === 'notes' || state.templateType === 'bulletin'
+          ? {
+              column_count: state.settings?.columns ? Math.max(1, Math.min(6, Math.round(state.settings.columns))) : undefined,
+              column_gutter_pt:
+                state.settings?.columnGapMm !== undefined
+                  ? Number((state.settings.columnGapMm * 72 / 25.4).toFixed(2))
+                  : undefined,
+              column_distribution:
+                state.settings?.columnDistribution === 'sequential' ? ('Sequential' as const) : ('Balanced' as const),
+              draw_column_rule: Boolean(state.settings?.drawColumnRule),
+            }
+          : {}),
       }
     ],
     multi_flow_anchors: multiFlowAnchorsJson,
@@ -1297,12 +1431,34 @@ export function documentRootToDocumentState(root: DocumentRootJson): MultiFlowDo
 
       const spans = p.spans && p.spans.length > 0 ? p.spans.map(spanJsonToSpan) : undefined;
 
+      const image = p.image
+        ? {
+            assetPath: p.image.asset_path,
+            widthPt: p.image.width_pt,
+            heightPt: p.image.height_pt,
+            ...(p.image.alt_text ? { altText: p.image.alt_text } : {}),
+            ...(p.image.caption ? { caption: p.image.caption } : {}),
+          }
+        : undefined;
+      const ornament = p.ornament
+        ? {
+            ornamentId: p.ornament.ornament_id,
+            widthPt: p.ornament.width_pt,
+            heightPt: p.ornament.height_pt,
+            ...(p.ornament.asset_path ? { assetPath: p.ornament.asset_path } : {}),
+            ...(p.ornament.placement ? { placement: p.ornament.placement } : {}),
+            ...(p.ornament.color ? { color: colorJsonToCss(p.ornament.color) } : {}),
+          }
+        : undefined;
+
       return {
         id: p.id,
         styleId: p.style_id,
         text: p.text,
         spans,
-        patch
+        patch,
+        ...(image ? { image } : {}),
+        ...(ornament ? { ornament } : {}),
       };
     });
 
@@ -1354,11 +1510,50 @@ export function documentRootToDocumentState(root: DocumentRootJson): MultiFlowDo
     }
   }
 
+  const settings: DocumentSettings | undefined = root.metadata?.document_settings
+    ? {
+        ...root.metadata.document_settings,
+        ...(sec?.column_count != null ? { columns: sec.column_count } : {}),
+        ...(sec?.column_gutter_pt != null
+          ? { columnGapMm: Number(((sec.column_gutter_pt * 25.4) / 72).toFixed(2)) }
+          : {}),
+        ...(sec?.column_distribution != null
+          ? {
+              columnDistribution:
+                sec.column_distribution === 'Sequential' ? ('sequential' as const) : ('balanced' as const),
+            }
+          : {}),
+        ...(sec?.draw_column_rule !== undefined ? { drawColumnRule: sec.draw_column_rule } : {}),
+      }
+    : sec?.column_count != null
+      ? ({
+          title,
+          pageSize: '17x24',
+          pageWidthMm: 170,
+          pageHeightMm: 240,
+          marginTopMm: 18,
+          marginBottomMm: 20,
+          marginInsideMm: 20,
+          marginOutsideMm: 15,
+          columns: sec.column_count,
+          columnGapMm:
+            sec.column_gutter_pt != null
+              ? Number(((sec.column_gutter_pt * 25.4) / 72).toFixed(2))
+              : 5,
+          columnDistribution: sec.column_distribution === 'Sequential' ? 'sequential' : 'balanced',
+          drawColumnRule: Boolean(sec.draw_column_rule),
+          baselineGridPt: 13,
+          baselineOffsetPt: 48,
+          gematriaFormat: 'talmudic',
+          preflightStatus: 'clean',
+        } as DocumentSettings)
+      : undefined;
+
   return {
     title,
     templateType,
     flows: flowMap,
-    settings: root.metadata?.document_settings,
+    settings,
     styles: Object.keys(stylesMap).length > 0 ? stylesMap : undefined,
     multiFlowAnchors: multiFlowAnchors.length > 0 ? multiFlowAnchors : undefined,
     footnoteApparatuses: root.footnote_apparatuses && root.footnote_apparatuses.length > 0
