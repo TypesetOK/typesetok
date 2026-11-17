@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -7,8 +7,10 @@ use tok_core::id::FractionalIndex;
 use tok_core::model::{DocumentModel, DocumentRoot, Flow, FlowId, FlowType, ParagraphNode};
 use tok_pdf::html_projection::HtmlProjectionCompiler;
 use tok_pdf::pdf_engine::{PdfExportOptions, PdfPrePressEngine, PdfXStandard};
+use tok_pdf::preflight::PreflightEngine;
 use tok_storage::package::{TokManifest, TokPackage};
 use tok_typeset::engine::{TypesettingEngine, TypesettingEngineConfig};
+use tok_typeset::font::{FontData, FontManager};
 
 fn print_usage() {
     println!(
@@ -32,6 +34,8 @@ COMMANDS:
     benchmark-typeset [--pages N]   Run 1,000-page stress test and cascade latency benchmark
     verify-determinism              Verify bit-for-bit layout & PDF output determinism
     inspect-package <INPUT>         Inspect .tok package manifest, metadata, and assets
+    inspect-font <PATH.ttf>         Validate external font (glyf/OS2 fsType/Hebrew coverage) and emit JSON report
+    preflight <INPUT> [OUTPUT.json] Run real pre-press preflight evaluation and emit PreflightReport JSON
     help                            Show this help message
 
 EXAMPLES:
@@ -305,15 +309,16 @@ fn parse_document_json(
     Err("Invalid document JSON: could not parse as DocumentRoot or MultiFlowDocumentState".into())
 }
 
-fn load_document_input(
+fn load_package_or_doc(
     input: &str,
     demo_paragraphs: usize,
-) -> Result<(DocumentModel, TokManifest), Box<dyn std::error::Error>> {
+) -> Result<(DocumentModel, TokManifest, Option<TokPackage>), Box<dyn std::error::Error>> {
     if input == "--demo" {
         println!("  - Generating demo Hebrew document with Niqqud...");
         return Ok((
             create_sample_hebrew_document(demo_paragraphs),
             TokManifest::default(),
+            None,
         ));
     }
 
@@ -326,21 +331,24 @@ fn load_document_input(
     if input.ends_with(".json") {
         println!("  - Reading document JSON from: {}", input);
         let content = fs::read_to_string(input)?;
-        return parse_document_json(&content);
+        let (doc, manifest) = parse_document_json(&content)?;
+        return Ok((doc, manifest, None));
     }
 
     // Try opening as .tok zip package
     match TokPackage::open(input) {
         Ok((model, pkg)) => {
             println!("  - Opened .tok package from: {}", input);
-            Ok((model, pkg.manifest))
+            let manifest = pkg.manifest.clone();
+            Ok((model, manifest, Some(pkg)))
         }
         Err(tok_err) => {
             // Check if file content is JSON despite missing .json extension
             if let Ok(content) = fs::read_to_string(input) {
                 if content.trim_start().starts_with('{') {
                     println!("  - Parsing input as document JSON: {}", input);
-                    return parse_document_json(&content);
+                    let (doc, manifest) = parse_document_json(&content)?;
+                    return Ok((doc, manifest, None));
                 }
             }
             Err(format!(
@@ -352,17 +360,157 @@ fn load_document_input(
     }
 }
 
+fn load_document_input(
+    input: &str,
+    demo_paragraphs: usize,
+) -> Result<(DocumentModel, TokManifest), Box<dyn std::error::Error>> {
+    let (doc, manifest, _) = load_package_or_doc(input, demo_paragraphs)?;
+    Ok((doc, manifest))
+}
+
+fn extract_flag_value<'a>(extra_args: &'a [String], flag: &str) -> Option<&'a str> {
+    let mut i = 0;
+    while i + 1 < extra_args.len() {
+        if extra_args[i] == flag {
+            return Some(extra_args[i + 1].as_str());
+        }
+        i += 1;
+    }
+    None
+}
+
+fn resolve_assets_package(
+    primary_pkg: Option<TokPackage>,
+    extra_args: &[String],
+) -> Option<TokPackage> {
+    if primary_pkg.is_some() {
+        return primary_pkg;
+    }
+    let assets_from = extract_flag_value(extra_args, "--assets-from")?;
+    TokPackage::open(assets_from).ok().map(|(_, pkg)| pkg)
+}
+
+fn build_font_manager(pkg: Option<&TokPackage>, extra_args: &[String]) -> FontManager {
+    let mut mgr = FontManager::default();
+    if let Some(dir) = extract_flag_value(extra_args, "--fonts-dir") {
+        mgr.load_fonts_from_dir(Path::new(dir));
+    }
+    if let Some(package) = pkg {
+        for (rel_path, bytes) in package.font_assets() {
+            let fallback = Path::new(rel_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("EmbeddedFont");
+            let _ = mgr.register_external_font_bytes(bytes.to_vec(), fallback);
+        }
+    }
+    mgr
+}
+
+fn collect_referenced_font_families(doc: &DocumentRoot) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in &doc.paragraph_styles {
+        if !s.font_family.trim().is_empty() {
+            out.insert(s.font_family.clone());
+        }
+    }
+    for cs in &doc.character_styles {
+        if let Some(fam) = &cs.font_family {
+            if !fam.trim().is_empty() {
+                out.insert(fam.clone());
+            }
+        }
+    }
+    for sec in &doc.sections {
+        for flow in &sec.flows {
+            for p in &flow.paragraphs {
+                let eff = p.effective_style(&doc.paragraph_styles);
+                if !eff.font_family.trim().is_empty() {
+                    out.insert(eff.font_family);
+                }
+                for patch in &p.style_patches {
+                    if let Some(fam) = &patch.font_family {
+                        if !fam.trim().is_empty() {
+                            out.insert(fam.clone());
+                        }
+                    }
+                }
+                for sp in &p.spans {
+                    if let Some(fam) = &sp.format.font_family {
+                        if !fam.trim().is_empty() {
+                            out.insert(fam.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn sanitize_asset_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn inspect_font_to_json(font_path: &Path) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let bytes = fs::read(font_path)?;
+    let fallback = font_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("CustomFont");
+    match FontData::validate_and_inspect(&bytes, fallback) {
+        Ok((_, report)) => Ok(serde_json::json!({
+            "valid": true,
+            "report": report,
+        })),
+        Err(err) => {
+            let partial = FontData::inspect_font_bytes(&bytes, fallback)
+                .ok()
+                .map(|(_, rep)| rep);
+            let error_code = match err {
+                tok_typeset::font::FontLoadError::RejectWoff => "RejectWoff",
+                tok_typeset::font::FontLoadError::RejectCff => "RejectCff",
+                tok_typeset::font::FontLoadError::RestrictedLicense => "RestrictedLicense",
+                tok_typeset::font::FontLoadError::BitmapOnlyEmbedding => "BitmapOnlyEmbedding",
+                tok_typeset::font::FontLoadError::InvalidFontBinary(_) => "InvalidFontBinary",
+            };
+            Ok(serde_json::json!({
+                "valid": false,
+                "error": error_code,
+                "message": err.to_string(),
+                "report": partial,
+            }))
+        }
+    }
+}
+
+fn handle_inspect_font(font_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let json = inspect_font_to_json(Path::new(font_path))?;
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    Ok(())
+}
+
 fn handle_render_pdf(
     input: &str,
     output: &str,
     extra_args: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("[TOK-CLI] Rendering document to Pre-Press PDF: {}", output);
-    let (doc, manifest) = load_document_input(input, 30)?;
+    let (doc, manifest, pkg_opt) = load_package_or_doc(input, 30)?;
+    let assets_pkg = resolve_assets_package(pkg_opt, extra_args);
+    let font_mgr = build_font_manager(assets_pkg.as_ref(), extra_args);
 
     let start_typeset = Instant::now();
     let config = engine_config_from_root(doc.root());
-    let engine = TypesettingEngine::new(config);
+    let engine = TypesettingEngine::with_font_manager(config, font_mgr);
     let pages = engine.typeset_document(doc.root());
     let typeset_dur = start_typeset.elapsed();
     println!("  - Typeset {} pages in {:.2?}", pages.len(), typeset_dur);
@@ -407,6 +555,19 @@ fn handle_render_pdf(
     }
 
     let start_pdf = Instant::now();
+    let mut image_assets = std::collections::BTreeMap::new();
+    let mut ornament_assets = std::collections::BTreeMap::new();
+    if let Some(pkg) = assets_pkg.as_ref() {
+        for (rel, bytes) in pkg.image_assets() {
+            image_assets.insert(rel.to_string(), bytes.to_vec());
+        }
+        for (rel, bytes) in pkg.ornament_assets() {
+            if let Ok(svg) = std::str::from_utf8(bytes) {
+                ornament_assets.insert(rel.to_string(), svg.to_string());
+            }
+        }
+    }
+
     let options = PdfExportOptions {
         standard,
         color_profile,
@@ -425,6 +586,8 @@ fn handle_render_pdf(
         creation_date: Some(manifest.created_at.clone()),
         mod_date: Some(manifest.modified_at.clone()),
         compress_streams: true,
+        image_assets,
+        ornament_assets,
     };
 
     let pdf_bytes =
@@ -757,11 +920,49 @@ fn handle_inspect_package(input: &str) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn handle_save_package(input: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_save_package(
+    input: &str,
+    output: &str,
+    extra_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("[TOK-CLI] Saving document package to .tok: {}", output);
-    let (doc, manifest) = load_document_input(input, 1)?;
+    let (doc, manifest, input_pkg) = load_package_or_doc(input, 1)?;
+    let existing_pkg = input_pkg
+        .or_else(|| {
+            extract_flag_value(extra_args, "--assets-from")
+                .and_then(|p| TokPackage::open(p).ok().map(|(_, pkg)| pkg))
+        })
+        .or_else(|| {
+            if Path::new(output).exists() {
+                TokPackage::open(output).ok().map(|(_, pkg)| pkg)
+            } else {
+                None
+            }
+        });
+
     let mut pkg = TokPackage::new();
     pkg.manifest = manifest;
+    if let Some(prev) = existing_pkg.as_ref() {
+        for (rel, bytes) in &prev.assets {
+            pkg.add_asset(rel.clone(), bytes.clone());
+        }
+        pkg.manifest.created_at = prev.manifest.created_at.clone();
+    }
+
+    // Embed referenced external fonts from --fonts-dir or loaded package into assets/fonts/
+    let font_mgr = build_font_manager(existing_pkg.as_ref(), extra_args);
+    let referenced = collect_referenced_font_families(doc.root());
+    for (face_name, font_data) in font_mgr.external_fonts() {
+        let matches_ref = referenced.iter().any(|rf| {
+            rf.eq_ignore_ascii_case(&face_name)
+                || rf.eq_ignore_ascii_case(&font_data.family_name)
+                || face_name.starts_with(rf)
+        });
+        if matches_ref {
+            let file_name = format!("{}.ttf", sanitize_asset_filename(&face_name));
+            pkg.add_font_asset(&file_name, (*font_data.raw_bytes).clone());
+        }
+    }
 
     if let Some(parent) = Path::new(output).parent() {
         if !parent.as_os_str().is_empty() {
@@ -822,12 +1023,18 @@ fn handle_run_plugins(input: &str, output: &str) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-fn handle_typeset_document(input: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_typeset_document(
+    input: &str,
+    output: &str,
+    extra_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("[TOK-CLI] Typesetting document layout to JSON: {}", output);
-    let (doc, _) = load_document_input(input, 1)?;
+    let (doc, _, pkg_opt) = load_package_or_doc(input, 1)?;
+    let assets_pkg = resolve_assets_package(pkg_opt, extra_args);
+    let font_mgr = build_font_manager(assets_pkg.as_ref(), extra_args);
 
     let config = engine_config_from_root(doc.root());
-    let engine = TypesettingEngine::new(config);
+    let engine = TypesettingEngine::with_font_manager(config, font_mgr);
     let pages = engine.typeset_document(doc.root());
     println!("  - Typeset {} pages with native Rust engine", pages.len());
 
@@ -837,9 +1044,65 @@ fn handle_typeset_document(input: &str, output: &str) -> Result<(), Box<dyn std:
         }
     }
 
-    let json_bytes = serde_json::to_vec_pretty(&pages)?;
+    let with_preflight = extra_args.iter().any(|a| a == "--with-preflight");
+    let json_bytes = if with_preflight {
+        let mut opts = PdfExportOptions::default();
+        if let Some(ref pkg) = assets_pkg {
+            for (rel, bytes) in pkg.image_assets() {
+                opts.image_assets.insert(rel.to_string(), bytes.to_vec());
+            }
+        }
+        let report = PreflightEngine::evaluate(doc.root(), &pages, &engine.font_manager, &opts);
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "pages": pages,
+            "preflight": report,
+        }))?
+    } else {
+        serde_json::to_vec_pretty(&pages)?
+    };
     fs::write(output, json_bytes)?;
-    println!("  [SUCCESS] Written PageLayoutBox array to: {}", output);
+    println!("  [SUCCESS] Written layout JSON to: {}", output);
+    Ok(())
+}
+
+fn handle_preflight(
+    input: &str,
+    output_opt: Option<&str>,
+    extra_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (doc, _, pkg_opt) = load_package_or_doc(input, 1)?;
+    let assets_pkg = resolve_assets_package(pkg_opt, extra_args);
+    let font_mgr = build_font_manager(assets_pkg.as_ref(), extra_args);
+    let config = engine_config_from_root(doc.root());
+    let engine = TypesettingEngine::with_font_manager(config, font_mgr);
+    let pages = engine.typeset_document(doc.root());
+
+    let mut opts = PdfExportOptions::default();
+    if let Some(std_arg) = extract_flag_value(extra_args, "--standard") {
+        if std_arg.eq_ignore_ascii_case("pdfx4") {
+            opts.standard = PdfXStandard::PdfX4;
+        }
+    }
+    if extra_args.iter().any(|a| a == "--no-bleed") {
+        opts.bleed_pt = 0.0;
+    }
+    if let Some(ref pkg) = assets_pkg {
+        for (rel, bytes) in pkg.image_assets() {
+            opts.image_assets.insert(rel.to_string(), bytes.to_vec());
+        }
+    }
+    let report = PreflightEngine::evaluate(doc.root(), &pages, &engine.font_manager, &opts);
+    let json_str = serde_json::to_string_pretty(&report)?;
+    if let Some(out_path) = output_opt {
+        if let Some(parent) = Path::new(out_path).parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        fs::write(out_path, json_str.as_bytes())?;
+    } else {
+        println!("{}", json_str);
+    }
     Ok(())
 }
 
@@ -1028,10 +1291,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         "typeset-document" => {
             if args.len() < 4 {
-                eprintln!("Usage: tok-cli typeset-document <INPUT.json | INPUT.tok | --demo> <OUTPUT.json>");
+                eprintln!("Usage: tok-cli typeset-document <INPUT.json | INPUT.tok | --demo> <OUTPUT.json> [--fonts-dir <DIR>] [--assets-from <TOK>]");
                 std::process::exit(1);
             }
-            handle_typeset_document(&args[2], &args[3])?;
+            handle_typeset_document(&args[2], &args[3], &args[4..])?;
         }
         "incremental-typeset" => {
             if args.len() < 4 {
@@ -1054,10 +1317,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         "save-package" => {
             if args.len() < 4 {
-                eprintln!("Usage: tok-cli save-package <INPUT.json> <OUTPUT.tok>");
+                eprintln!("Usage: tok-cli save-package <INPUT.json> <OUTPUT.tok> [--fonts-dir <DIR>] [--assets-from <TOK>]");
                 std::process::exit(1);
             }
-            handle_save_package(&args[2], &args[3])?;
+            handle_save_package(&args[2], &args[3], &args[4..])?;
         }
         "open-package" => {
             if args.len() < 4 {
@@ -1107,6 +1370,26 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
             handle_inspect_package(&args[2])?;
+        }
+        "inspect-font" => {
+            if args.len() < 3 {
+                eprintln!("Usage: tok-cli inspect-font <PATH.ttf>");
+                std::process::exit(1);
+            }
+            handle_inspect_font(&args[2])?;
+        }
+        "preflight" => {
+            if args.len() < 3 {
+                eprintln!("Usage: tok-cli preflight <INPUT.json | INPUT.tok | --demo> [OUTPUT.json] [--fonts-dir <DIR>] [--assets-from <TOK>]");
+                std::process::exit(1);
+            }
+            let (out_opt, extra_start) = if args.len() >= 4 && !args[3].starts_with("--") {
+                (Some(args[3].as_str()), 4usize)
+            } else {
+                (None, 3usize)
+            };
+            let extra = args.get(extra_start..).unwrap_or(&[]);
+            handle_preflight(&args[2], out_opt, extra)?;
         }
         "help" | "-h" | "--help" => {
             print_usage();
@@ -1180,5 +1463,32 @@ mod tests {
                 .as_deref(),
             Some("סימן א׳")
         );
+    }
+
+    #[test]
+    fn inspect_font_and_package_roundtrip_bundles_external_font() {
+        let dir = env::temp_dir().join(format!("tok_cli_font_test_{}", std::process::id()));
+        let fonts_dir = dir.join("fonts");
+        fs::create_dir_all(&fonts_dir).unwrap();
+
+        let font_file = fonts_dir.join("custom_test.ttf");
+        fs::write(&font_file, tok_typeset::font::EMBEDDED_NOTO_SERIF_HEBREW).unwrap();
+        let json_report = inspect_font_to_json(&font_file).unwrap();
+        assert_eq!(json_report["valid"], serde_json::Value::Bool(true));
+        assert_eq!(
+            json_report["report"]["family_name"],
+            serde_json::Value::String("Noto Serif Hebrew".to_string())
+        );
+
+        let woff_file = dir.join("bad.woff");
+        fs::write(&woff_file, b"wOFF\x00\x01\x00\x00\x00\x00\x00\x20bad").unwrap();
+        let bad_report = inspect_font_to_json(&woff_file).unwrap();
+        assert_eq!(bad_report["valid"], serde_json::Value::Bool(false));
+        assert_eq!(
+            bad_report["error"],
+            serde_json::Value::String("RejectWoff".to_string())
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
