@@ -157,10 +157,11 @@ describe('GitHub Issue #20 Regression Tests: All Bugs Verified', () => {
   describe('Bug 8 & 13 & 14: Custom Page Dimensions and Margins', () => {
     it('Rust tok-cli extracts document_settings and passes them to TypesettingEngineConfig', () => {
       const cliRs = fs.readFileSync(path.join(rootDir, 'crates/tok-cli/src/main.rs'), 'utf-8');
+      const engineRs = fs.readFileSync(path.join(rootDir, 'crates/tok-typeset/src/engine.rs'), 'utf-8');
       assert.ok(cliRs.includes('fn engine_config_from_root'), 'CLI defines engine_config_from_root');
-      assert.ok(cliRs.includes('pageWidthMm'), 'Reads pageWidthMm from document_settings');
-      assert.ok(cliRs.includes('pageHeightMm'), 'Reads pageHeightMm from document_settings');
-      assert.ok(cliRs.includes('marginTopMm'), 'Reads marginTopMm from document_settings');
+      assert.ok(engineRs.includes('pageWidthMm'), 'Reads pageWidthMm from document_settings');
+      assert.ok(engineRs.includes('pageHeightMm'), 'Reads pageHeightMm from document_settings');
+      assert.ok(engineRs.includes('marginTopMm'), 'Reads marginTopMm from document_settings');
     });
 
     it('Rust TypesettingEngine typeset_document respects document settings dynamically', () => {

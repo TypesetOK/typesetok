@@ -6,7 +6,7 @@
 //! - RTL spread progression.
 
 use std::fmt::Write;
-use tok_typeset::font::BOLD_SUFFIX;
+use crate::font::BOLD_SUFFIX;
 use crate::geometry::PageLayoutBox;
 
 /// The engine's embedded families, in fallback order (see tok-typeset's FontManager).
