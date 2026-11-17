@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>תוכנת עימוד שולחנית מקצועית לעברית, רב-טקסט (מקראות גדולות וש"ס), צורת הדף חיה וקדם-דפוס</strong><br>
-  <em>גרסה 0.35.0 • ליבת Native Rust • מעטפת Electron מוקשחת • דטרמיניזם מלא</em>
+  <em>גרסה 0.35.2 • ליבת Native Rust • מעטפת Electron מוקשחת • דטרמיניזם מלא</em>
 </p>
 
 <p align="center">
@@ -81,7 +81,7 @@
 ### דרישות מערכת
 1. **מערכת הפעלה:** Windows 10/11 (64-bit).
 2. **קומפיילר Rust:** גרסה יציבה עדכנית (`rustc` / `cargo`) עם יעד `x86_64-pc-windows-gnu`.
-   - הקובץ `.cargo/config.toml` במאגר מוגדר מראש לשימוש בלינקר המהיר `rust-lld` ולתיקיית הידור מקומית (`C:/Users/USER/AppData/Local/tok_target`) למניעת בעיות נתיבים בעברית ב-Windows.
+   - הקובץ [`.cargo/config.toml`](./.cargo/config.toml) במאגר מוגדר מראש לשימוש בלינקר המהיר `rust-lld` ולתיקיית הידור מקומית (`C:/Users/USER/AppData/Local/tok_target`) למניעת בעיות נתיבים בעברית ב-Windows. אם שם המשתמש שלך ב-Windows שונה מ-`USER`, עדכן את `target-dir` בקובץ זה בהתאם.
 3. **Node.js:** גרסה `20.0.0` ומעלה + `npm`.
 
 ### שלבי התקנה ובנייה מלאים
@@ -100,6 +100,10 @@ npm run build
 
 # 4. הפעלת תוכנת השולחן TypesetOK ב-Electron
 npm start
+
+# 5. (אופציונלי) אריזת גרסה שולחנית ובניית קובץ התקנה (Installer)
+npm run package:desktop
+npm run package:installer
 ```
 
 > **הערה חשובה לגבי איתור `tok-cli.exe`:** מעטפת ה-Electron (`packages/tok-electron/src/main.ts`) מחפשת את הקובץ `tok-cli.exe` לפי הסדר הבא:
@@ -127,15 +131,6 @@ npm start
 | **`run-plugins`** | `tok-cli run-plugins <input.json> <plugin_id[,plugin_id...]> [output.json]` | הרצת תוספי ליבה דטרמיניסטיים ב-Sandbox (`builtin.strip-double-spaces`, `builtin.apply-dibbur-hamatchil`, `builtin.enforce-hebrew-maqaf`) על המסמך. |
 | **`verify-determinism`** | `tok-cli verify-determinism <input.json> [iterations]` | הרצת עימוד והפקת PDF/HTML מספר רב של פעמים ואימות זהות מוחלטת ברמת הבייט (SHA-256 Bit-for-Bit Determinism). |
 | **`benchmark-typeset`** | `tok-cli benchmark-typeset <paragraphs_count>` | בדיקת עומס וביצועים על מסמך סינתטי גדול והדפסת מדדי זמן עימוד ומהירות לעמוד. |
-
-### דוגמה להרצה מהירה ב-PowerShell
-
-```powershell
-# עימוד קובץ דוגמה של מקראות גדולות והפקת PDF/X-1a
-cargo run --bin tok-cli -- typeset-document examples/mikraot_gedolot_sample.json out_layout.json
-cargo run --bin tok-cli -- render-pdf examples/mikraot_gedolot_sample.json out_print.pdf
-cargo run --bin tok-cli -- verify-determinism examples/mikraot_gedolot_sample.json 5
-```
 
 ---
 
@@ -181,7 +176,7 @@ cargo run -p tok-cli -- verify-determinism
 
 ## 7. רישוי וזכויות יוצרים (License & Third-Party Notices)
 
-- קוד המקור של **TypesetOK (TOK)** מופץ תחת רישיון **TypesetOK Non-Commercial Copyleft License v1.1 (`TOK-NCCL v1.1`)**.
-- זהו רישיון **Source-Available לשימוש לא-מסחרי בלבד** (אינו רישיון Open Source מאושר OSI). שימוש אישי, אקדמי, מחקרי, חינוכי וקהילתי ללא מטרות רווח מותר בכפוף לתנאי הרישיון (ייחוס ו-Copyleft על נגזרות). כל שימוש מסחרי מחייב הסכם רישוי מסחרי נפרד בכתב.
+- קוד המקור של **TypesetOK (TOK)** מופץ תחת רישיון **TypesetOK Non-Commercial Copyleft License v1.2 (`TOK-NCCL v1.2`)**.
+- זהו רישיון **Source-Available לשימוש לא-מסחרי בלבד** (אינו רישיון Open Source מאושר OSI). שימוש אישי, אקדמי, מחקרי, חינוכי וקהילתי ללא מטרות רווח — וכן עימוד והפצה **במחיר העלות בלבד** (כיסוי הוצאות ישירות בפועל ללא רווח או שכר טרחה) — מותרים בכפוף לתנאי הרישיון (ייחוס, Copyleft על נגזרות, והיתר שימוש אוטומטי לפרויקט הראשי בקוד של פורקים). כל שימוש מסחרי מחייב הסכם רישוי מסחרי נפרד בכתב.
 - לנוסח הרישיון המלא ראו: [`LICENSE.md`](./LICENSE.md).
 - לפירוט מלא של כלל ספריות הצד-השלישי (Rust ו-Node.js), הגופנים המצורפים (`SIL Open Font License 1.1`), וניתוח התאימות המשפטית ראו: [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
