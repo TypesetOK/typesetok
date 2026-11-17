@@ -7,26 +7,9 @@
 
 import { ParagraphStylePatch, StoryParagraph, TextSpan, CharacterFormat, isFormatEmpty } from 'tok-story-editor';
 import { MultiFlowAnchorLink } from '../types';
+import { generateCrockfordUlid } from './documentBridge.js';
 
-const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-
-export function generateCrockfordUlid(seedTime: number = Date.now()): string {
-  let timeStr = '';
-  let t = Math.max(0, Math.floor(seedTime));
-  for (let i = 0; i < 10; i++) {
-    const mod = t % 32;
-    timeStr = CROCKFORD_ALPHABET[mod] + timeStr;
-    t = Math.floor(t / 32);
-  }
-
-  let randStr = '';
-  for (let i = 0; i < 16; i++) {
-    const rand = Math.floor(Math.random() * 32);
-    randStr += CROCKFORD_ALPHABET[rand];
-  }
-
-  return timeStr + randStr;
-}
+export { generateCrockfordUlid };
 
 export type SupportedImportFormat = 'txt' | 'md' | 'markdown' | 'docx';
 

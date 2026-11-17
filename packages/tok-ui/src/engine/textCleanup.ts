@@ -6,6 +6,7 @@
  */
 
 import type { StoryParagraph, TextSpan, CharacterFormat } from 'tok-story-editor';
+import { HEBREW_GERSHAYIM_RE, HEBREW_GERESH_RE } from '../plugins/hebrew-utils.js';
 
 function isFormatEmpty(fmt?: CharacterFormat | null): boolean {
   if (!fmt) return true;
@@ -393,7 +394,7 @@ export function cleanupParagraphs(
     // 4. Normalize quotes to Hebrew Gershayim (״) and Geresh (׳)
     if (options.normalizeQuotesAndGeresh) {
       // Double quote between Hebrew characters -> Gershayim U+05F4
-      const rq = applyReplacementWithSpans(curText, /([\u0590-\u05FF])"([\u0590-\u05FF])/g, (_m, p1, p2) => `${p1}״${p2}`, curSpans);
+      const rq = applyReplacementWithSpans(curText, new RegExp(HEBREW_GERSHAYIM_RE.source, 'g'), (_m, p1, p2) => `${p1}״${p2}`, curSpans);
       curText = rq.newText;
       curSpans = rq.newSpans;
       stats.quotesConverted += rq.count;
@@ -401,7 +402,7 @@ export function cleanupParagraphs(
       // Single quote at end of Hebrew word/abbreviation -> Geresh U+05F3
       const rg = applyReplacementWithSpans(
         curText,
-        /([\u0590-\u05FF])'(?=\s|[,.:;!?׃\-]|$|[^\u0590-\u05FF])/g,
+        new RegExp(HEBREW_GERESH_RE.source, 'g'),
         (_m, p1) => `${p1}׳`,
         curSpans
       );

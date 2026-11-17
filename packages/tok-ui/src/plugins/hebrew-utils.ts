@@ -117,6 +117,9 @@ export function findHolyNames(text: string): HolyNameMatch[] {
   return results.sort((a, b) => a.offset - b.offset || b.len - a.len);
 }
 
+export const HEBREW_GERSHAYIM_RE = /([\u0590-\u05FF])"([\u0590-\u05FF])/g;
+export const HEBREW_GERESH_RE = /([\u0590-\u05FF])'(?=\s|[,.:;!?׃\-]|$|[^\u0590-\u05FF])/g;
+
 /**
  * Converts ASCII quotes (" and ') inside Hebrew text to proper typographic
  * Gershayim (״, U+05F4) and Geresh (׳, U+05F3).
@@ -125,9 +128,9 @@ export function normalizeQuotes(text: string): string {
   if (!text) return '';
   return text
     // Replace ASCII double quote between Hebrew letters with Gershayim (e.g. ר"ת -> ר״ת)
-    .replace(/([\u0590-\u05FF])"([\u0590-\u05FF])/g, '$1״$2')
+    .replace(HEBREW_GERSHAYIM_RE, '$1״$2')
     // Replace ASCII single quote after Hebrew letter with Geresh (e.g. ע' -> ע׳)
-    .replace(/([\u0590-\u05FF])'/g, '$1׳');
+    .replace(HEBREW_GERESH_RE, '$1׳');
 }
 
 /**
