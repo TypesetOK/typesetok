@@ -37,6 +37,26 @@ export interface ParagraphStylePatch {
   alignment?: 'Justified' | 'Right' | 'Left' | 'Center';
   direction?: 'Rtl' | 'Ltr';
   color?: string;
+  columnSpan?: 'SingleColumn' | 'SpanAllColumns';
+}
+
+export interface ImageAttachmentData {
+  assetPath: string;
+  widthPt: number;
+  heightPt: number;
+  altText?: string;
+  caption?: string;
+}
+
+export type OrnamentPlacementMode = 'BeforeParagraph' | 'AfterParagraph' | 'SectionFooter';
+
+export interface OrnamentRefData {
+  ornamentId: string;
+  assetPath?: string;
+  widthPt: number;
+  heightPt: number;
+  placement?: OrnamentPlacementMode;
+  color?: string;
 }
 
 export interface StoryParagraph {
@@ -45,6 +65,8 @@ export interface StoryParagraph {
   text: string;
   spans?: TextSpan[];
   patch?: ParagraphStylePatch;
+  image?: ImageAttachmentData;
+  ornament?: OrnamentRefData;
 }
 
 export interface StorySelection {
