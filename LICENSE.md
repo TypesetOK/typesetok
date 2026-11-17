@@ -71,7 +71,7 @@ Every restriction, requirement, and condition set forth in this License (includi
 
 If you modify, fork, adapt, wrap, or create a Derivative Work of the Software, or if you distribute the Software or any Derivative Work to any third party (or deploy it over a network pursuant to Section 5), you must comply with all of the following requirements:
 1. **Identical License (Share-Alike):** The entire fork, modification, or Derivative Work must be licensed exclusively under the **exact terms of this TOK-NCCL License**. You may not alter, remove, add, or waive any term, restriction, or condition of this License. You may not relicense or dual-license the Software or any Derivative Work under MIT, Apache, BSD, GPL, AGPL, Creative Commons, or any other license.
-2. **Mandatory Full Source Code Availability:** You must make the complete, machine-readable Source Code of the entire fork or Derivative Work publicly and freely available, under this exact License, without requiring any fee, registration, login wall, or nondisclosure agreement.
+2. **Mandatory Full Source Code Availability & Binary Distribution:** You must make the complete, machine-readable Source Code of the entire fork or Derivative Work (including all build and packaging scripts) publicly and freely available, under this exact License, without requiring any fee, registration, login wall, or nondisclosure agreement. If You distribute compiled binaries, executables, or installers (such as `.exe`, `.msi`, `.dmg`, or `.AppImage`), You must accompany them with a prominent link or copy of the complete corresponding Source Code and may not bundle adware, spyware, or unauthorized telemetry.
 3. **Preservation of Notices:** You must retain all copyright notices, author credits, and copies of this License in all source files, documentation, and user interfaces.
 4. **Anti-Circumvention & Anti-Locking (Anti-Tivoization):** You may not use digital rights management (DRM), hardware encryption, obfuscation, or technical protection measures that prevent or restrict any user from inspecting, modifying, or recompiling your Derivative Work.
 5. **Clear Notice of Changes:** You must cause modified files to carry prominent notices stating that you changed the files and the date of any change.
@@ -181,6 +181,8 @@ You agree to defend, indemnify, and hold harmless the Licensor, original authors
 3. **Entire Agreement; Written Permissions Only:** This License constitutes the complete and exclusive agreement between the parties regarding the subject matter hereof and supersedes all prior proposals and understandings, whether written or oral, **except that it does not supersede, amend, or limit any separate written commercial license or other written agreement executed directly by the Licensor, which shall prevail to the extent of any conflict.** No permission, exception, waiver, or commercial authorization is valid unless it is made in a writing signed by the Licensor. Statements, comments, issue or pull-request replies, chat or forum messages, or conduct of any Contributor, maintainer, or community member do not grant any right and do not bind the Licensor.
 4. **No Waiver:** No delay or failure by Licensor to exercise any right or power under this License shall operate as a waiver thereof.
 5. **Reservation of Rights; No Implied License:** All rights not expressly granted in this License are reserved by the Licensor. No license or right is granted by implication, estoppel, exhaustion, course of dealing, the public availability of the Source Code, the Licensor's tolerance of any use, or otherwise.
+6. **Controlling Language:** This License is drafted in English. Any translation into Hebrew or any other language is provided solely for convenience; in the event of any conflict or ambiguity, the English text of this License shall exclusively govern and control.
+7. **Electronic Assent:** Clicking "I Agree" or proceeding through an installer, cloning the repository, creating a fork, submitting a pull request, or executing the Software or `tok-cli` constitutes a valid and binding electronic signature and assent to this License.
 
 ---
 
@@ -196,3 +198,9 @@ You agree to defend, indemnify, and hold harmless the Licensor, original authors
 1. **Versions:** The Licensor may publish revised versions of this License, each identified by a distinct version number. Each release of the Software is governed by the version of this License that accompanies that release.
 2. **No Cherry-Picking:** Any Derivative Work that incorporates any portion of a release of the Software governed by a later version of this License is governed, as a whole, by that later version. You may not combine portions of releases governed by different versions in order to rely on the terms of an earlier version.
 3. **Share-Alike Reference:** References in Section 4 to the "exact terms of this TOK-NCCL License" mean the version of this License that governs the Derivative Work under this Section 15.
+
+---
+
+### 16. COMMERCIAL LICENSING & EVALUATION INQUIRIES
+
+Any commercial entity, typesetting studio, printing press, publisher, or user wishing to use the Software for a **Commercial Purpose** (including internal commercial evaluation or testing) must obtain a separate written Commercial License from the Licensor prior to such use. Commercial licensing inquiries may be submitted through the official TypesetOK repository (`https://github.com/TypesetOK/typesetok`) or the Licensor's designated contact channels.
