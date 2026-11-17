@@ -824,6 +824,7 @@ impl CoPaginationEngine {
                 frames,
                 break_token: None,
                 is_blank: false,
+                ..Default::default()
             };
 
             total_gemara_lines += tentative_gemara_lines.len();
