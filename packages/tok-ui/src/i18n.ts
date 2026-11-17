@@ -655,7 +655,9 @@ class I18nManager {
       if (saved === 'en' || saved === 'he') {
         this.currentLang = saved;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[I18N] Failed to read saved language:', err);
+    }
     // index.html ships as <html dir="rtl" lang="he">. Sync it with the saved language
     // at startup too, not only on change; otherwise an English session keeps an RTL
     // document (toasts, scrollbars and anything outside #app laid out right-to-left).
@@ -681,7 +683,9 @@ class I18nManager {
     this.currentLang = lang;
     try {
       localStorage.setItem('tok_lang', lang);
-    } catch {}
+    } catch (err) {
+      console.warn('[I18N] Failed to persist language preference:', err);
+    }
 
     // Update document HTML direction & lang
     this.applyToDocument();

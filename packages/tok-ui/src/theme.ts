@@ -318,7 +318,9 @@ export class ThemeManager {
       if (saved) {
         this.settings = sanitizeThemeSettings(migrateThemeSettings(JSON.parse(saved)), this.settings);
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[THEME] Failed to load saved theme settings:', err);
+    }
 
     // "system" mode follows OS theme changes while the app is open.
     try {
@@ -331,7 +333,9 @@ export class ThemeManager {
           }
         });
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[THEME] Failed to bind OS color-scheme listener:', err);
+    }
 
     this.applyTheme();
   }
@@ -399,7 +403,9 @@ export class ThemeManager {
   private saveAndApply(): void {
     try {
       localStorage.setItem('tok_theme_settings', JSON.stringify({ ...this.settings, version: THEME_SETTINGS_VERSION }));
-    } catch {}
+    } catch (err) {
+      console.warn('[THEME] Failed to persist theme settings:', err);
+    }
     this.applyTheme();
     for (const l of this.listeners) l({ ...this.settings });
   }

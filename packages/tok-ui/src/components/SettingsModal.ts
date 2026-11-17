@@ -81,7 +81,9 @@ export class SettingsModal {
       const savedRetention = localStorage.getItem('tok_log_retention');
       const parsed = savedRetention ? parseInt(savedRetention, 10) : NaN;
       if (parsed >= 1 && parsed <= 365) this.logRetentionDays = parsed;
-    } catch {}
+    } catch (err) {
+      console.warn('[SETTINGS] Failed to read log retention preference:', err);
+    }
 
     this.modal = new ModalController(this.element, () => this.hide(), { closeOnBackdrop: true });
 
@@ -406,7 +408,9 @@ export class SettingsModal {
       this.logRetentionDays = parseInt(value, 10);
       try {
         localStorage.setItem('tok_log_retention', value);
-      } catch {}
+      } catch (err) {
+        console.warn('[SETTINGS] Failed to persist log retention preference:', err);
+      }
       const win = window as any;
       if (win.tokIpc && win.tokIpc.setLogRetention) {
         Promise.resolve(win.tokIpc.setLogRetention(this.logRetentionDays)).catch((e: any) => {

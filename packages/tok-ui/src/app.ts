@@ -82,7 +82,9 @@ function rememberImportTemplate(filePath: string | undefined, templateId: Templa
     // Keep the map small: drop the oldest entries beyond 100 files.
     for (const k of keys.slice(0, Math.max(0, keys.length - 100))) delete all[k];
     localStorage.setItem(IMPORT_TEMPLATE_STORAGE_KEY, JSON.stringify(all));
-  } catch {}
+  } catch (err) {
+    console.warn('[TOK] Failed to remember import template:', err);
+  }
 }
 
 function recallImportTemplate(filePath: string): TemplateType | null {
@@ -696,7 +698,9 @@ export class TypesetOkApp {
       if (win?.tokIpc?.getStartupFileSync) {
         initialStartupFile = win.tokIpc.getStartupFileSync();
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[TOK] Failed to read startup file from IPC:', err);
+    }
 
     if (initialStartupFile) {
       this.openProjectFile(initialStartupFile);
@@ -3414,7 +3418,9 @@ export class TypesetOkApp {
         if (win.tokIpc?.getProjectsDir) {
           try {
             projectsDir = await win.tokIpc.getProjectsDir();
-          } catch {}
+          } catch (err) {
+            console.warn('[TOK] Failed to resolve projects dir during autosave:', err);
+          }
         }
         if (projectsDir) {
           const safeName = (this.documentTitle || 'document').replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';

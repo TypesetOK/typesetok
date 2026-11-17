@@ -160,7 +160,9 @@ export function purgeAllDemoProjects(): void {
     if (!Array.isArray(parsed)) return;
     const cleaned = parsed.filter((p) => p && typeof p.name === 'string' && !isDemoProject(p.name, p.path));
     localStorage.setItem('tok_recent_projects', JSON.stringify(cleaned));
-  } catch {}
+  } catch (err) {
+    console.warn('[WELCOME] Failed to prune demo recent projects:', err);
+  }
 }
 
 /** Format accurate project timestamp into readable Hebrew/English date and time. */
@@ -206,7 +208,9 @@ export function getRecentProjects(): RecentProject[] {
         });
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[WELCOME] Failed to read recent projects:', err);
+  }
   return [];
 }
 
@@ -235,7 +239,9 @@ export function addRecentProject(entry: {
       template: entry.template ?? 0
     });
     localStorage.setItem('tok_recent_projects', JSON.stringify(list.slice(0, 50)));
-  } catch {}
+  } catch (err) {
+    console.warn('[WELCOME] Failed to save recent project:', err);
+  }
 }
 
 export function updateProjectClosedTime(nameOrPath: string): void {
@@ -249,7 +255,9 @@ export function updateProjectClosedTime(nameOrPath: string): void {
       }
     }
     localStorage.setItem('tok_recent_projects', JSON.stringify(list));
-  } catch {}
+  } catch (err) {
+    console.warn('[WELCOME] Failed to update recent projects:', err);
+  }
 }
 
 export function removeRecentProject(nameOrPath: string): void {
@@ -257,7 +265,9 @@ export function removeRecentProject(nameOrPath: string): void {
   try {
     const list = getRecentProjects().filter((p) => p.name !== nameOrPath && p.path !== nameOrPath);
     localStorage.setItem('tok_recent_projects', JSON.stringify(list));
-  } catch {}
+  } catch (err) {
+    console.warn('[WELCOME] Failed to update recent projects:', err);
+  }
 }
 
 export function renameRecentProject(oldName: string, newName: string): void {
@@ -271,7 +281,9 @@ export function renameRecentProject(oldName: string, newName: string): void {
       return p;
     });
     localStorage.setItem('tok_recent_projects', JSON.stringify(list));
-  } catch {}
+  } catch (err) {
+    console.warn('[WELCOME] Failed to update recent projects:', err);
+  }
 }
 
 function pageArt(blocks: ArtBlock[], w: number, h: number): HTMLElement {

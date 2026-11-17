@@ -190,7 +190,9 @@ export class PluginEngine {
         try {
           const info = await win.tokIpc.getAppInfo();
           if (info?.version) this.appVersion = info.version;
-        } catch {}
+        } catch (err) {
+          console.warn('[PLUGIN-ENGINE] Failed to fetch app info:', err);
+        }
       }
 
       // 3. Fetch plugin entries
@@ -579,7 +581,9 @@ export class PluginEngine {
     try {
       delete (rawGlobal as any).tokIpc;
       maskedTokIpc = true;
-    } catch {}
+    } catch (err) {
+      console.warn('[PLUGIN-ENGINE] Could not delete global tokIpc before sandbox eval:', err);
+    }
 
     try {
       // Evaluate within a hardened closure where dangerous globals are shadowed
@@ -677,7 +681,9 @@ export class PluginEngine {
       for (const s of subs) {
         try {
           s.dispose();
-        } catch {}
+        } catch (err) {
+          console.warn(`[PLUGIN-ENGINE] Error disposing subscription for ${pluginId}:`, err);
+        }
       }
       this.subscriptionsByPlugin.delete(pluginId);
     }
