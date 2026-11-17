@@ -16,6 +16,7 @@ import { UpdatesStateManager } from './updates/updatesManager';
 import { UserGuideModal } from './components/UserGuideModal';
 import { TextStatsModal } from './components/TextStatsModal';
 import { ImportTemplateModal } from './components/ImportTemplateModal';
+import { MissingFontsModal } from './components/MissingFontsModal';
 import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
 import { TextCleanupModal } from './components/TextCleanupModal';
 import { CleanupOptions, cleanupParagraphs } from './engine/textCleanup';
@@ -25,7 +26,7 @@ import { PageDescriptor } from 'tok-viewer';
 import { ViewMode, MultiFlowItem } from './types';
 import { i18n, t, tf } from './i18n';
 import { themeManager } from './theme';
-import { FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR, getAvailableFonts, DOCUMENT_FONTS, getSafeFontStack } from './fonts';
+import { FONT_WEIGHT_BOLD, FONT_WEIGHT_REGULAR, getAvailableFonts, DOCUMENT_FONTS, getSafeFontStack, registerFontFamily } from './fonts';
 import { el, icon, iconButton, button } from './ui';
 import {
   MultiFlowDocumentState,
@@ -44,7 +45,7 @@ import {
 } from './engine/documentBridge';
 import type { LineRunLookup, LineRunSource } from './engine/lineRuns';
 import { importDocument, parseDocxXml, ImportResult } from './engine/textImporter';
-import { layoutToPageDescriptors } from './engine/typesetBridge';
+import { layoutToPageDescriptors, PreflightReport } from './engine/typesetBridge';
 
 import { toHebrewGematria } from './gematria';
 import { normalizeHebrew, normalizeQuotes, findHolyNames } from './plugins/hebrew-utils';
@@ -152,6 +153,7 @@ export class TypesetOkApp {
   private importTemplateModalInstance?: ImportTemplateModal;
   private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
+  private missingFontsModalInstance?: MissingFontsModal;
   private pendingImportResult: { result: ImportResult; filePath?: string } | null = null;
   private isChangingActiveDocumentTemplate = false;
   private isCreatingNewDocument = false;
@@ -170,6 +172,7 @@ export class TypesetOkApp {
   private repaginateTimer: ReturnType<typeof setTimeout> | null = null;
   private latestTypesetRequestId = 0;
   private activeTypesetAbortController: AbortController | null = null;
+  private latestPreflightReport: PreflightReport | null = null;
   private documentState: MultiFlowDocumentState = {
     title: 'ספר קריאה וטקסט רציף.tok',
     templateType: 'prose',
@@ -215,6 +218,7 @@ export class TypesetOkApp {
     purgeAllDemoProjects();
 
     this.initUI();
+    void this.loadUserInstalledFonts();
 
     i18n.onChange(() => this.applyLanguage());
 
@@ -222,6 +226,31 @@ export class TypesetOkApp {
       (window as any).appInstance = this;
       (window as any).__tokIsDirty = false;
       window.addEventListener('beforeunload', this.onBeforeUnload);
+    }
+  }
+
+  private async loadUserInstalledFonts(): Promise<void> {
+    try {
+      const win = window as any;
+      if (!win?.tokIpc?.listUserFonts) return;
+      const fonts = await win.tokIpc.listUserFonts();
+      if (!Array.isArray(fonts)) return;
+      for (const item of fonts) {
+        const family = item?.report?.family_name;
+        if (!family || typeof family !== 'string') continue;
+        registerFontFamily(family);
+        if (item.base64Data && typeof document !== 'undefined') {
+          const styleId = `tok-custom-font-${family.replace(/[^a-z0-9_-]/gi, '_')}`;
+          if (!document.getElementById(styleId)) {
+            const st = document.createElement('style');
+            st.id = styleId;
+            st.textContent = `@font-face { font-family: '${family.replace(/'/g, "\\'")}'; src: url(data:font/ttf;base64,${item.base64Data}) format('truetype'); font-display: swap; }`;
+            document.head.appendChild(st);
+          }
+        }
+      }
+    } catch {
+      // Ignore user font load failures silently
     }
   }
 
@@ -466,6 +495,7 @@ export class TypesetOkApp {
         if (typo.alignment) {
           patch.alignment = typo.alignment === 'justify' ? 'Justified' : typo.alignment === 'center' ? 'Center' : typo.alignment === 'left' ? 'Left' : 'Right';
         }
+        if (typo.columnSpan !== undefined) patch.columnSpan = typo.columnSpan;
         if (Object.keys(patch).length > 0) {
           if (sel?.paraId) {
             this.storyEditor.setParagraphPatch(sel.paraId, patch);
@@ -1177,6 +1207,76 @@ export class TypesetOkApp {
     return this.textCleanupModalInstance;
   }
 
+  private get missingFontsModal(): MissingFontsModal {
+    if (!this.missingFontsModalInstance) {
+      this.missingFontsModalInstance = new MissingFontsModal({
+        onApplySubstitutions: (mapping) => this.applyFontSubstitutions(mapping)
+      });
+      this.root.appendChild(this.missingFontsModalInstance.element);
+    }
+    return this.missingFontsModalInstance;
+  }
+
+  private applyFontSubstitutions(mapping: Record<string, string>): void {
+    const entries = Object.entries(mapping);
+    if (entries.length === 0) return;
+    const lookup = new Map<string, string>(entries.map(([k, v]) => [k.toLowerCase(), v]));
+    for (const flowKey of Object.keys(this.documentState.flows || {})) {
+      const paras = this.documentState.flows[flowKey] || [];
+      for (const p of paras) {
+        if (p.patch?.fontFamily) {
+          const rep = lookup.get(p.patch.fontFamily.toLowerCase());
+          if (rep) p.patch.fontFamily = rep;
+        }
+        if (p.spans) {
+          for (const sp of p.spans) {
+            if (sp.format?.fontFamily) {
+              const rep = lookup.get(sp.format.fontFamily.toLowerCase());
+              if (rep) sp.format.fontFamily = rep;
+            }
+          }
+        }
+      }
+    }
+    if (this.documentState.styles) {
+      for (const sty of Object.values(this.documentState.styles)) {
+        if (sty?.fontFamily) {
+          const rep = lookup.get(String(sty.fontFamily).toLowerCase());
+          if (rep) sty.fontFamily = rep;
+        }
+        if (sty?.font_family) {
+          const rep = lookup.get(String(sty.font_family).toLowerCase());
+          if (rep) sty.font_family = rep;
+        }
+      }
+    }
+    if (this.storyEditor && this.activeFlowId && this.documentState.flows[this.activeFlowId]) {
+      this.storyEditor.loadStory(this.documentState.flows[this.activeFlowId]);
+    }
+    this.setDirty(true);
+    this.repaginateAndSync(true);
+  }
+
+  private checkMissingFontsAfterImport(referencedFonts?: string[]): void {
+    if (!referencedFonts || referencedFonts.length === 0) return;
+    const known = new Set<string>([
+      'sans-serif',
+      'serif',
+      'monospace',
+      'david',
+      'david clm',
+      'vilna',
+      'rashi',
+      'taamey frank clm',
+      'frank ruehl clm',
+      ...getAvailableFonts().map((f) => f.family.toLowerCase())
+    ]);
+    const missing = referencedFonts.filter((f) => f && !known.has(f.toLowerCase()));
+    if (missing.length > 0) {
+      this.missingFontsModal.show(missing);
+    }
+  }
+
   public openTextCleanupWizard(): void {
     const activeKey = this.activeFlowId || 'gemara';
     this.textCleanupModal.show({
@@ -1286,7 +1386,8 @@ export class TypesetOkApp {
         const p = this.pages[pos];
         return `${p ? p.gematriaNumber : toHebrewGematria(pos + 1)} ${isRectoPage(pos) ? 'ע״א' : 'ע״ב'}`;
       }),
-      preflightStatus: this.statusBar.getPreflightStatus()
+      preflightStatus: this.statusBar.getPreflightStatus(),
+      preflightReport: this.latestPreflightReport
     });
   }
 
@@ -1306,7 +1407,7 @@ export class TypesetOkApp {
       console.log('[TOK] Exporting real document to PDF:', { title: docRoot.metadata.title, options });
 
       this.statusBar?.setBusy(true, 'מייצא ל-PDF...');
-      win.tokIpc.renderPdf({ document: docRoot, outputPath: options.fileName, options })
+      win.tokIpc.renderPdf({ document: docRoot, outputPath: options.fileName, options, assetsFrom: this.currentFilePath || undefined })
         .then(() => {
           this.statusBar?.setBusy(false);
           this.showToast(t('toastExportDone'));
@@ -2259,13 +2360,28 @@ export class TypesetOkApp {
       if (win.tokIpc?.typesetDocument) {
         try {
           const docRoot = documentStateToDocumentRoot(this.documentState);
-          const res = await win.tokIpc.typesetDocument({ document: docRoot });
+          const res = await win.tokIpc.typesetDocument({ document: docRoot, assetsFrom: this.currentFilePath || undefined });
           // Discard stale response if a newer typeset request was dispatched while this was in flight
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
             return;
           }
           if (res && res.success && Array.isArray(res.pages)) {
             newPages = layoutToPageDescriptors(res.pages, this.buildLineRunLookup());
+            const pfReport = (res.preflight ?? null) as PreflightReport | null;
+            this.latestPreflightReport = pfReport;
+            this.inspector?.setPreflightReport(pfReport);
+            if (pfReport) {
+              const uiPfStatus: 'clean' | 'warning' | 'error' =
+                pfReport.overall_status === 'Fail'
+                  ? 'error'
+                  : pfReport.overall_status === 'Warning'
+                  ? 'warning'
+                  : 'clean';
+              if (this.documentState.settings) {
+                this.documentState.settings.preflightStatus = uiPfStatus;
+              }
+              this.statusBar?.updateStats({ preflightStatus: uiPfStatus });
+            }
           }
         } catch (err: any) {
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
@@ -2418,7 +2534,7 @@ export class TypesetOkApp {
 
       if (win.tokIpc?.saveDocument) {
         try {
-          await win.tokIpc.saveDocument({ document: docRoot, filePath: targetPath });
+          await win.tokIpc.saveDocument({ document: docRoot, filePath: targetPath, assetsFrom: this.currentFilePath || undefined });
           this.currentFilePath = targetPath;
           this.documentTitle = this.documentTitle || baseName.replace(/\.tok$/i, '');
           this.setDirty(false);
@@ -2750,6 +2866,7 @@ export class TypesetOkApp {
     });
 
     this.showToast(tf('toastImportSuccess', { title: result.title, count: result.paragraphs.length }));
+    this.checkMissingFontsAfterImport(result.referencedFonts);
   }
 
   /**
@@ -3176,6 +3293,7 @@ export class TypesetOkApp {
 
     const win = window as any;
     let recentPath = oldPath;
+    let renamedTokOnDisk = false;
     // Only a real .tok project file is renamed on disk. An imported source (.docx/.md/.txt) is the
     // user's original file and must never be renamed or turned into a ".tok" file by a title change.
     if (oldPath && /\.tok$/i.test(oldPath) && win.tokIpc?.renameDocumentFile) {
@@ -3185,13 +3303,31 @@ export class TypesetOkApp {
       if (newPath !== oldPath) {
         try {
           const res = await win.tokIpc.renameDocumentFile({ oldPath, newPath });
+          if (res && !res.success) {
+            this.documentTitle = oldTitle;
+            this.documentState.title = oldTitle;
+            this.showDocumentTitle(oldTitle, Boolean(this.documentState.isDirty));
+            this.showToast(
+              res.error === 'TARGET_EXISTS' ? t('toastRenameTargetExists') : t('toastRenameFailed'),
+              true
+            );
+            return;
+          }
           if (res?.success) {
             this.currentFilePath = newPath;
             recentPath = newPath;
+            renamedTokOnDisk = true;
           }
         } catch (e) {
           console.warn('[TOK] Failed to rename physical file:', e);
+          this.documentTitle = oldTitle;
+          this.documentState.title = oldTitle;
+          this.showDocumentTitle(oldTitle, Boolean(this.documentState.isDirty));
+          this.showToast(t('toastRenameFailed'), true);
+          return;
         }
+      } else {
+        renamedTokOnDisk = true;
       }
     }
 
@@ -3213,7 +3349,13 @@ export class TypesetOkApp {
         lastClosedAt: previous?.lastClosedAt
       });
     }
-    this.setDirty(true);
+    let syncedTok = false;
+    if (renamedTokOnDisk && this.currentFilePath) {
+      syncedTok = await this.saveDocumentToFile(this.currentFilePath, { silent: true });
+    }
+    if (!syncedTok) {
+      this.setDirty(true);
+    }
     this.showToast(tf('toastTitleRenamed', { title: trimmed }));
   }
 
