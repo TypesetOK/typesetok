@@ -311,6 +311,7 @@ mod tests {
             height: 12.0,
             character: Some(ch),
             font_index: 0,
+            ..Default::default()
         }
     }
 
@@ -327,6 +328,7 @@ mod tests {
             fonts: Vec::new(),
             is_drop_cap: false,
             x_offset: 0.0,
+            ..Default::default()
         }
     }
 
@@ -362,6 +364,7 @@ mod tests {
             frames: vec![frame],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         }
     }
 
