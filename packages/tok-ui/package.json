@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "tok-viewer": "*",
-    "tok-canvas": "*",
     "tok-story-editor": "*"
   },
   "devDependencies": {
