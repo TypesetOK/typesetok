@@ -15,7 +15,7 @@
 #define SourceDir "..\dist\TypesetOK-v" + MyAppVersion + "-windows-x64"
 
 #ifndef CompressionLevel
-  #define CompressionLevel "lzma2/max"
+  #define CompressionLevel "lzma2"
 #endif
 
 [Setup]
