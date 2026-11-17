@@ -18,6 +18,7 @@ from pathlib import Path
 
 A2B_GRID = 9
 B2A_GRID = 9
+GAMT_GRID = 17
 
 # D50 reference white
 XN, YN, ZN = 0.9642, 1.0, 0.8249
@@ -155,8 +156,34 @@ def build_b2a():
     return lut16(3, 4, B2A_GRID, clut)
 
 
+def build_gamt():
+    """Gamut tag (Lab -> 1 channel): 0 inside the model's gamut, rising with the overshoot outside.
+
+    The model reaches every sRGB colour and nothing beyond it, so "outside" means a linear
+    sRGB component below 0 or above 1.
+    """
+    clut = []
+    n = GAMT_GRID - 1
+    for li in range(GAMT_GRID):
+        for ai in range(GAMT_GRID):
+            for bi in range(GAMT_GRID):
+                l = dec_l(li / n * 65535)
+                a = dec_ab(ai / n * 65535)
+                b = dec_ab(bi / n * 65535)
+                x, y, z = lab_to_xyz(l, a, b)
+                rl = 3.1338561 * x - 1.6168667 * y - 0.4906146 * z
+                gl = -0.9787684 * x + 1.9161415 * y + 0.0334540 * z
+                bl = 0.0719453 * x - 0.2289914 * y + 1.4052427 * z
+                over = max(0.0, max(rl, gl, bl) - 1.0, -min(rl, gl, bl))
+                if over < 1e-4:
+                    over = 0.0
+                clut.append(u16(min(over * 4.0, 1.0) * 65535))
+    return lut16(3, 1, GAMT_GRID, clut)
+
+
 if __name__ == "__main__":
     out_dir = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "a2b.bin").write_bytes(build_a2b())
     (out_dir / "b2a.bin").write_bytes(build_b2a())
+    (out_dir / "gamt.bin").write_bytes(build_gamt())

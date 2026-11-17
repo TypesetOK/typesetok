@@ -236,6 +236,109 @@ impl LineTextWriter {
     }
 }
 
+/// Producing application, written to both the Info dictionary and the XMP packet.
+const CREATOR_TOOL: &str = "TypesetOK Native Pre-Press Engine 2026";
+
+/// Escapes text for use inside an XML element (characters XML 1.0 forbids are dropped).
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            c if u32::from(c) < 0x20 && !matches!(c, '\t' | '\n' | '\r') => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Date for the XMP packet: ISO 8601 with a time zone, matching what `parse_pdf_date` reads for
+/// the Info dictionary. Unrecognised input falls back to the deterministic default date.
+fn xmp_date(s: &str) -> String {
+    const FALLBACK: &str = "2026-01-01T00:00:00Z";
+    let s = s.trim();
+    let s = s.strip_prefix("D:").unwrap_or(s);
+    let bytes = s.as_bytes();
+    if bytes.len() >= 10 && bytes[4] == b'-' && bytes[7] == b'-' {
+        return match bytes.len() {
+            10 => format!("{s}T00:00:00Z"),
+            19 => format!("{}Z", s.replacen(' ', "T", 1)),
+            _ => s.replacen(' ', "T", 1),
+        };
+    }
+    if bytes.len() >= 14 && bytes[..14].iter().all(u8::is_ascii_digit) {
+        return format!(
+            "{}-{}-{}T{}:{}:{}Z",
+            &s[0..4],
+            &s[4..6],
+            &s[6..8],
+            &s[8..10],
+            &s[10..12],
+            &s[12..14]
+        );
+    }
+    FALLBACK.to_string()
+}
+
+/// `uuid:` URN built from the first 16 bytes of the file identifier.
+fn uuid_urn(id: &[u8]) -> String {
+    let hex: String = id.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    format!(
+        "uuid:{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// XMP packet required by PDF/X-4 (ISO 15930-7): it repeats the Info dictionary values and adds
+/// the PDF/X version and the document identity.
+fn build_xmp(
+    title: &str,
+    author: &str,
+    created: &str,
+    modified: &str,
+    document_id: &str,
+) -> String {
+    format!(
+        r#"<?xpacket begin="{bom}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+    xmlns:pdfxid="http://www.npes.org/pdfx/ns/id/"
+    xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/">
+   <dc:format>application/pdf</dc:format>
+   <dc:title><rdf:Alt><rdf:li xml:lang="x-default">{title}</rdf:li></rdf:Alt></dc:title>
+   <dc:creator><rdf:Seq><rdf:li>{author}</rdf:li></rdf:Seq></dc:creator>
+   <xmp:CreatorTool>{tool}</xmp:CreatorTool>
+   <xmp:CreateDate>{created}</xmp:CreateDate>
+   <xmp:ModifyDate>{modified}</xmp:ModifyDate>
+   <xmp:MetadataDate>{modified}</xmp:MetadataDate>
+   <pdf:Trapped>False</pdf:Trapped>
+   <pdfxid:GTS_PDFXVersion>PDF/X-4</pdfxid:GTS_PDFXVersion>
+   <xmpMM:DocumentID>{document_id}</xmpMM:DocumentID>
+   <xmpMM:VersionID>1</xmpMM:VersionID>
+   <xmpMM:RenditionClass>default</xmpMM:RenditionClass>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="r"?>"#,
+        bom = '\u{feff}',
+        title = xml_escape(title),
+        author = xml_escape(author),
+        tool = xml_escape(CREATOR_TOOL),
+    )
+}
+
 /// Parses an RFC 3339 / ISO 8601 or PDF formatted date string into a [`pdf_writer::Date`].
 pub fn parse_pdf_date(s: &str) -> Option<Date> {
     let s = s.trim();
@@ -470,7 +573,7 @@ impl PdfPrePressEngine {
             let mut info = pdf.document_info(info_id);
             info.title(TextStr(&options.title));
             info.author(TextStr(&options.author));
-            info.creator(TextStr("TypesetOK Native Pre-Press Engine 2026"));
+            info.creator(TextStr(CREATOR_TOOL));
             info.trapped(TrappingStatus::NotTrapped);
 
             if let Some(cdate) = parse_pdf_date(creation_str) {
@@ -570,6 +673,8 @@ impl PdfPrePressEngine {
 
         // 7. Embedded ICC DestOutputProfile Stream (N = 4 CMYK components) & Catalog OutputIntent
         let icc_profile_id = alloc();
+        let profile_info = options.color_profile.info();
+        let intent_info = format!("TypesetOK approximation of {profile_info}");
         let icc_raw = ColorManagementEngine::generate_icc_profile_bytes(options.color_profile);
         if options.compress_streams {
             let compressed_icc = miniz_oxide::deflate::compress_to_vec_zlib(&icc_raw, 6);
@@ -583,26 +688,50 @@ impl PdfPrePressEngine {
             icc_stream.finish();
         }
 
+        // 8. Deterministic file identifier (required by PDF/X); also the XMP DocumentID.
+        id_hash = fnv1a(id_hash, options.title.as_bytes());
+        id_hash = fnv1a(id_hash, creation_str.as_bytes());
+        id_hash = fnv1a(id_hash, mod_str.as_bytes());
+        let file_id = [id_hash.to_be_bytes(), fnv1a(id_hash, b"tok").to_be_bytes()].concat();
+
+        // XMP metadata: required by PDF/X-4; PDF 1.3 (PDF/X-1a) has no /Metadata entry.
+        let xmp_id = if matches!(options.standard, PdfXStandard::PdfX4) {
+            let id = alloc();
+            let xmp = build_xmp(
+                &options.title,
+                &options.author,
+                &xmp_date(creation_str),
+                &xmp_date(mod_str),
+                &uuid_urn(&file_id),
+            );
+            let mut xmp_stream = pdf.stream(id, xmp.as_bytes());
+            xmp_stream.pair(Name(b"Type"), Name(b"Metadata"));
+            xmp_stream.pair(Name(b"Subtype"), Name(b"XML"));
+            xmp_stream.finish();
+            Some(id)
+        } else {
+            None
+        };
+
         let mut catalog = pdf.catalog(catalog_id);
         catalog.pages(pages_id);
+        if let Some(id) = xmp_id {
+            catalog.pair(Name(b"Metadata"), id);
+        }
         let mut catalog_intents = catalog.output_intents();
         let mut intent = catalog_intents.push();
         intent.subtype(OutputIntentSubtype::PDFX);
-        intent.output_condition_identifier(TextStr(
-            options.color_profile.output_condition_identifier(),
-        ));
-        intent.info(TextStr(options.color_profile.info()));
-        intent.registry_name(TextStr(options.color_profile.registry_name()));
+        // The embedded profile is a generic approximation, not the characterisation of the
+        // registered press condition it is modelled on. PDF/X allows a custom output condition
+        // when the profile is embedded, so declare one instead of a registered identifier.
+        intent.output_condition_identifier(TextStr("Custom"));
+        intent.info(TextStr(&intent_info));
         intent.dest_output_profile(icc_profile_id);
         intent.finish();
         catalog_intents.finish();
         catalog.finish();
 
-        // 8. Deterministic file identifier (required by PDF/X).
-        id_hash = fnv1a(id_hash, options.title.as_bytes());
-        id_hash = fnv1a(id_hash, creation_str.as_bytes());
-        id_hash = fnv1a(id_hash, mod_str.as_bytes());
-        let file_id = [id_hash.to_be_bytes(), fnv1a(id_hash, b"tok").to_be_bytes()].concat();
+        // 9. File identifier (computed earlier, it is also the XMP DocumentID).
         pdf.set_file_id((file_id.clone(), file_id));
 
         Ok(pdf.finish())
@@ -1308,8 +1437,16 @@ mod tests {
             "Must embed GRACoL 2013 OutputIntent info"
         );
         assert!(
-            s.contains("CGATS TR 016"),
-            "Must embed CGATS TR 016 OutputConditionIdentifier"
+            s.contains("(Custom)") && !s.contains("CGATS TR 016") && !s.contains("color.org"),
+            "The approximation profile must declare a custom, not a registered, condition"
+        );
+        assert!(
+            s.contains("/Metadata") && s.contains("<pdfxid:GTS_PDFXVersion>PDF/X-4<"),
+            "PDF/X-4 must carry an XMP packet with the PDF/X version"
+        );
+        assert!(
+            s.contains("<xmpMM:DocumentID>uuid:"),
+            "PDF/X-4 XMP must carry a DocumentID"
         );
         // Both separator line widths (0.5 w for primary apparatus, 0.35 w for secondary apparatus)
         assert!(
@@ -1370,5 +1507,56 @@ mod tests {
             s.contains(" m\n") || s.contains(" l\n"),
             "Must contain crop mark vector paths"
         );
+    }
+
+    #[test]
+    fn xmp_helpers_escape_text_and_normalise_dates_and_ids() {
+        assert_eq!(
+            xml_escape("a & b <c> \"d\" 'e'"),
+            "a &amp; b &lt;c&gt; &quot;d&quot; &apos;e&apos;"
+        );
+        assert_eq!(xml_escape("a\u{1}b"), "ab");
+        assert_eq!(xmp_date("2026-03-04"), "2026-03-04T00:00:00Z");
+        assert_eq!(xmp_date("2026-03-04T05:06:07Z"), "2026-03-04T05:06:07Z");
+        assert_eq!(xmp_date("2026-03-04 05:06:07"), "2026-03-04T05:06:07Z");
+        assert_eq!(
+            xmp_date("2026-03-04T05:06:07+02:00"),
+            "2026-03-04T05:06:07+02:00"
+        );
+        assert_eq!(xmp_date("D:20260304050607"), "2026-03-04T05:06:07Z");
+        assert_eq!(xmp_date("not a date"), "2026-01-01T00:00:00Z");
+        let id: Vec<u8> = (0u8..16).collect();
+        assert_eq!(uuid_urn(&id), "uuid:00010203-0405-0607-0809-0a0b0c0d0e0f");
+    }
+
+    #[test]
+    fn pdf_x4_xmp_matches_the_info_dictionary_and_escapes_the_title() {
+        let options = PdfExportOptions {
+            standard: PdfXStandard::PdfX4,
+            title: "A & B <ספר>".to_string(),
+            compress_streams: false,
+            creation_date: Some("2026-05-06T07:08:09Z".to_string()),
+            ..Default::default()
+        };
+        let bytes = PdfPrePressEngine::export_pdf(&[], &options).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        let title_xml = "<rdf:li xml:lang=\"x-default\">A &amp; B &lt;ספר&gt;</rdf:li>";
+        let created_xml = "<xmp:CreateDate>2026-05-06T07:08:09Z</xmp:CreateDate>";
+        assert!(s.contains(title_xml));
+        assert!(s.contains(created_xml));
+        assert!(s.contains("<pdf:Trapped>False</pdf:Trapped>"));
+        assert!(s.contains("/Subtype /XML"));
+    }
+
+    #[test]
+    fn pdf_x1a_has_no_xmp_metadata() {
+        let options = PdfExportOptions {
+            standard: PdfXStandard::PdfX1a2001,
+            compress_streams: false,
+            ..Default::default()
+        };
+        let bytes = PdfPrePressEngine::export_pdf(&[], &options).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(!s.contains("xpacket") && !s.contains("/Metadata"));
     }
 }

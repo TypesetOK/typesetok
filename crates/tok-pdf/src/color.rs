@@ -127,7 +127,10 @@ impl IccProfileId {
         }
     }
 
-    /// Official PDF/X `OutputConditionIdentifier` registered at `http://www.color.org`.
+    /// Identifier of the registered press condition this profile approximates.
+    ///
+    /// Informational (CLI output, UI): the PDF itself declares a custom output condition,
+    /// because the embedded profile is a generic approximation and not that characterisation.
     pub fn output_condition_identifier(&self) -> &'static str {
         match self {
             Self::Fogra39 => "FOGRA39",
@@ -149,7 +152,8 @@ impl IccProfileId {
         }
     }
 
-    /// Registry URL for PDF/X OutputIntent.
+    /// Registry that lists the condition named by `output_condition_identifier`.
+    /// Not written to the PDF, which declares a custom (unregistered) output condition.
     pub fn registry_name(&self) -> &'static str {
         "http://www.color.org"
     }
@@ -273,6 +277,8 @@ impl ColorManagementEngine {
         // CMYK -> Lab and Lab -> CMYK `lut16Type` tag data.
         const A2B_LUT: &[u8] = include_bytes!("../assets/icc/a2b.bin");
         const B2A_LUT: &[u8] = include_bytes!("../assets/icc/b2a.bin");
+        // Lab -> gamut distance (0 inside the gamut); ICC v2 requires it for LUT-based output.
+        const GAMT: &[u8] = include_bytes!("../assets/icc/gamt.bin");
 
         let desc_str = format!("TypesetOK approximation of {}", profile.info());
         let cprt_str = "Copyright TypesetOK Pre-Press Color Engine (ISO 15076-1)";
@@ -305,10 +311,10 @@ impl ColorManagementEngine {
         wtpt_tag.extend_from_slice(&0x0000_D32Du32.to_be_bytes()); // 0.8249 in s15Fixed16
 
         // Distinct data blocks, stored in this order. Every block starts on a 4-byte boundary.
-        let blocks: [&[u8]; 5] = [&desc_tag, &cprt_tag, &wtpt_tag, A2B_LUT, B2A_LUT];
+        let blocks: [&[u8]; 6] = [&desc_tag, &cprt_tag, &wtpt_tag, A2B_LUT, B2A_LUT, GAMT];
         // Tag table: signature and the block it points at. The three rendering intents of each
         // transform share one block.
-        let tags: [(&[u8; 4], usize); 9] = [
+        let tags: [(&[u8; 4], usize); 10] = [
             (b"desc", 0),
             (b"cprt", 1),
             (b"wtpt", 2),
@@ -318,12 +324,13 @@ impl ColorManagementEngine {
             (b"B2A0", 4),
             (b"B2A1", 4),
             (b"B2A2", 4),
+            (b"gamt", 5),
         ];
 
         let header_size = 128u32;
         let tag_count = tags.len() as u32;
         let tag_table_size = 4 + tag_count * 12;
-        let mut offsets = [0u32; 5];
+        let mut offsets = [0u32; 6];
         let mut cursor = header_size + tag_table_size;
         for (offset, block) in offsets.iter_mut().zip(blocks.iter()) {
             *offset = cursor;
@@ -504,7 +511,7 @@ mod tests {
         let be32 = |at: usize| u32::from_be_bytes(icc_bytes[at..at + 4].try_into().unwrap());
         assert_eq!(be32(0) as usize, icc_bytes.len(), "profile size field");
         let tag_count = be32(128) as usize;
-        assert_eq!(tag_count, 9);
+        assert_eq!(tag_count, 10);
         let mut signatures = Vec::new();
         for i in 0..tag_count {
             let entry = 132 + i * 12;
@@ -523,5 +530,6 @@ mod tests {
         }
         assert!(signatures.iter().any(|s| s == b"A2B0"));
         assert!(signatures.iter().any(|s| s == b"B2A0"));
+        assert!(signatures.iter().any(|s| s == b"gamt"));
     }
 }
