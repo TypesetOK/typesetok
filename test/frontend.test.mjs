@@ -4193,3 +4193,348 @@ describe('Torah Heading Auto-Numbering Engine & IPC Integration', () => {
   });
 });
 
+describe('Clean-Room Architecture Stages 1-5: Color, Columns, Fonts, Media & Real Preflight', () => {
+  function collectTreeNodes(root, out = []) {
+    if (!root || typeof root !== 'object') return out;
+    out.push(root);
+    for (const child of root.children || []) {
+      collectTreeNodes(child, out);
+    }
+    return out;
+  }
+
+  function collectTreeText(root) {
+    return collectTreeNodes(root)
+      .map((n) => n.textContent || '')
+      .filter(Boolean)
+      .join(' | ');
+  }
+
+  test('Stage 1: cssColorToColorJson / colorJsonToCss support Rgb, DeviceCmyk, and Spot', async () => {
+    const { cssColorToColorJson, colorJsonToCss } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+    assert.deepEqual(cssColorToColorJson('#1a2b3c'), {
+      Rgb: { r: 0x1a / 255, g: 0x2b / 255, b: 0x3c / 255 }
+    });
+    assert.deepEqual(cssColorToColorJson('#000000'), {
+      DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 }
+    });
+    assert.deepEqual(cssColorToColorJson('rgb(255, 0, 0)'), {
+      Rgb: { r: 1, g: 0, b: 0 }
+    });
+    assert.equal(colorJsonToCss({ Rgb: { r: 1, g: 0, b: 0 } }), 'rgb(255, 0, 0)');
+    assert.equal(colorJsonToCss({ DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 } }), 'rgb(0, 0, 0)');
+
+    const spotCss = colorJsonToCss({
+      Spot: { name: 'Gold Foil', tint: 1.0, fallback_cmyk: [0.0, 0.25, 0.9, 0.05] }
+    });
+    assert.ok(spotCss && spotCss.startsWith('rgb('));
+  });
+
+  test('Stage 1 & 2 & 4: layoutToPageDescriptors passively renders visual_runs, column_rules, images, and ornaments', async () => {
+    const { layoutToPageDescriptors } = await loadTs('packages/tok-ui/src/engine/typesetBridge.ts');
+    const pages = layoutToPageDescriptors([
+      {
+        page_index: 0,
+        page_number_gematria: 'א׳',
+        dimensions: { x: 0, y: 0, width: 482, height: 680 },
+        column_rules: [[241, 60, 241, 600]],
+        images: [
+          {
+            asset_path: 'images/diagram.png',
+            rect: { x: 80, y: 90, width: 120, height: 80 },
+            intrinsic_width_px: 120,
+            intrinsic_height_px: 80,
+            effective_dpi_x: 72,
+            effective_dpi_y: 72
+          }
+        ],
+        ornaments: [
+          {
+            ornament_id: 'crown_torah',
+            rect: { x: 193, y: 185, width: 96, height: 32 },
+            color: { Rgb: { r: 0.75, g: 0.55, b: 0.1 } }
+          }
+        ],
+        frames: [
+          {
+            frame_id: 'frame-main-0',
+            flow_id: 'main',
+            rect: { x: 50, y: 60, width: 382, height: 540 },
+            lines: [
+              {
+                line_index: 0,
+                baseline_y: 76,
+                height: 15,
+                width: 90,
+                text: 'שלום עולם',
+                is_rtl: true,
+                glyphs: [],
+                visual_runs: [
+                  {
+                    text: 'שלום ',
+                    color_css: '#cc1a1a',
+                    font_family: 'Frank Ruhl Libre',
+                    font_size_pt: 12,
+                    font_weight: 700,
+                    italic: false,
+                    underline: true
+                  },
+                  {
+                    text: 'עולם',
+                    color_css: 'rgb(0, 0, 0)',
+                    font_family: 'Noto Serif Hebrew',
+                    font_size_pt: 11,
+                    font_weight: 400,
+                    italic: true,
+                    underline: false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]);
+
+    assert.equal(pages.length, 1);
+    const html = pages[0].htmlContent;
+    assert.ok(html.includes('tok-column-rule'), 'column_rules must render passively as .tok-column-rule');
+    assert.ok(html.includes('tok-placed-image tok-low-dpi'), 'low DPI image must render passively with tok-low-dpi');
+    assert.ok(html.includes('data-asset-path="images/diagram.png"'));
+    assert.ok(html.includes('tok-placed-ornament'), 'ornaments must render passively');
+    assert.ok(html.includes('M18 32 L10 14'), 'crown_torah preset SVG path must render');
+    assert.ok(html.includes('color: #cc1a1a'), 'VisualLineRun RGB color must be applied directly');
+    assert.ok(html.includes('text-decoration: underline'), 'VisualLineRun underline must be applied directly');
+    assert.ok(html.includes('font-style: italic'), 'VisualLineRun italic must be applied directly');
+  });
+
+  test('Stage 2 & 4: documentBridge roundtrips section columns, columnSpan, image, and ornament', async () => {
+    const {
+      documentStateToDocumentRoot,
+      documentRootToDocumentState
+    } = await loadTs('packages/tok-ui/src/engine/documentBridge.ts');
+
+    const root = documentStateToDocumentRoot({
+      templateType: 'prose',
+      title: 'בדיקת טורים ואמצעי מדיה',
+      settings: {
+        title: 'בדיקת טורים ואמצעי מדיה',
+        pageSize: '17x24',
+        pageWidthMm: 170,
+        pageHeightMm: 240,
+        marginTopMm: 20,
+        marginBottomMm: 20,
+        marginInsideMm: 18,
+        marginOutsideMm: 18,
+        columns: 2,
+        columnGapMm: 6,
+        columnDistribution: 'balanced',
+        drawColumnRule: true,
+        baselineGridPt: 13,
+        baselineOffsetPt: 48,
+        gematriaFormat: 'talmudic',
+        preflightStatus: 'clean'
+      },
+      flows: {
+        main: [
+          {
+            id: '01J1234567890ABCDEFGHJKMNP',
+            styleId: 'normal',
+            text: 'כותרת חוצה טורים',
+            patch: { columnSpan: 'SpanAllColumns' },
+            image: {
+              assetPath: 'images/seal.png',
+              widthPt: 120,
+              heightPt: 60,
+              altText: 'חותם',
+              caption: 'איור א׳'
+            },
+            ornament: {
+              ornamentId: 'menorah_divider',
+              widthPt: 120,
+              heightPt: 28,
+              placement: 'AfterParagraph',
+              color: '#8b6914'
+            }
+          }
+        ]
+      }
+    });
+
+    assert.equal(root.sections[0].column_count, 2);
+    assert.equal(root.sections[0].column_distribution, 'Balanced');
+    assert.equal(root.sections[0].draw_column_rule, true);
+    const rustPara = root.sections[0].flows[0].paragraphs[0];
+    assert.equal(rustPara.style_patches[0].column_span, 'SpanAllColumns');
+    assert.equal(rustPara.image.asset_path, 'images/seal.png');
+    assert.equal(rustPara.ornament.ornament_id, 'menorah_divider');
+    assert.equal(rustPara.ornament.placement, 'AfterParagraph');
+    assert.ok(rustPara.ornament.color && rustPara.ornament.color.Rgb);
+
+    const roundtripped = documentRootToDocumentState(root, 'prose');
+    assert.equal(roundtripped.settings.columns, 2);
+    assert.equal(roundtripped.settings.columnDistribution, 'balanced');
+    assert.equal(roundtripped.settings.drawColumnRule, true);
+    const uiPara = roundtripped.flows.gemara[0];
+    assert.equal(uiPara.patch.columnSpan, 'SpanAllColumns');
+    assert.deepEqual(uiPara.image, {
+      assetPath: 'images/seal.png',
+      widthPt: 120,
+      heightPt: 60,
+      altText: 'חותם',
+      caption: 'איור א׳'
+    });
+    assert.equal(uiPara.ornament.ornamentId, 'menorah_divider');
+    assert.equal(uiPara.ornament.color, 'rgb(139, 105, 20)');
+  });
+
+  test('Stage 3: parseDocxXml extracts referencedFonts and MissingFontsModal renders & substitutes', async () => {
+    const { parseDocxXml } = await loadTs('packages/tok-ui/src/engine/textImporter.ts');
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          <w:p>
+            <w:r>
+              <w:rPr><w:rFonts w:ascii="CustomTorahSerif"/></w:rPr>
+              <w:t>טקסט לדוגמה</w:t>
+            </w:r>
+            <w:r>
+              <w:rPr><w:rFonts w:cs="MissingRashiPro"/></w:rPr>
+              <w:t>עוד טקסט</w:t>
+            </w:r>
+          </w:p>
+        </w:body>
+      </w:document>`;
+    const imported = parseDocxXml(xml);
+    assert.ok(Array.isArray(imported.referencedFonts));
+    assert.ok(imported.referencedFonts.includes('CustomTorahSerif'));
+    assert.ok(imported.referencedFonts.includes('MissingRashiPro'));
+
+    const prevAddEvt = globalThis.document.addEventListener;
+    const prevCss = globalThis.CSS;
+    const prevHtmlEl = globalThis.HTMLElement;
+    const fakeProto = Object.getPrototypeOf(globalThis.document.body);
+    const prevAppend = fakeProto.append;
+    const prevContains = fakeProto.contains;
+    globalThis.document.addEventListener = () => {};
+    globalThis.CSS = { escape: (s) => s };
+    globalThis.HTMLElement = Object;
+    fakeProto.append = function (...kids) {
+      for (const k of kids) {
+        if (k && typeof k === 'object') this.appendChild(k);
+        else if (typeof k === 'string') this.textContent = (this.textContent || '') + k;
+      }
+    };
+    fakeProto.contains = function (target) {
+      if (!target) return false;
+      if (target === this) return true;
+      return (this.children || []).some((c) => c && typeof c === 'object' && c.contains?.(target));
+    };
+    try {
+      const { MissingFontsModal } = await loadTs('packages/tok-ui/src/components/MissingFontsModal.ts');
+      let appliedMapping = null;
+      const modal = new MissingFontsModal({
+        onApplySubstitutions: (mapping) => {
+          appliedMapping = mapping;
+        }
+      });
+      modal.show(['MissingRashiPro']);
+      const nodes = collectTreeNodes(modal.element);
+      const card = nodes.find((n) => n.attributes?.['data-missing-font'] === 'MissingRashiPro');
+      assert.ok(card, 'MissingFontsModal must render card for missing font');
+      const applyBtn = nodes.find((n) => n.attributes?.['data-action'] === 'missing-fonts-apply');
+      assert.ok(applyBtn, 'MissingFontsModal must render Apply button');
+      applyBtn.click();
+      assert.ok(appliedMapping && typeof appliedMapping.MissingRashiPro === 'string');
+    } finally {
+      globalThis.document.addEventListener = prevAddEvt;
+      globalThis.CSS = prevCss;
+      globalThis.HTMLElement = prevHtmlEl;
+      if (prevAppend === undefined) delete fakeProto.append;
+      else fakeProto.append = prevAppend;
+      if (prevContains === undefined) delete fakeProto.contains;
+      else fakeProto.contains = prevContains;
+    }
+  });
+
+  test('Stage 5: ContextualInspector & ExportDialog render real Rust PreflightReport status without hardcoded ok:true', async () => {
+    const prevAddEvt = globalThis.document.addEventListener;
+    const prevCss = globalThis.CSS;
+    const prevHtmlEl = globalThis.HTMLElement;
+    const fakeProto = Object.getPrototypeOf(globalThis.document.body);
+    const prevAppend = fakeProto.append;
+    const prevContains = fakeProto.contains;
+    globalThis.document.addEventListener = () => {};
+    globalThis.CSS = { escape: (s) => s };
+    globalThis.HTMLElement = Object;
+    fakeProto.append = function (...kids) {
+      for (const k of kids) {
+        if (k && typeof k === 'object') this.appendChild(k);
+        else if (typeof k === 'string') this.textContent = (this.textContent || '') + k;
+      }
+    };
+    fakeProto.contains = function (target) {
+      if (!target) return false;
+      if (target === this) return true;
+      return (this.children || []).some((c) => c && typeof c === 'object' && c.contains?.(target));
+    };
+    try {
+      const { ContextualInspector } = await loadTs('packages/tok-ui/src/components/ContextualInspector.ts');
+      const { ExportDialog } = await loadTs('packages/tok-ui/src/components/ExportDialog.ts');
+
+      const report = {
+        overall_status: 'Fail',
+        profile_name: 'ISO Coated v2 300%',
+        pdfx_standard: 'PDF/X-1a:2001',
+        total_pages: 4,
+        low_dpi_images_count: 1,
+        balance_warnings_count: 1,
+        checks: [
+          { id: 'fonts', category: 'Fonts', title: 'גופנים והטמעה', status: 'Fail', summary: 'חסר גופן KeterYG' },
+          { id: 'images', category: 'Images', title: 'רזולוציית תמונות', status: 'Warning', summary: 'תמונה אחת מתחת ל-300 DPI' }
+        ]
+      };
+
+      const inspector = new ContextualInspector({
+        onDocumentChange: () => {},
+        onFrameChange: () => {},
+        onTypographyChange: () => {},
+        onSyncStyleToken: () => {},
+        onNormalizeNiqqud: () => {},
+        onAlignFrames: () => {}
+      });
+      inspector.setPreflightReport(report);
+      const inspText = collectTreeText(inspector.element);
+      assert.ok(inspText.includes('חסר גופן KeterYG'));
+      assert.ok(inspText.includes('תמונה אחת מתחת ל-300 DPI'));
+      const inspNodes = collectTreeNodes(inspector.element);
+      assert.ok(inspNodes.some((n) => (n.className || '').includes('tok-err')));
+      assert.ok(inspNodes.some((n) => (n.className || '').includes('tok-warn')));
+
+      const exportDialog = new ExportDialog({ onExport: () => {} });
+      exportDialog.show({
+        documentTitle: 'ספר בדיקה',
+        pageCount: 4,
+        spreadLabels: ['א׳ ע״א'],
+        preflightStatus: 'error',
+        preflightReport: report
+      });
+      const expText = collectTreeText(exportDialog.element);
+      assert.ok(expText.includes('חסר גופן KeterYG'));
+      assert.ok(expText.includes('תמונה אחת מתחת ל-300 DPI'));
+      const expNodes = collectTreeNodes(exportDialog.element);
+      assert.ok(expNodes.some((n) => (n.className || '').includes('tok-badge-error')));
+      assert.ok(expNodes.some((n) => (n.className || '').includes('tok-err')));
+    } finally {
+      globalThis.document.addEventListener = prevAddEvt;
+      globalThis.CSS = prevCss;
+      globalThis.HTMLElement = prevHtmlEl;
+      if (prevAppend === undefined) delete fakeProto.append;
+      else fakeProto.append = prevAppend;
+      if (prevContains === undefined) delete fakeProto.contains;
+      else fakeProto.contains = prevContains;
+    }
+  });
+});
+
+
