@@ -74,6 +74,90 @@ impl TypesettingEngineConfig {
         self.masoretic_typography = config;
         self
     }
+
+    /// Builds typesetting configuration from `document_settings` (page size, margins in mm/pt),
+    /// falling back to standard A4 layout.
+    pub fn from_document_root(root: &DocumentRoot) -> Self {
+        let mut config = Self::default();
+        let mm_to_pt = |mm: f64| (mm * 72.0 / 25.4) as f32;
+
+        if let Some(ref settings) = root.metadata.document_settings {
+            let get_val = |keys: &[&str]| -> Option<f64> {
+                for key in keys {
+                    if let Some(v) = settings.get(*key).and_then(|v| v.as_f64()) {
+                        return Some(v);
+                    }
+                }
+                None
+            };
+
+            if let Some(w_mm) = get_val(&["pageWidthMm", "page_width_mm"]) {
+                if w_mm > 10.0 {
+                    config.page_width_pt = mm_to_pt(w_mm);
+                }
+            } else if let Some(w_pt) = get_val(&["pageWidthPt", "page_width_pt"]) {
+                if w_pt > 30.0 {
+                    config.page_width_pt = w_pt as f32;
+                }
+            }
+
+            if let Some(h_mm) = get_val(&["pageHeightMm", "page_height_mm"]) {
+                if h_mm > 10.0 {
+                    config.page_height_pt = mm_to_pt(h_mm);
+                }
+            } else if let Some(h_pt) = get_val(&["pageHeightPt", "page_height_pt"]) {
+                if h_pt > 30.0 {
+                    config.page_height_pt = h_pt as f32;
+                }
+            }
+
+            if let Some(top_mm) = get_val(&["marginTopMm", "margin_top_mm"]) {
+                config.margin_top_pt = mm_to_pt(top_mm);
+            } else if let Some(top_pt) = get_val(&["marginTopPt", "margin_top_pt"]) {
+                config.margin_top_pt = top_pt as f32;
+            }
+
+            if let Some(bot_mm) = get_val(&["marginBottomMm", "margin_bottom_mm"]) {
+                config.margin_bottom_pt = mm_to_pt(bot_mm);
+            } else if let Some(bot_pt) = get_val(&["marginBottomPt", "margin_bottom_pt"]) {
+                config.margin_bottom_pt = bot_pt as f32;
+            }
+
+            if let Some(in_mm) = get_val(&[
+                "marginInsideMm",
+                "margin_inside_mm",
+                "marginInnerMm",
+                "margin_inner_mm",
+            ]) {
+                config.margin_inner_pt = mm_to_pt(in_mm);
+            } else if let Some(in_pt) = get_val(&[
+                "marginInsidePt",
+                "margin_inside_pt",
+                "marginInnerPt",
+                "margin_inner_pt",
+            ]) {
+                config.margin_inner_pt = in_pt as f32;
+            }
+
+            if let Some(out_mm) = get_val(&[
+                "marginOutsideMm",
+                "margin_outside_mm",
+                "marginOuterMm",
+                "margin_outer_mm",
+            ]) {
+                config.margin_outer_pt = mm_to_pt(out_mm);
+            } else if let Some(out_pt) = get_val(&[
+                "marginOutsidePt",
+                "margin_outside_pt",
+                "marginOuterPt",
+                "margin_outer_pt",
+            ]) {
+                config.margin_outer_pt = out_pt as f32;
+            }
+        }
+
+        config
+    }
 }
 
 pub struct TypesettingEngine {

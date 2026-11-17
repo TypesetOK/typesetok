@@ -14,6 +14,7 @@ pub mod reference;
 pub mod spans;
 pub mod styles;
 pub mod transaction;
+pub mod ui_state;
 
 pub use anchor::{AnchorBias, SemanticRange, TextAnchor};
 pub use dependency::DocumentDependencyTracker;
