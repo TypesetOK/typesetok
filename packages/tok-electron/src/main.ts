@@ -1121,6 +1121,45 @@ function withProjectsDir(defaultPath?: string): string {
 }
 
 handle('tok:get-projects-dir', () => getProjectsDir());
+
+function getDraftRecoveryPath(): string {
+  return path.join(app.getPath('userData'), 'draft-recovery.json');
+}
+
+handle('tok:save-draft-recovery', async (_, snapshot: unknown) => {
+  if (!snapshot || typeof snapshot !== 'object') {
+    throw new Error('Invalid draft recovery snapshot');
+  }
+  const draftPath = getDraftRecoveryPath();
+  const dir = path.dirname(draftPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = path.join(dir, `.draft-recovery.tmp.${process.pid}.${Date.now()}`);
+  try {
+    await fs.promises.writeFile(tmpPath, JSON.stringify(snapshot), 'utf-8');
+    await fs.promises.rename(tmpPath, draftPath);
+    return { success: true };
+  } catch (err) {
+    try { await fs.promises.unlink(tmpPath); } catch { /* ignore cleanup failure */ }
+    throw err;
+  }
+});
+
+handle('tok:load-draft-recovery', async () => {
+  const draftPath = getDraftRecoveryPath();
+  if (!fs.existsSync(draftPath)) return null;
+  const raw = await fs.promises.readFile(draftPath, 'utf-8');
+  return JSON.parse(raw);
+});
+
+handle('tok:clear-draft-recovery', async () => {
+  const draftPath = getDraftRecoveryPath();
+  if (fs.existsSync(draftPath)) {
+    await fs.promises.unlink(draftPath);
+  }
+  return { success: true };
+});
 handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPath?: string }) => {
   const oldPath = requireString(payload?.oldPath, 'oldPath');
   const newPath = requireString(payload?.newPath, 'newPath');

@@ -3445,7 +3445,17 @@ export class TypesetOkApp {
         templateType: this.documentState.templateType,
         document: docRoot
       };
-      if (typeof localStorage !== 'undefined') {
+      const win = typeof window !== 'undefined' ? (window as any) : null;
+      if (win?.tokIpc?.saveDraftRecovery) {
+        void win.tokIpc.saveDraftRecovery(snapshot).catch((err: unknown) => {
+          console.warn('[TOK] Failed to save draft recovery snapshot to disk:', err);
+        });
+        try {
+          if (typeof localStorage !== 'undefined') localStorage.removeItem('tok_draft_recovery');
+        } catch (err) {
+          console.warn('[TOK] Failed to clear legacy draft recovery key:', err);
+        }
+      } else if (typeof localStorage !== 'undefined') {
         localStorage.setItem('tok_draft_recovery', JSON.stringify(snapshot));
       }
       this.setDirty(false);
@@ -3456,19 +3466,34 @@ export class TypesetOkApp {
   }
 
   public clearDraftRecovery(): void {
+    const win = typeof window !== 'undefined' ? (window as any) : null;
+    if (win?.tokIpc?.clearDraftRecovery) {
+      void win.tokIpc.clearDraftRecovery().catch((err: unknown) => {
+        console.warn('[TOK] Failed to clear disk draft recovery:', err);
+      });
+    }
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('tok_draft_recovery');
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[TOK] Failed to clear localStorage draft recovery:', err);
+    }
   }
 
-  private checkDraftRecoveryOnStartup(): void {
+  private async checkDraftRecoveryOnStartup(): Promise<void> {
     try {
-      if (typeof localStorage === 'undefined') return;
-      const raw = localStorage.getItem('tok_draft_recovery');
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
+      const win = typeof window !== 'undefined' ? (window as any) : null;
+      let parsed: any = null;
+      if (win?.tokIpc?.loadDraftRecovery) {
+        parsed = await win.tokIpc.loadDraftRecovery();
+      }
+      if (!parsed && typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('tok_draft_recovery');
+        if (raw) {
+          parsed = JSON.parse(raw);
+        }
+      }
       if (parsed && parsed.document && parsed.savedAt) {
         if (parsed.title && isDemoProject(parsed.title, parsed.filePath)) {
           this.clearDraftRecovery();

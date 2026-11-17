@@ -45,6 +45,9 @@ export interface TokIpcBridge {
   openDocument: (filePath: string) => Promise<unknown>;
   renameDocumentFile: (payload: { oldPath: string; newPath: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
   getProjectsDir: () => Promise<string>;
+  saveDraftRecovery: (snapshot: unknown) => Promise<{ success: boolean }>;
+  loadDraftRecovery: () => Promise<unknown | null>;
+  clearDraftRecovery: () => Promise<{ success: boolean }>;
   typesetDocument: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown) => Promise<{ success: boolean; pages: any[]; preflight?: unknown }>;
   runPreflight: (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; standard?: string; bleed?: boolean }) => Promise<{ success: boolean; report?: unknown; error?: string }>;
 
@@ -188,6 +191,15 @@ const tokIpc: TokIpcBridge = {
   },
   getProjectsDir: async () => {
     return await ipcRenderer.invoke('tok:get-projects-dir');
+  },
+  saveDraftRecovery: async (snapshot: unknown) => {
+    return await ipcRenderer.invoke('tok:save-draft-recovery', snapshot);
+  },
+  loadDraftRecovery: async () => {
+    return await ipcRenderer.invoke('tok:load-draft-recovery');
+  },
+  clearDraftRecovery: async () => {
+    return await ipcRenderer.invoke('tok:clear-draft-recovery');
   },
   typesetDocument: async (payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown) => {
     const normPayload = (payload && typeof payload === 'object' && ('document' in payload || 'inputPath' in payload || 'assetsFrom' in payload))
