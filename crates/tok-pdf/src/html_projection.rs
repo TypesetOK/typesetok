@@ -216,6 +216,7 @@ mod tests {
                 text: "טקסט עברי מעומד".to_string(),
                 is_rtl: true,
                 fonts: Vec::new(),
+                ..Default::default()
             }],
         };
 
@@ -226,6 +227,7 @@ mod tests {
             frames: vec![frame],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         };
 
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
@@ -258,6 +260,7 @@ mod tests {
                     text: "שורה ראשונה".to_string(),
                     is_rtl: true,
                     fonts: Vec::new(),
+                    ..Default::default()
                 },
                 LineBox {
                     line_index: 1,
@@ -271,6 +274,7 @@ mod tests {
                     text: "שורה שנייה עם ריווח פסקה".to_string(),
                     is_rtl: true,
                     fonts: Vec::new(),
+                    ..Default::default()
                 },
             ],
         };
@@ -282,6 +286,7 @@ mod tests {
             frames: vec![frame],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         };
 
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
@@ -316,6 +321,7 @@ mod tests {
             text: text.to_string(),
             is_rtl,
             fonts: Vec::new(),
+            ..Default::default()
         };
         let page = PageLayoutBox {
             page_index: 0,
@@ -329,6 +335,7 @@ mod tests {
             }],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         };
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
         assert!(html.contains("<div class=\"tok-line\" dir=\"ltr\""));
@@ -350,6 +357,7 @@ mod tests {
             text: "שלום".to_string(),
             is_rtl: true,
             fonts,
+            ..Default::default()
         };
         let page = PageLayoutBox {
             page_index: 0,
@@ -366,6 +374,7 @@ mod tests {
             }],
             break_token: None,
             is_blank: false,
+            ..Default::default()
         };
         let html = HtmlProjectionCompiler::compile_to_html(&[page], 210.0, 297.0);
         assert!(html.contains("font-family: 'Frank Ruhl Libre', 'Noto Rashi Hebrew'"));
@@ -417,6 +426,7 @@ mod tests {
             frames: Vec::new(),
             break_token: None,
             is_blank: true,
+            ..Default::default()
         };
         let html = HtmlProjectionCompiler::compile_to_html(&[blank_page], 210.0, 297.0);
         assert!(html.contains("tok-page tok-page-blank tok-page-left"));
