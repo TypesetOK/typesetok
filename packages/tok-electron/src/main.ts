@@ -119,6 +119,10 @@ function requireString(value: unknown, name: string): string {
   return value;
 }
 
+function getUserFontsDir(): string {
+  return path.join(app.getPath('userData'), 'fonts');
+}
+
 /** Extracts and decompresses XML parts from a DOCX zip buffer */
 function extractDocxPartsFromBuffer(buffer: Buffer): {
   documentXml: string | null;
@@ -668,6 +672,13 @@ async function renderWithCli(kind: 'pdf' | 'html', payload: any): Promise<string
     }
 
     const cliArgs: string[] = [`render-${kind}`, inputPath, outputPath];
+    const userFontsDir = getUserFontsDir();
+    if (fs.existsSync(userFontsDir)) {
+      cliArgs.push('--fonts-dir', userFontsDir);
+    }
+    if (typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)) {
+      cliArgs.push('--assets-from', payload.assetsFrom);
+    }
     if (kind === 'pdf') {
       const opts = payload?.options || payload;
       if (opts?.format) {
@@ -716,7 +727,7 @@ async function renderWithCli(kind: 'pdf' | 'html', payload: any): Promise<string
 handle('tok:render-pdf', (_, payload) => renderWithCli('pdf', payload));
 handle('tok:render-html', (_, payload) => renderWithCli('html', payload));
 
-handle('tok:save-document', async (_, payload: { document?: unknown; filePath?: string }) => {
+handle('tok:save-document', async (_, payload: { document?: unknown; filePath?: string; assetsFrom?: string }) => {
   const filePath = requireString(payload?.filePath, 'filePath');
   const targetPath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
 
@@ -734,7 +745,15 @@ handle('tok:save-document', async (_, payload: { document?: unknown; filePath?: 
       : JSON.stringify(payload.document, null, 2);
     await fs.promises.writeFile(tempDocFile, content, 'utf-8');
 
-    const { code, stdout, stderr } = await runCli(['save-package', tempDocFile, targetPath]);
+    const saveArgs: string[] = ['save-package', tempDocFile, targetPath];
+    const userFontsDir = getUserFontsDir();
+    if (fs.existsSync(userFontsDir)) {
+      saveArgs.push('--fonts-dir', userFontsDir);
+    }
+    if (typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)) {
+      saveArgs.push('--assets-from', payload.assetsFrom);
+    }
+    const { code, stdout, stderr } = await runCli(saveArgs);
     if (code !== 0) {
       throw new Error(`tok-cli save-package failed with code ${code}: ${stderr || stdout}`);
     }
@@ -793,7 +812,7 @@ handle('tok:open-document', async (_, filePath: string) => {
   }
 });
 
-handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPath?: string }) => {
+handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPath?: string; assetsFrom?: string }) => {
   let inputPath = typeof payload?.inputPath === 'string' && payload.inputPath ? payload.inputPath : null;
   let tempDocFile: string | null = null;
   const tempDir = app.getPath('temp');
@@ -814,7 +833,15 @@ handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPat
       throw new Error('Either document or inputPath must be provided for typesetting');
     }
 
-    const { code, stdout, stderr } = await runCli(['typeset-document', inputPath, tempOutFile]);
+    const typesetArgs: string[] = ['typeset-document', inputPath, tempOutFile, '--with-preflight'];
+    const userFontsDir = getUserFontsDir();
+    if (fs.existsSync(userFontsDir)) {
+      typesetArgs.push('--fonts-dir', userFontsDir);
+    }
+    if (typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)) {
+      typesetArgs.push('--assets-from', payload.assetsFrom);
+    }
+    const { code, stdout, stderr } = await runCli(typesetArgs);
     if (code !== 0) {
       throw new Error(`tok-cli typeset-document failed with code ${code}: ${stderr || stdout}`);
     }
@@ -824,8 +851,10 @@ handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPat
     }
 
     const rawContent = await fs.promises.readFile(tempOutFile, 'utf-8');
-    const pages = JSON.parse(rawContent);
-    return { success: true, pages };
+    const parsed = JSON.parse(rawContent);
+    const pages = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.pages) ? parsed.pages : []);
+    const preflight = Array.isArray(parsed) ? null : (parsed?.preflight ?? null);
+    return { success: true, pages, preflight };
   } finally {
     if (tempDocFile) {
       try {
@@ -842,6 +871,74 @@ handle('tok:typeset-document', async (_, payload: { document?: unknown; inputPat
       }
     } catch (err: any) {
       logger.warn(`[IPC] Failed to remove temp typeset out file: ${tempOutFile}`, { error: err?.message });
+    }
+  }
+});
+
+handle('tok:run-preflight', async (_, payload: { document?: unknown; inputPath?: string; assetsFrom?: string; standard?: string; bleed?: boolean }) => {
+  let inputPath = typeof payload?.inputPath === 'string' && payload.inputPath ? payload.inputPath : null;
+  let tempDocFile: string | null = null;
+  const tempDir = app.getPath('temp');
+  const uniqueSuffix = `${Date.now()}_${process.pid}_${Math.random().toString(36).slice(2, 9)}`;
+  const tempOutFile = path.join(tempDir, `tok_preflight_out_${uniqueSuffix}.json`);
+
+  try {
+    if (payload?.document) {
+      tempDocFile = path.join(tempDir, `tok_preflight_in_${uniqueSuffix}.json`);
+      const content = typeof payload.document === 'string'
+        ? payload.document
+        : JSON.stringify(payload.document, null, 2);
+      await fs.promises.writeFile(tempDocFile, content, 'utf-8');
+      inputPath = tempDocFile;
+    }
+
+    if (!inputPath) {
+      return { success: false, error: 'Either document or inputPath must be provided for preflight' };
+    }
+
+    const pfArgs: string[] = ['preflight', inputPath, tempOutFile];
+    const userFontsDir = getUserFontsDir();
+    if (fs.existsSync(userFontsDir)) {
+      pfArgs.push('--fonts-dir', userFontsDir);
+    }
+    if (typeof payload?.assetsFrom === 'string' && payload.assetsFrom && fs.existsSync(payload.assetsFrom)) {
+      pfArgs.push('--assets-from', payload.assetsFrom);
+    }
+    if (payload?.standard === 'pdfx4') {
+      pfArgs.push('--standard', 'pdfx4');
+    }
+    if (payload?.bleed === false) {
+      pfArgs.push('--no-bleed');
+    }
+
+    const { code, stdout, stderr } = await runCli(pfArgs);
+    if (code !== 0) {
+      return { success: false, error: `tok-cli preflight failed with code ${code}: ${stderr || stdout}` };
+    }
+    if (!fs.existsSync(tempOutFile)) {
+      return { success: false, error: `Preflight report file was not created at ${tempOutFile}` };
+    }
+    const rawReport = await fs.promises.readFile(tempOutFile, 'utf-8');
+    const report = JSON.parse(rawReport);
+    return { success: true, report };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  } finally {
+    if (tempDocFile) {
+      try {
+        if (fs.existsSync(tempDocFile)) {
+          await fs.promises.unlink(tempDocFile);
+        }
+      } catch (err: any) {
+        logger.warn(`[IPC] Failed to remove temp preflight in file: ${tempDocFile}`, { error: err?.message });
+      }
+    }
+    try {
+      if (fs.existsSync(tempOutFile)) {
+        await fs.promises.unlink(tempOutFile);
+      }
+    } catch (err: any) {
+      logger.warn(`[IPC] Failed to remove temp preflight out file: ${tempOutFile}`, { error: err?.message });
     }
   }
 });
@@ -901,6 +998,21 @@ handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPat
   const resolvedOld = path.isAbsolute(oldPath) ? oldPath : path.resolve(oldPath);
   const resolvedNew = path.isAbsolute(newPath) ? newPath : path.resolve(newPath);
   if (fs.existsSync(resolvedOld)) {
+    if (fs.existsSync(resolvedNew)) {
+      let sameFile = normalizeFsPath(resolvedOld) === normalizeFsPath(resolvedNew);
+      if (!sameFile) {
+        try {
+          const oldStat = fs.statSync(resolvedOld);
+          const newStat = fs.statSync(resolvedNew);
+          if (oldStat.ino && newStat.ino && oldStat.ino === newStat.ino && oldStat.dev === newStat.dev) {
+            sameFile = true;
+          }
+        } catch {}
+      }
+      if (!sameFile) {
+        return { success: false, error: 'TARGET_EXISTS' };
+      }
+    }
     const targetDir = path.dirname(resolvedNew);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     await fs.promises.rename(resolvedOld, resolvedNew);
@@ -908,6 +1020,79 @@ handle('tok:rename-document-file', async (_, payload: { oldPath?: string; newPat
     return { success: true, filePath: resolvedNew };
   }
   return { success: false, error: 'Source file does not exist' };
+});
+
+// Font Inspection & User Font Directory Handlers (validated by Rust Core)
+handle('tok:inspect-font', async (_, fontPath: string) => {
+  const sourcePath = requireString(fontPath, 'fontPath');
+  const resolved = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(sourcePath);
+  if (!fs.existsSync(resolved)) {
+    return { valid: false, error: 'FileNotFound', message: `Font file not found: ${resolved}` };
+  }
+  const { code, stdout, stderr } = await runCli(['inspect-font', resolved]);
+  if (code !== 0) {
+    throw new Error(`tok-cli inspect-font failed (${code}): ${stderr || stdout}`);
+  }
+  return JSON.parse(stdout);
+});
+
+handle('tok:install-font', async (_, fontPath: string) => {
+  const sourcePath = requireString(fontPath, 'fontPath');
+  const resolved = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(sourcePath);
+  if (!fs.existsSync(resolved)) {
+    return { success: false, error: 'FileNotFound', message: `Font file not found: ${resolved}` };
+  }
+  const { code, stdout, stderr } = await runCli(['inspect-font', resolved]);
+  if (code !== 0) {
+    throw new Error(`tok-cli inspect-font failed (${code}): ${stderr || stdout}`);
+  }
+  const inspection = JSON.parse(stdout);
+  if (!inspection?.valid) {
+    return { success: false, ...inspection };
+  }
+  const fontsDir = getUserFontsDir();
+  if (!fs.existsSync(fontsDir)) {
+    fs.mkdirSync(fontsDir, { recursive: true });
+  }
+  const rawBase = path.basename(resolved).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const destName = rawBase.toLowerCase().endsWith('.ttf') ? rawBase : `${rawBase}.ttf`;
+  const destPath = path.join(fontsDir, destName);
+  const bytes = await fs.promises.readFile(resolved);
+  await fs.promises.writeFile(destPath, bytes);
+  return {
+    success: true,
+    path: destPath,
+    report: inspection.report,
+    base64Data: bytes.toString('base64')
+  };
+});
+
+handle('tok:list-user-fonts', async () => {
+  const fontsDir = getUserFontsDir();
+  if (!fs.existsSync(fontsDir)) return [];
+  const entries = (await fs.promises.readdir(fontsDir)).filter((f) => /\.ttf$/i.test(f)).sort();
+  const out: { fileName: string; path: string; base64Data: string; report?: any }[] = [];
+  for (const fileName of entries) {
+    const full = path.join(fontsDir, fileName);
+    try {
+      const { code, stdout } = await runCli(['inspect-font', full]);
+      if (code === 0) {
+        const parsed = JSON.parse(stdout);
+        if (parsed?.valid && parsed.report) {
+          const bytes = await fs.promises.readFile(full);
+          out.push({
+            fileName,
+            path: full,
+            base64Data: bytes.toString('base64'),
+            report: parsed.report
+          });
+        }
+      }
+    } catch {
+      // Skip unreadable or rejected files
+    }
+  }
+  return out;
 });
 
 // Heading & Outline Numbering Handlers
