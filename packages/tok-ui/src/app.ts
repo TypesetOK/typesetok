@@ -45,7 +45,7 @@ import {
 } from './engine/documentBridge';
 import type { LineRunLookup, LineRunSource } from './engine/lineRuns';
 import { importDocument, parseDocxXml, ImportResult } from './engine/textImporter';
-import { layoutToPageDescriptors, PreflightReport } from './engine/typesetBridge';
+import { layoutToPageDescriptors, PreflightReport, readTypesetResponse } from './engine/typesetBridge';
 
 import { toHebrewGematria } from './gematria';
 import { normalizeHebrew, normalizeQuotes, findHolyNames } from './plugins/hebrew-utils';
@@ -2365,9 +2365,10 @@ export class TypesetOkApp {
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
             return;
           }
-          if (res && res.success && Array.isArray(res.pages)) {
-            newPages = layoutToPageDescriptors(res.pages, this.buildLineRunLookup());
-            const pfReport = (res.preflight ?? null) as PreflightReport | null;
+          const layout = res && res.success ? readTypesetResponse(res) : null;
+          if (layout) {
+            newPages = layoutToPageDescriptors(layout.pages, this.buildLineRunLookup());
+            const pfReport = layout.preflight;
             this.latestPreflightReport = pfReport;
             this.inspector?.setPreflightReport(pfReport);
             if (pfReport) {

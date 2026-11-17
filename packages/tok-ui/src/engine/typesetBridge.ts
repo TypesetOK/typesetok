@@ -150,6 +150,22 @@ export interface PageLayoutBox {
   diagnostics?: LayoutDiagnostic[];
 }
 
+/**
+ * Reads a typeset IPC response: `layoutJson` is the engine output as text (either a page
+ * array or `{ pages, preflight }`); older shells sent already-parsed `pages`/`preflight`.
+ */
+export function readTypesetResponse(res: { layoutJson?: string; pages?: unknown; preflight?: unknown }): {
+  pages: PageLayoutBox[];
+  preflight: PreflightReport | null;
+} {
+  const parsed: any = typeof res.layoutJson === 'string' ? JSON.parse(res.layoutJson) : res;
+  if (Array.isArray(parsed)) return { pages: parsed, preflight: null };
+  return {
+    pages: Array.isArray(parsed?.pages) ? parsed.pages : [],
+    preflight: (parsed?.preflight ?? null) as PreflightReport | null,
+  };
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')

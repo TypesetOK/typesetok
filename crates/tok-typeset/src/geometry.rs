@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+fn is_zero_u16(v: &u16) -> bool {
+    *v == 0
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PhysicalPoint {
     pub x: f32, // in DTP points (pt)
@@ -61,7 +65,7 @@ pub struct GlyphBox {
     #[serde(default)]
     pub font_index: u16,
     /// Index into the owning line's [`LineBox::colors`]; `0` is the paragraph's base color.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero_u16")]
     pub color_index: u16,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub underline: bool,
