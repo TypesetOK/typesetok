@@ -17,6 +17,7 @@
 
 pub mod bidi;
 pub mod co_pagination;
+pub mod column_flow;
 pub mod diagnostics;
 pub mod drop_cap;
 pub mod engine;
@@ -35,6 +36,7 @@ pub mod layout_family;
 pub mod layout_features;
 pub mod layout_template;
 pub mod masoretic;
+pub mod mpt;
 pub mod multi_flow;
 pub mod optical_margin;
 pub mod page_break;
@@ -55,7 +57,7 @@ pub use co_pagination::{
     NonBlockingPaginator, PaginationEvent, SharedColumnHeightBalancer, SpreadMathematics,
     SyncRemedy, SynchronizerConfig, TemplateConfig, TemplateKind,
 };
-pub use diagnostics::RecomputeReport;
+pub use diagnostics::{DiagnosticSeverity, LayoutDiagnostic, RecomputeReport, WaiverRecord};
 pub use drop_cap::{DropCapLayout, HebrewDropCapShaper};
 pub use engine::{TypesettingEngine, TypesettingEngineConfig};
 pub use font::{FontData, FontManager, FontMetrics};
@@ -64,7 +66,8 @@ pub use footnote_paginator::{
 };
 pub use gematria::{GematriaEngine, HEBREW_GERESH, HEBREW_GERSHAYIM};
 pub use geometry::{
-    BreakToken, GlyphBox, LineBox, PageLayoutBox, PhysicalPoint, PhysicalRect, TextFrameBox,
+    BreakToken, GlyphBox, LineBox, PageLayoutBox, PhysicalPoint, PhysicalRect, PlacedImageBox,
+    PlacedOrnamentBox, TextFrameBox, VisualLineRun,
 };
 pub use hebrew_justify::{
     HebrewJustifier, JustificationTier, JustifiedLine, VariableLineLayout, AHALTERM_LETTERS,
