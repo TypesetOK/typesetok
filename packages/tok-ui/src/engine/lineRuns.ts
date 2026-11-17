@@ -70,13 +70,40 @@ function hasVisibleFormat(f: CharacterFormat | undefined): boolean {
   );
 }
 
+function findWithCollapsedSpaces(sourceText: string, needle: string, from: number): { start: number; end: number } | null {
+  const nLen = needle.length;
+  const sLen = sourceText.length;
+  if (nLen === 0) return null;
+  for (let start = from; start < sLen; start++) {
+    // Skip leading whitespace in source when needle starts with non-whitespace
+    let si = start;
+    let ni = 0;
+    while (si < sLen && ni < nLen) {
+      const nc = needle[ni];
+      const sc = sourceText[si];
+      if (nc === sc) {
+        si++;
+        ni++;
+      } else if (/\s/.test(nc) && /\s/.test(sc)) {
+        while (ni < nLen && /\s/.test(needle[ni])) ni++;
+        while (si < sLen && /\s/.test(sourceText[si])) si++;
+      } else {
+        break;
+      }
+    }
+    if (ni === nLen) {
+      return { start, end: si };
+    }
+  }
+  return null;
+}
+
 /**
  * Finds where each engine line starts inside its paragraph.
  *
  * A paragraph's lines arrive in reading order and each line's text is the next
- * slice of the paragraph, so a moving cursor locates them. A line whose text
- * cannot be found (for example when the engine collapsed repeated spaces) is
- * left out and keeps its plain rendering.
+ * slice of the paragraph, so a moving cursor locates them. Falls back to
+ * whitespace-collapsed matching when the engine collapsed repeated spaces.
  */
 export function locateLines<T extends LineRef>(lines: Iterable<T>, lookup: LineRunLookup): Map<T, LocatedLine> {
   const located = new Map<T, LocatedLine>();
@@ -88,9 +115,16 @@ export function locateLines<T extends LineRef>(lines: Iterable<T>, lookup: LineR
     if (!source) continue;
     const from = cursors.get(String(pid)) ?? 0;
     const at = source.text.indexOf(line.text, from);
-    if (at < 0) continue;
-    located.set(line, { source, start: at });
-    cursors.set(String(pid), at + line.text.length);
+    if (at >= 0) {
+      located.set(line, { source, start: at });
+      cursors.set(String(pid), at + line.text.length);
+      continue;
+    }
+    const fuzzy = findWithCollapsedSpaces(source.text, line.text, from);
+    if (fuzzy) {
+      located.set(line, { source, start: fuzzy.start });
+      cursors.set(String(pid), fuzzy.end);
+    }
   }
   return located;
 }
