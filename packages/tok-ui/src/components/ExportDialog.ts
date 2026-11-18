@@ -247,14 +247,16 @@ export class ExportDialog {
     if (report && Array.isArray(report.checks) && report.checks.length > 0) {
       for (const item of report.checks) {
         const st: PreflightStatus = item.status;
-        const li = el('li');
+        const li = el('li', undefined, { style: 'align-items:flex-start' });
         const markCls = st === 'Fail' ? 'tok-err' : st === 'Warning' ? 'tok-warn' : 'tok-ok';
         const iconName = st === 'Fail' ? 'close' : st === 'Warning' ? 'warning' : 'check';
         const mark = el('span', markCls);
         mark.appendChild(icon(iconName, 15));
         li.appendChild(mark);
-        li.appendChild(el('span', undefined, { style: 'flex:1' }, item.title));
-        li.appendChild(el('span', undefined, { style: 'color:var(--tok-text-primary)' }, item.summary));
+        const text = el('span', undefined, { style: 'flex:1;display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere' });
+        text.appendChild(el('span', undefined, { dir: 'auto', style: 'color:var(--tok-text-primary)' }, item.title));
+        text.appendChild(el('span', undefined, { dir: 'auto' }, item.summary));
+        li.appendChild(text);
         list.appendChild(li);
       }
     } else {
