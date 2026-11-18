@@ -33,7 +33,7 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         }
       },
       {
-        "category": "security",
+        "category": "fixes",
         "text": {
           "he": "אכיפת אימות תעודות TLS ו-HTTPS במנגנון העדכון, הגבלת גישת קבצים ב-IPC לנתיבים מורשים וכתיבה אטומית בקבצים",
           "en": "Enforce TLS verification and HTTPS in the updater, confine IPC file access to authorized paths, and use atomic temp-file writes"

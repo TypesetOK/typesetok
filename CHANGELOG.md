@@ -14,7 +14,7 @@
 ### Changes
 - [performance] עברית: קיצור זמן העימוד החי מ-7.4 שניות ל-2.1 שניות על 100 עמודים והוספת עובד IPC מתמיד ל-tok-cli, וירטואליזציית עמודים ב-SpreadCanvas ושיפורי ביצועים ב-Rust ו-Electron | en: Cut live typeset round-trip from 7.4s to 2.1s on 100 pages with a persistent tok-cli IPC worker, SpreadCanvas DOM virtualization, and Rust/Electron optimizations
 - [fixes] עברית: עיצוב ריצות טקסט עם הגופן המשויך להן, תיקון ספירת שורות בעימוד משולב, שמירת שחזור טיוטה לדיסק ותיקון גלישת רשימת הקדם-דפוס בחלונית הייצוא | en: Shape text runs with their tagged font, fix co-pagination line counts, persist draft recovery snapshots to disk, and fix export preflight list overflow
-- [security] עברית: אכיפת אימות תעודות TLS ו-HTTPS במנגנון העדכון, הגבלת גישת קבצים ב-IPC לנתיבים מורשים וכתיבה אטומית בקבצים | en: Enforce TLS verification and HTTPS in the updater, confine IPC file access to authorized paths, and use atomic temp-file writes
+- [fixes] עברית: אכיפת אימות תעודות TLS ו-HTTPS במנגנון העדכון, הגבלת גישת קבצים ב-IPC לנתיבים מורשים וכתיבה אטומית בקבצים | en: Enforce TLS verification and HTTPS in the updater, confine IPC file access to authorized paths, and use atomic temp-file writes
 - [improvements] עברית: דחיסת מתקין מהירה כפליים (zip) וניקוי תלויות מיותרות | en: ~2x faster installer compression (zip) and cleanup of unused dependencies
 
 ---
