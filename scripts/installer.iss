@@ -14,8 +14,11 @@
 #define MyAppExeName "TypesetOK.exe"
 #define SourceDir "..\dist\TypesetOK-v" + MyAppVersion + "-windows-x64"
 
+; zip extracts about twice as fast as lzma2; most of the install time is spent
+; unpacking the 168 MB Electron executable. Pass /DCompressionLevel=lzma2 for a
+; smaller (75 MB vs 100 MB) but slower installer.
 #ifndef CompressionLevel
-  #define CompressionLevel "lzma2/max"
+  #define CompressionLevel "zip"
 #endif
 
 [Setup]

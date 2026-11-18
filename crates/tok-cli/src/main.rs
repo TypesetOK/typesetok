@@ -872,6 +872,13 @@ fn handle_typeset_document(
         }
     }
 
+    // Compact output, serialized straight from the structs: this runs on every edit, and
+    // json!() would first copy every glyph into a serde_json::Value and widen f32 to f64.
+    #[derive(serde::Serialize)]
+    struct TypesetWithPreflight<'a> {
+        pages: &'a [tok_typeset::geometry::PageLayoutBox],
+        preflight: &'a tok_pdf::preflight::PreflightReport,
+    }
     let with_preflight = extra_args.iter().any(|a| a == "--with-preflight");
     let json_bytes = if with_preflight {
         let mut opts = PdfExportOptions::default();
@@ -881,12 +888,12 @@ fn handle_typeset_document(
             }
         }
         let report = PreflightEngine::evaluate(doc.root(), &pages, &engine.font_manager, &opts);
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "pages": pages,
-            "preflight": report,
-        }))?
+        serde_json::to_vec(&TypesetWithPreflight {
+            pages: &pages,
+            preflight: &report,
+        })?
     } else {
-        serde_json::to_vec_pretty(&pages)?
+        serde_json::to_vec(&pages)?
     };
     write_atomic(output, &json_bytes)?;
     println!("  [SUCCESS] Written layout JSON to: {}", output);
