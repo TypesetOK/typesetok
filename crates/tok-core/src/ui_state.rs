@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use crate::header::FootnoteApparatusConfig;
 use crate::id::{FractionalIndex, NodeId};
 use crate::model::{DocumentRoot, Flow, FlowId, FlowType, ParagraphNode, SectionNode};
 use crate::multi_flow_anchor::MultiFlowAnchorMap;
 use crate::spans::TextSpan;
 use crate::styles::GrepRule;
+use std::collections::HashMap;
 
 #[derive(serde::Deserialize)]
 pub struct RawMultiFlowState {

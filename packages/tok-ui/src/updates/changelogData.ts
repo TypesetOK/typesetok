@@ -6,6 +6,54 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.36.6",
+    "releaseDate": "2026-11-18",
+    "importance": "minor",
+    "title": {
+      "he": "האצת עימוד חי, עובד IPC מתמיד, מתקין מהיר ותיקוני יציבות (0.36.6)",
+      "en": "Live Typeset Speedup, Persistent IPC Worker, Fast Installer & Stability Fixes (0.36.6)"
+    },
+    "summary": {
+      "he": "שדרוג משמעותי של ביצועי העימוד החי עם עובד IPC מתמיד ל-tok-cli, וירטואליזציה ב-SpreadCanvas, אבטחת נתיבי IPC ואימות TLS בעדכונים, התקנה מהירה כפליים ותיקוני עימוד, גופנים וממשק.",
+      "en": "Major live typesetting performance boost via a persistent tok-cli IPC worker, SpreadCanvas DOM virtualization, IPC path and updater TLS security hardening, ~2x faster installer compression, and fixes across typesetting, fonts, co-pagination, storage, and UI."
+    },
+    "changes": [
+      {
+        "category": "performance",
+        "text": {
+          "he": "קיצור זמן העימוד החי מ-7.4 שניות ל-2.1 שניות על 100 עמודים והוספת עובד IPC מתמיד ל-tok-cli, וירטואליזציית עמודים ב-SpreadCanvas ושיפורי ביצועים ב-Rust ו-Electron",
+          "en": "Cut live typeset round-trip from 7.4s to 2.1s on 100 pages with a persistent tok-cli IPC worker, SpreadCanvas DOM virtualization, and Rust/Electron optimizations"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "עיצוב ריצות טקסט עם הגופן המשויך להן, תיקון ספירת שורות בעימוד משולב, שמירת שחזור טיוטה לדיסק ותיקון גלישת רשימת הקדם-דפוס בחלונית הייצוא",
+          "en": "Shape text runs with their tagged font, fix co-pagination line counts, persist draft recovery snapshots to disk, and fix export preflight list overflow"
+        }
+      },
+      {
+        "category": "security",
+        "text": {
+          "he": "אכיפת אימות תעודות TLS ו-HTTPS במנגנון העדכון, הגבלת גישת קבצים ב-IPC לנתיבים מורשים וכתיבה אטומית בקבצים",
+          "en": "Enforce TLS verification and HTTPS in the updater, confine IPC file access to authorized paths, and use atomic temp-file writes"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "דחיסת מתקין מהירה כפליים (zip) וניקוי תלויות מיותרות",
+          "en": "~2x faster installer compression (zip) and cleanup of unused dependencies"
+        }
+      }
+    ],
+    "highlights": [],
+    "badge": {
+      "he": "ביצועים, יציבות ותיקונים",
+      "en": "Performance, Stability & Fixes"
+    }
+  },
+  {
     "version": "0.36.1",
     "releaseDate": "2026-11-17",
     "importance": "patch",

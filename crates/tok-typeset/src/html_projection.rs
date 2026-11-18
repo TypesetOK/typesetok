@@ -5,9 +5,9 @@
 //! - Named page definitions (@page :right, @page :left, @page chapter-first) for Vivliostyle.
 //! - RTL spread progression.
 
-use std::fmt::Write;
 use crate::font::BOLD_SUFFIX;
 use crate::geometry::PageLayoutBox;
+use std::fmt::Write;
 
 /// The engine's embedded families, in fallback order (see tok-typeset's FontManager).
 const FONT_STACK: &str =

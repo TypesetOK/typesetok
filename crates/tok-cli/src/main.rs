@@ -33,7 +33,12 @@ fn write_atomic(output: &str, bytes: &[u8]) -> Result<(), Box<dyn std::error::Er
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{}.tmp.{}.{}", file_name, std::process::id(), nanos));
+    let tmp_path = parent.join(format!(
+        ".{}.tmp.{}.{}",
+        file_name,
+        std::process::id(),
+        nanos
+    ));
 
     let write_res = (|| -> std::io::Result<()> {
         let mut file = fs::File::create(&tmp_path)?;

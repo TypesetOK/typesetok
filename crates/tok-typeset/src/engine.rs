@@ -260,7 +260,10 @@ impl TypesettingEngine {
 
     /// Invalidates cached layout lines for a specific paragraph.
     pub fn invalidate_paragraph(&self, node_id: tok_core::id::NodeId) -> bool {
-        self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner()).invalidate(node_id)
+        self.paragraph_cache
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .invalidate(node_id)
     }
 
     /// Invalidates cached layout lines for a collection of paragraph IDs.
@@ -268,7 +271,10 @@ impl TypesettingEngine {
         &self,
         ids: I,
     ) -> usize {
-        let mut cache = self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner());
+        let mut cache = self
+            .paragraph_cache
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
         let mut count = 0;
         for id in ids {
             if cache.invalidate(id) {
@@ -280,12 +286,18 @@ impl TypesettingEngine {
 
     /// Clears the entire paragraph layout cache.
     pub fn clear_cache(&self) {
-        self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner()).clear();
+        self.paragraph_cache
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
     }
 
     /// Returns layout cache metrics (hits, misses, entry count, memory bytes).
     pub fn cache_metrics(&self) -> crate::layout_cache::CacheMetricsSnapshot {
-        self.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).snapshot()
+        self.paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .snapshot()
     }
 
     /// Typesets a single paragraph into formatted, justified LineBoxes using default font.
@@ -1317,7 +1329,10 @@ impl TypesettingEngine {
         let default_style = tok_core::styles::ParagraphStyle::default();
         let has_spans_to_resolve = !doc.grep_rules.is_empty() || !doc.character_styles.is_empty();
         let cached_lookup: Vec<(crate::layout_cache::ParagraphCacheKey, Option<Vec<LineBox>>)> = {
-            let cache = self.paragraph_cache.read().unwrap_or_else(|p| p.into_inner());
+            let cache = self
+                .paragraph_cache
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
             jobs.iter()
                 .map(|&(_, _, p, width_pt, flow_id)| {
                     let style = doc
@@ -1423,7 +1438,10 @@ impl TypesettingEngine {
             .collect();
 
         if !computed.is_empty() {
-            let mut cache = self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner());
+            let mut cache = self
+                .paragraph_cache
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
             for (_, key, lines) in &computed {
                 cache.insert(key.clone(), lines.clone());
             }
@@ -2080,7 +2098,10 @@ impl TypesettingEngine {
 
         let default_style = tok_core::styles::ParagraphStyle::default();
         let cached_lookup: Vec<(crate::layout_cache::ParagraphCacheKey, Option<Vec<LineBox>>)> = {
-            let cache = self.paragraph_cache.read().unwrap_or_else(|p| p.into_inner());
+            let cache = self
+                .paragraph_cache
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
             jobs.iter()
                 .map(|&(_, _, p)| {
                     let style = doc
@@ -2176,7 +2197,10 @@ impl TypesettingEngine {
             .collect();
 
         if !computed.is_empty() {
-            let mut cache = self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner());
+            let mut cache = self
+                .paragraph_cache
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
             for (_, key, lines) in &computed {
                 cache.insert(key.clone(), lines.clone());
             }
@@ -2741,7 +2765,10 @@ impl TypesettingEngine {
                 let key =
                     crate::layout_cache::ParagraphLayoutCache::make_key(p_ref, &style, flow_width);
                 let cached_lines = {
-                    let cache = self.paragraph_cache.read().unwrap_or_else(|p| p.into_inner());
+                    let cache = self
+                        .paragraph_cache
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner());
                     cache.get(&key).map(|c| c.lines.clone())
                 };
 
@@ -2757,7 +2784,10 @@ impl TypesettingEngine {
                         font_size,
                         line_height,
                     );
-                    let mut cache = self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner());
+                    let mut cache = self
+                        .paragraph_cache
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner());
                     cache.insert(key, computed.clone());
                     computed
                 } else {
@@ -2774,7 +2804,10 @@ impl TypesettingEngine {
                         line_height,
                         Some(&self.config.masoretic_typography),
                     );
-                    let mut cache = self.paragraph_cache.write().unwrap_or_else(|p| p.into_inner());
+                    let mut cache = self
+                        .paragraph_cache
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner());
                     cache.insert(key, computed.clone());
                     computed
                 };
@@ -3606,12 +3639,17 @@ impl TypesettingEngine {
             if col_indices.len() >= 2 {
                 let mut cols_subset: Vec<TextFrameBox> = col_indices
                     .iter()
-                    .map(|&i| std::mem::replace(&mut bal_frames[i], TextFrameBox {
-                        frame_id: String::new(),
-                        flow_id: String::new(),
-                        rect: crate::geometry::PhysicalRect::new(0.0, 0.0, 0.0, 0.0),
-                        lines: Vec::new(),
-                    }))
+                    .map(|&i| {
+                        std::mem::replace(
+                            &mut bal_frames[i],
+                            TextFrameBox {
+                                frame_id: String::new(),
+                                flow_id: String::new(),
+                                rect: crate::geometry::PhysicalRect::new(0.0, 0.0, 0.0, 0.0),
+                                lines: Vec::new(),
+                            },
+                        )
+                    })
                     .collect();
                 crate::co_pagination::SharedColumnHeightBalancer::balance_page_frames(
                     &mut cols_subset,
@@ -3789,27 +3827,29 @@ impl TypesettingEngine {
                                         let mut new_pages = previous_pages.to_vec();
                                         if let Some(page) = new_pages.get_mut(page_idx) {
                                             for frame in &mut page.frames {
-                                            if frame.flow_id == flow.id.0 {
-                                                let mut new_frame_lines =
-                                                    Vec::with_capacity(frame.lines.len());
-                                                let mut new_lines_iter =
-                                                    new_lines.clone().into_iter();
-                                                for old_line in &frame.lines {
-                                                    let line = if old_line.paragraph_id
-                                                        == Some(target_id)
-                                                    {
-                                                        let mut n = new_lines_iter
-                                                            .next()
-                                                            .unwrap_or_else(|| old_line.clone());
-                                                        n.baseline_y = old_line.baseline_y;
-                                                        n
-                                                    } else {
-                                                        old_line.clone()
-                                                    };
-                                                    new_frame_lines.push(line);
+                                                if frame.flow_id == flow.id.0 {
+                                                    let mut new_frame_lines =
+                                                        Vec::with_capacity(frame.lines.len());
+                                                    let mut new_lines_iter =
+                                                        new_lines.clone().into_iter();
+                                                    for old_line in &frame.lines {
+                                                        let line = if old_line.paragraph_id
+                                                            == Some(target_id)
+                                                        {
+                                                            let mut n = new_lines_iter
+                                                                .next()
+                                                                .unwrap_or_else(|| {
+                                                                    old_line.clone()
+                                                                });
+                                                            n.baseline_y = old_line.baseline_y;
+                                                            n
+                                                        } else {
+                                                            old_line.clone()
+                                                        };
+                                                        new_frame_lines.push(line);
+                                                    }
+                                                    frame.lines = new_frame_lines;
                                                 }
-                                                frame.lines = new_frame_lines;
-                                            }
                                             }
                                         }
 
@@ -5139,33 +5179,81 @@ mod tests {
         flow.add_paragraph(p2);
 
         let eng = engine();
-        assert_eq!(eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).len(), 0);
+        assert_eq!(
+            eng.paragraph_cache
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .len(),
+            0
+        );
 
         // Run 1: Cold cache -> 2 misses
         let pages1 = eng.typeset_document(&doc);
         assert!(!pages1.is_empty());
-        assert_eq!(eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).len(), 2);
-        let misses1 = eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).metrics().miss_count();
-        let hits1 = eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).metrics().hit_count();
+        assert_eq!(
+            eng.paragraph_cache
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .len(),
+            2
+        );
+        let misses1 = eng
+            .paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .metrics()
+            .miss_count();
+        let hits1 = eng
+            .paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .metrics()
+            .hit_count();
         assert_eq!(misses1, 2);
         assert_eq!(hits1, 0);
 
         // Run 2: Warm cache -> 2 hits, 0 new misses
         let pages2 = eng.typeset_document(&doc);
         assert_eq!(pages1.len(), pages2.len());
-        let hits2 = eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).metrics().hit_count();
-        let misses2 = eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).metrics().miss_count();
+        let hits2 = eng
+            .paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .metrics()
+            .hit_count();
+        let misses2 = eng
+            .paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .metrics()
+            .miss_count();
         assert_eq!(hits2, 2);
         assert_eq!(misses2, 2);
 
         // Invalidate p1
         assert!(eng.invalidate_paragraph(p1_id));
-        assert_eq!(eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).len(), 1);
+        assert_eq!(
+            eng.paragraph_cache
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .len(),
+            1
+        );
 
         // Run 3: p1 is recomputed (1 miss), p2 is hit (1 hit)
         let _pages3 = eng.typeset_document(&doc);
-        let hits3 = eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).metrics().hit_count();
-        let misses3 = eng.paragraph_cache.read().unwrap_or_else(|p| p.into_inner()).metrics().miss_count();
+        let hits3 = eng
+            .paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .metrics()
+            .hit_count();
+        let misses3 = eng
+            .paragraph_cache
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .metrics()
+            .miss_count();
         assert_eq!(hits3, 3);
         assert_eq!(misses3, 3);
     }

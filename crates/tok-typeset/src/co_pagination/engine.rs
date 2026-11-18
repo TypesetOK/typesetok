@@ -848,7 +848,9 @@ impl CoPaginationEngine {
             }
             *total_stream_lines.entry(FlowId::new("main")).or_insert(0) += gemara_len;
             *total_stream_lines.entry(FlowId::new("rashi")).or_insert(0) += rashi_len;
-            *total_stream_lines.entry(FlowId::new("tosafot")).or_insert(0) += tosafot_len;
+            *total_stream_lines
+                .entry(FlowId::new("tosafot"))
+                .or_insert(0) += tosafot_len;
 
             pages.push(CoPaginatedPage {
                 page_number,
