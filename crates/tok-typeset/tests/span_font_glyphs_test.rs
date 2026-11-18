@@ -30,7 +30,11 @@ fn typeset_with_span(format: CharacterFormat) -> (TypesettingEngine, Vec<(String
                 let Some(ch) = g.character.filter(|c| !c.is_whitespace()) else {
                     continue;
                 };
-                glyphs.push((line.fonts[usize::from(g.font_index)].clone(), ch, g.glyph_id));
+                glyphs.push((
+                    line.fonts[usize::from(g.font_index)].clone(),
+                    ch,
+                    g.glyph_id,
+                ));
             }
         }
     }
@@ -43,7 +47,11 @@ fn assert_ids_belong_to_tagged_font(engine: &TypesettingEngine, glyphs: &[(Strin
         let font = engine.font_manager.get_font(family).unwrap();
         let face = font.shaping_face().unwrap();
         let expected = face.glyph_index(*ch).map(|g| u32::from(g.0));
-        assert_eq!(expected, Some(*gid), "{ch} tagged {family} has a glyph id of another font");
+        assert_eq!(
+            expected,
+            Some(*gid),
+            "{ch} tagged {family} has a glyph id of another font"
+        );
     }
 }
 
