@@ -353,9 +353,21 @@ pub enum FontChoice {
 pub struct ShapingSession<'a> {
     primary: Option<(&'a FontData, Face<'a>)>,
     fallbacks: Vec<(&'a FontData, Face<'a>)>,
+    manager: &'a FontManager,
 }
 
 impl<'a> ShapingSession<'a> {
+    /// A session for another family from the same font manager, for runs whose span
+    /// asks for a different font than the paragraph (or its bold face).
+    pub fn sibling(&self, font_family: &str) -> ShapingSession<'a> {
+        self.manager.session(font_family)
+    }
+
+    /// See [`FontManager::face_for`].
+    pub fn face_for(&self, family: &str, weight: u16) -> String {
+        self.manager.face_for(family, weight)
+    }
+
     fn missing_glyphs(face: &Face<'_>, text: &str) -> usize {
         text.chars()
             .filter(|c| !c.is_whitespace() && !c.is_control())
@@ -853,7 +865,11 @@ impl FontManager {
                 }
             }
         }
-        ShapingSession { primary, fallbacks }
+        ShapingSession {
+            primary,
+            fallbacks,
+            manager: self,
+        }
     }
 
     /// Shapes text with the requested font family, automatically falling back for missing glyphs.

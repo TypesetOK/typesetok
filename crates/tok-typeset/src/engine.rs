@@ -6,7 +6,7 @@
 use crate::column_flow::{
     ColumnFlowConfig, ColumnGeometry, ColumnParagraphInput, ContinuousColumnPaginator,
 };
-use crate::font::{FontManager, ShapingSession};
+use crate::font::{FontChoice, FontManager, ShapingSession};
 use crate::footnote_paginator::{DynamicFootnotePaginator, FootnotePaginatorConfig};
 use crate::gematria::GematriaEngine;
 use crate::geometry::{
@@ -680,6 +680,8 @@ impl TypesettingEngine {
         let mut meta: Vec<ItemMeta> = Vec::with_capacity(est_items);
         let mut word_start: Option<usize> = None;
         let mut gap_offset: Option<usize> = None;
+        let paragraph_family = session.family_of(FontChoice::Primary).map(str::to_string);
+        let mut span_sessions: HashMap<String, ShapingSession<'_>> = HashMap::new();
 
         let mut push_word = |start: usize, end: usize, gap: Option<usize>| {
             if let Some(gap) = gap {
@@ -788,7 +790,27 @@ impl TypesettingEngine {
                             .extend(crate::masoretic::convert_opentype_settings(span_features));
                     }
                 }
-                let (mut run, choice) = session.shape_with_features(
+                // A span asking for another family (or bold) is shaped with that font: the
+                // glyph ids must belong to the font the run is tagged with, or the PDF draws
+                // them with the wrong font and the text comes out as garbage.
+                let requested_family: Option<String> = span_opt
+                    .filter(|sp| sp.format.font_family.is_some() || sp.format.font_weight.is_some())
+                    .and_then(|sp| {
+                        let fam = sp
+                            .format
+                            .font_family
+                            .as_deref()
+                            .or(base_style.map(|s| s.font_family.as_str()))
+                            .or(paragraph_family.as_deref())?;
+                        Some(session.face_for(fam, run_weight))
+                    });
+                let shaper: &ShapingSession<'_> = match requested_family {
+                    Some(fam) if Some(&fam) != paragraph_family.as_ref() => span_sessions
+                        .entry(fam)
+                        .or_insert_with_key(|fam| session.sibling(fam)),
+                    _ => session,
+                };
+                let (mut run, choice) = shaper.shape_with_features(
                     run_text,
                     run_font_size,
                     level % 2 == 1,
@@ -798,32 +820,7 @@ impl TypesettingEngine {
                     g.cluster += run_start as u32;
                     g.y_offset += baseline_shift;
                 }
-                let resolved_family_owned: Option<String> = if let Some(sp) = span_opt {
-                    let is_bold_span = sp.format.font_weight.is_some_and(|w| w >= 600);
-                    if let Some(ref fam) = sp.format.font_family {
-                        if is_bold_span
-                            && !fam.ends_with(" Bold")
-                            && (fam == "Frank Ruhl Libre" || fam == "David Libre")
-                        {
-                            Some(format!("{} Bold", fam))
-                        } else {
-                            Some(fam.clone())
-                        }
-                    } else if let Some(base_fam) = session.family_of(choice) {
-                        if is_bold_span
-                            && !base_fam.ends_with(" Bold")
-                            && (base_fam == "Frank Ruhl Libre" || base_fam == "David Libre")
-                        {
-                            Some(format!("{} Bold", base_fam))
-                        } else {
-                            Some(base_fam.to_string())
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    session.family_of(choice).map(ToString::to_string)
-                };
+                let resolved_family_owned = shaper.family_of(choice).map(ToString::to_string);
                 items.push(LayoutItem::Box {
                     width: run.total_width_pt,
                     text: text[run_start..run_end].to_string(),
