@@ -59,6 +59,13 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
           "he": "חילוץ שירות המנוע המשותף tok-engine-service עם WorkspaceSession מתמיד השומר מטמון פסקאות וגופנים בזיכרון בין בקשות עובד העימוד",
           "en": "Extract shared tok-engine-service crate with persistent WorkspaceSession reusing paragraph layout cache and loaded fonts across live worker typeset requests"
         }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "הוספת מתאם TauriHostAdapter בשכבת הממשק, בונה dist-tauri מותאם לנכסים ו-CSP, אזור גרירת חלון data-tauri-drag-region, ממשקי שירות רב-נימיים ב-tok-engine-service והרחבת מדידות הפתיחה של Gate 1",
+          "en": "Add TauriHostAdapter frontend bridge, asset/CSP dist-tauri bundler, data-tauri-drag-region window drag support, thread-safe tok-engine-service desktop facades, and Gate 1 A/B startup harness support"
+        }
       }
     ],
     "highlights": [],
