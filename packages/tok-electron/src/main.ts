@@ -645,10 +645,10 @@ function createSplashWindow(): void {
 function getAppIconPath(): string | undefined {
   const candidates = [
     path.join(__dirname, '../../../assets/icon.ico'),
-    path.join(__dirname, '../../../assets/icon.png'),
     path.join(process.resourcesPath, 'app/assets/icon.ico'),
-    path.join(process.resourcesPath, 'app/assets/icon.png'),
     path.join(process.resourcesPath, 'icon.ico'),
+    path.join(__dirname, '../../../assets/icon.png'),
+    path.join(process.resourcesPath, 'app/assets/icon.png'),
     path.join(process.resourcesPath, 'icon.png'),
   ];
   return candidates.find((p) => fs.existsSync(p));

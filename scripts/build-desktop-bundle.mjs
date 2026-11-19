@@ -154,14 +154,39 @@ if (fs.existsSync(esbuildSrc) && fs.existsSync(esbuildBinSrc)) {
   console.warn('[BUNDLE] Warning: esbuild not found; TypeScript plugins will use the limited fallback compiler.');
 }
 
+const EXCLUDED_ENGINE_ONLY_FONTS = new Set([
+  'fonts/FrankRuhlLibre-Regular.ttf',
+  'fonts/FrankRuhlLibre-Bold.ttf',
+  'fonts/NotoRashiHebrew-Regular.ttf',
+  'fonts/NotoRashiHebrew-Bold.ttf',
+]);
+
+function shouldBundleAsset(relPath) {
+  const normalized = relPath.replace(/\\/g, '/');
+  if (!normalized) return true;
+  if (/^installer-.*\.(bmp|png)$/i.test(normalized)) return false;
+  if (normalized === 'logo.jpg' || normalized === 'icon.ico') return false;
+  if (EXCLUDED_ENGINE_ONLY_FONTS.has(normalized)) return false;
+  return true;
+}
+
 const assetsSrc = path.join(rootDir, 'assets');
 if (fs.existsSync(assetsSrc)) {
-  fs.cpSync(assetsSrc, path.join(appDir, 'assets'), { recursive: true });
+  let skippedAssets = 0;
+  fs.cpSync(assetsSrc, path.join(appDir, 'assets'), {
+    recursive: true,
+    filter: (src) => {
+      const rel = path.relative(assetsSrc, src);
+      if (!rel) return true;
+      if (fs.lstatSync(src).isDirectory()) return true;
+      const include = shouldBundleAsset(rel);
+      if (!include) skippedAssets++;
+      return include;
+    }
+  });
+  console.log(`[BUNDLE] Copied runtime assets (skipped ${skippedAssets} installer/duplicate/embedded-only files).`);
   if (fs.existsSync(path.join(assetsSrc, 'icon.ico'))) {
     fs.copyFileSync(path.join(assetsSrc, 'icon.ico'), path.join(resourcesDir, 'icon.ico'));
-  }
-  if (fs.existsSync(path.join(assetsSrc, 'icon.png'))) {
-    fs.copyFileSync(path.join(assetsSrc, 'icon.png'), path.join(resourcesDir, 'icon.png'));
   }
 }
 const builtinPluginsSrc = path.join(rootDir, 'plugins');
