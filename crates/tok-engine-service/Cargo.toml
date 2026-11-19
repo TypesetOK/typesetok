@@ -1,0 +1,21 @@
+[package]
+name = "tok-engine-service"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+
+[features]
+default = []
+fixtures = ["tok-typeset/fixtures"]
+
+[dependencies]
+tok-core = { workspace = true }
+tok-typeset = { workspace = true }
+tok-pdf = { workspace = true }
+tok-storage = { workspace = true }
+tok-plugin-host = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }

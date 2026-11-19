@@ -7,6 +7,7 @@ members = [
     "crates/tok-storage",
     "crates/tok-ipc",
     "crates/tok-plugin-host",
+    "crates/tok-engine-service",
     "crates/tok-cli",
 ]
 
@@ -47,6 +48,7 @@ tok-pdf = { path = "crates/tok-pdf" }
 tok-storage = { path = "crates/tok-storage" }
 tok-ipc = { path = "crates/tok-ipc" }
 tok-plugin-host = { path = "crates/tok-plugin-host" }
+tok-engine-service = { path = "crates/tok-engine-service" }
 
 [profile.release]
 lto = "thin"

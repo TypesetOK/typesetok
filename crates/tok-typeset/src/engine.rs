@@ -292,6 +292,20 @@ impl TypesettingEngine {
             .clear();
     }
 
+    /// Returns the engine's current page and margin configuration.
+    pub fn config(&self) -> &TypesettingEngineConfig {
+        &self.config
+    }
+
+    /// Updates page/margin configuration, clearing the paragraph layout cache only
+    /// when the geometry configuration actually changes.
+    pub fn set_config(&mut self, config: TypesettingEngineConfig) {
+        if self.config != config {
+            self.config = config;
+            self.clear_cache();
+        }
+    }
+
     /// Returns layout cache metrics (hits, misses, entry count, memory bytes).
     pub fn cache_metrics(&self) -> crate::layout_cache::CacheMetricsSnapshot {
         self.paragraph_cache

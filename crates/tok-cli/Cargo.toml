@@ -10,12 +10,12 @@ name = "tok-cli"
 path = "src/main.rs"
 
 [dependencies]
+tok-engine-service = { workspace = true, features = ["fixtures"] }
 tok-core = { workspace = true }
 tok-typeset = { workspace = true, features = ["fixtures"] }
 tok-pdf = { workspace = true }
 tok-storage = { workspace = true }
 tok-ipc = { workspace = true }
-tok-plugin-host = { path = "../tok-plugin-host" }
 sha2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

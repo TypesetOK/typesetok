@@ -25,6 +25,7 @@ use tok_core::styles::Color;
 use tok_typeset::font::{FontManager, EMBEDDED_NOTO_SERIF_HEBREW};
 use tok_typeset::geometry::{GlyphBox, LineBox, PageLayoutBox, PhysicalRect};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PdfXStandard {
     PdfX1a2001,
     PdfX4,

@@ -1,0 +1,392 @@
+use crate::document::{
+    build_font_manager, load_package_or_doc, manifest_for_root, run_builtin_plugins, save_package,
+};
+use crate::error::EngineServiceError;
+use crate::export::{
+    evaluate_preflight, render_html_string, render_pdf_bytes, PdfRenderRequest, PreflightRequest,
+};
+use serde::Serialize;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
+use tok_core::id::NodeId;
+use tok_core::model::{DocumentModel, DocumentRoot};
+use tok_core::transaction::CompoundTransaction;
+use tok_pdf::preflight::PreflightReport;
+use tok_plugin_host::PluginHost;
+use tok_storage::package::{TokManifest, TokPackage};
+use tok_typeset::engine::{TypesettingEngine, TypesettingEngineConfig};
+use tok_typeset::font::FontManager;
+use tok_typeset::geometry::PageLayoutBox;
+use tok_typeset::incremental::IncrementalTypesetDiagnostics;
+use tok_typeset::layout_cache::CacheMetricsSnapshot;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AssetsSourceFingerprint {
+    path: PathBuf,
+    len: u64,
+    modified_nanos: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FontsDirFingerprint {
+    dir: PathBuf,
+    files: Vec<(String, u64, u128)>,
+}
+
+fn modified_nanos(meta: &fs::Metadata) -> u128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+fn compute_assets_fingerprint(path: &Path) -> Option<AssetsSourceFingerprint> {
+    let meta = fs::metadata(path).ok()?;
+    Some(AssetsSourceFingerprint {
+        path: path.to_path_buf(),
+        len: meta.len(),
+        modified_nanos: modified_nanos(&meta),
+    })
+}
+
+fn compute_fonts_dir_fingerprint(dir: &Path) -> Option<FontsDirFingerprint> {
+    let entries = fs::read_dir(dir).ok()?;
+    let mut files = Vec::new();
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let is_font = p
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf"));
+        if !is_font {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Ok(meta) = entry.metadata() {
+            files.push((name, meta.len(), modified_nanos(&meta)));
+        }
+    }
+    files.sort();
+    Some(FontsDirFingerprint {
+        dir: dir.to_path_buf(),
+        files,
+    })
+}
+
+fn is_single_section_multi_flow(doc: &DocumentRoot) -> bool {
+    if doc.sections.len() != 1 {
+        return false;
+    }
+    let sec = &doc.sections[0];
+    let non_fn_flows = sec
+        .flows
+        .iter()
+        .filter(|f| f.flow_type != tok_core::model::FlowType::Footnote)
+        .count();
+    let col_req = sec.column_count.unwrap_or(1).clamp(1, 6);
+    let has_span_all = sec
+        .main_flow()
+        .or_else(|| sec.flows.first())
+        .is_some_and(|f| {
+            f.paragraphs.iter().any(|p| {
+                p.effective_style(&doc.paragraph_styles).column_span
+                    == tok_core::styles::ColumnSpanMode::SpanAllColumns
+            })
+        });
+    non_fn_flows > 1 || (col_req <= 1 && !has_span_all && sec.flows.len() > 1)
+}
+
+/// Output returned by [`WorkspaceSession::typeset_document`].
+#[derive(Debug, Clone, Serialize)]
+pub struct TypesetOutput {
+    pub pages: Vec<PageLayoutBox>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preflight: Option<PreflightReport>,
+}
+
+/// Stateful in-process engine session holding the active document, persistent
+/// [`FontManager`], warm [`TypesettingEngine`] paragraph cache, and [`PluginHost`].
+pub struct WorkspaceSession {
+    document: Option<DocumentModel>,
+    manifest: TokManifest,
+    assets_package: Option<TokPackage>,
+    assets_source_fingerprint: Option<AssetsSourceFingerprint>,
+    fonts_dir_fingerprint: Option<FontsDirFingerprint>,
+    engine: TypesettingEngine,
+    plugin_host: PluginHost,
+    last_pages: Vec<PageLayoutBox>,
+    last_document_id: Option<NodeId>,
+}
+
+impl Default for WorkspaceSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WorkspaceSession {
+    /// Creates a new session with embedded fonts preloaded once in RAM.
+    pub fn new() -> Self {
+        Self {
+            document: None,
+            manifest: TokManifest::default(),
+            assets_package: None,
+            assets_source_fingerprint: None,
+            fonts_dir_fingerprint: None,
+            engine: TypesettingEngine::new(TypesettingEngineConfig::default()),
+            plugin_host: PluginHost::with_builtin_plugins(),
+            last_pages: Vec::new(),
+            last_document_id: None,
+        }
+    }
+
+    pub fn document(&self) -> Option<&DocumentModel> {
+        self.document.as_ref()
+    }
+
+    pub fn manifest(&self) -> &TokManifest {
+        &self.manifest
+    }
+
+    pub fn last_pages(&self) -> &[PageLayoutBox] {
+        &self.last_pages
+    }
+
+    pub fn font_manager(&self) -> &FontManager {
+        &self.engine.font_manager
+    }
+
+    pub fn plugin_host(&self) -> &PluginHost {
+        &self.plugin_host
+    }
+
+    pub fn cache_metrics(&self) -> CacheMetricsSnapshot {
+        self.engine.cache_metrics()
+    }
+
+    pub fn assets_package(&self) -> Option<&TokPackage> {
+        self.assets_package.as_ref()
+    }
+
+    /// Synchronizes external fonts and `.tok` package assets only when fingerprints change,
+    /// avoiding redundant font parsing and preserving the warm paragraph layout cache across edits.
+    pub fn sync_fonts_and_assets(
+        &mut self,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+        inline_pkg: Option<TokPackage>,
+    ) {
+        let next_fonts_fp = fonts_dir.and_then(compute_fonts_dir_fingerprint);
+        let fonts_changed = next_fonts_fp != self.fonts_dir_fingerprint;
+
+        let next_assets_fp = assets_from.and_then(compute_assets_fingerprint);
+        let assets_changed = inline_pkg.is_some()
+            || next_assets_fp != self.assets_source_fingerprint
+            || (assets_from.is_none() && self.assets_package.is_some());
+
+        if !fonts_changed && !assets_changed {
+            return;
+        }
+
+        if let Some(pkg) = inline_pkg {
+            self.assets_package = Some(pkg);
+            self.assets_source_fingerprint = next_assets_fp;
+        } else if assets_changed {
+            self.assets_package =
+                assets_from.and_then(|p| TokPackage::open(p).ok().map(|(_, pkg)| pkg));
+            self.assets_source_fingerprint = next_assets_fp;
+        }
+
+        self.fonts_dir_fingerprint = next_fonts_fp;
+        self.engine.font_manager = build_font_manager(fonts_dir, self.assets_package.as_ref());
+        self.engine.clear_cache();
+        self.last_pages.clear();
+    }
+
+    /// Typesets `root` using the persistent [`TypesettingEngine`] and its warm paragraph cache.
+    pub fn typeset_document(&mut self, root: &DocumentRoot, with_preflight: bool) -> TypesetOutput {
+        if self.last_document_id != Some(root.id) {
+            self.engine.clear_cache();
+            self.last_pages.clear();
+        }
+
+        let config = TypesettingEngineConfig::from_document_root(root);
+        if self.engine.config() != &config {
+            self.engine.set_config(config);
+            self.last_pages.clear();
+        }
+
+        let pages = self.engine.typeset_document(root);
+        let manifest = manifest_for_root(root);
+
+        let preflight = if with_preflight {
+            Some(evaluate_preflight(
+                root,
+                &pages,
+                &self.engine.font_manager,
+                self.assets_package.as_ref(),
+                &PreflightRequest::default(),
+            ))
+        } else {
+            None
+        };
+
+        self.document = Some(DocumentModel::new(root.clone()));
+        self.manifest = manifest;
+        self.last_document_id = Some(root.id);
+        self.last_pages = pages.clone();
+
+        TypesetOutput { pages, preflight }
+    }
+
+    /// Incrementally typesets `root` against the session's previous page layout.
+    pub fn typeset_incremental(
+        &mut self,
+        root: &DocumentRoot,
+        modified_node_id: Option<NodeId>,
+    ) -> (Vec<PageLayoutBox>, IncrementalTypesetDiagnostics) {
+        if self.last_document_id != Some(root.id) {
+            self.engine.clear_cache();
+            self.last_pages.clear();
+        }
+
+        let config = TypesettingEngineConfig::from_document_root(root);
+        if self.engine.config() != &config {
+            self.engine.set_config(config);
+            self.last_pages.clear();
+        }
+
+        let (pages, diag) = if is_single_section_multi_flow(root) {
+            self.engine.typeset_document_multi_flow_incremental(
+                root,
+                &self.last_pages,
+                modified_node_id,
+            )
+        } else {
+            self.engine
+                .typeset_document_incremental(root, &self.last_pages, modified_node_id)
+        };
+
+        self.document = Some(DocumentModel::new(root.clone()));
+        self.manifest = manifest_for_root(root);
+        self.last_document_id = Some(root.id);
+        self.last_pages = pages.clone();
+
+        (pages, diag)
+    }
+
+    /// Opens a `.tok` package (or JSON/demo input) into this session and syncs its fonts/assets.
+    pub fn open_package(
+        &mut self,
+        input: &Path,
+        fonts_dir: Option<&Path>,
+    ) -> Result<&DocumentModel, EngineServiceError> {
+        let input_str = input
+            .to_str()
+            .ok_or_else(|| EngineServiceError::Validation("Invalid non-UTF8 path".to_string()))?;
+        let (doc, manifest, pkg_opt) = load_package_or_doc(input_str, 1)?;
+        self.sync_fonts_and_assets(fonts_dir, Some(input), pkg_opt);
+        self.manifest = manifest;
+        self.last_document_id = Some(doc.root().id);
+        self.last_pages.clear();
+        self.engine.clear_cache();
+        self.document = Some(doc);
+        Ok(self.document.as_ref().expect("document just stored"))
+    }
+
+    /// Saves the active session document to a `.tok` package at `output`.
+    pub fn save_active_package(
+        &self,
+        output: &Path,
+        fonts_dir: Option<&Path>,
+    ) -> Result<(), EngineServiceError> {
+        let doc = self.document.as_ref().ok_or_else(|| {
+            EngineServiceError::Validation("No active document in workspace session".to_string())
+        })?;
+        save_package(
+            doc,
+            self.manifest.clone(),
+            output,
+            self.assets_package.as_ref(),
+            fonts_dir,
+        )
+    }
+
+    /// Typesets (if needed) and exports the active document to ISO PDF/X bytes.
+    pub fn render_active_pdf(
+        &mut self,
+        req: &PdfRenderRequest,
+    ) -> Result<Vec<u8>, EngineServiceError> {
+        let doc_root = self
+            .document
+            .as_ref()
+            .ok_or_else(|| {
+                EngineServiceError::Validation(
+                    "No active document in workspace session".to_string(),
+                )
+            })?
+            .root()
+            .clone();
+
+        if self.last_pages.is_empty() || self.last_document_id != Some(doc_root.id) {
+            let config = TypesettingEngineConfig::from_document_root(&doc_root);
+            self.engine.set_config(config);
+            self.last_pages = self.engine.typeset_document(&doc_root);
+            self.last_document_id = Some(doc_root.id);
+        }
+
+        render_pdf_bytes(
+            &doc_root,
+            &self.manifest,
+            &self.last_pages,
+            &self.engine.font_manager,
+            self.assets_package.as_ref(),
+            req,
+        )
+    }
+
+    /// Typesets (if needed) and exports the active document to pre-paginated HTML.
+    pub fn render_active_html(&mut self) -> Result<String, EngineServiceError> {
+        let doc_root = self
+            .document
+            .as_ref()
+            .ok_or_else(|| {
+                EngineServiceError::Validation(
+                    "No active document in workspace session".to_string(),
+                )
+            })?
+            .root()
+            .clone();
+
+        if self.last_pages.is_empty() || self.last_document_id != Some(doc_root.id) {
+            let config = TypesettingEngineConfig::from_document_root(&doc_root);
+            self.engine.set_config(config);
+            self.last_pages = self.engine.typeset_document(&doc_root);
+            self.last_document_id = Some(doc_root.id);
+        }
+
+        Ok(render_html_string(&self.last_pages))
+    }
+
+    /// Runs built-in Rust typographic plugins against the active session document.
+    pub fn run_builtin_plugins_on_active(
+        &mut self,
+    ) -> Result<Vec<CompoundTransaction>, EngineServiceError> {
+        let doc = self.document.as_mut().ok_or_else(|| {
+            EngineServiceError::Validation("No active document in workspace session".to_string())
+        })?;
+        let mut root = doc.root().clone();
+        let txs = run_builtin_plugins(&mut root);
+        if txs.iter().any(|tx| !tx.operations.is_empty()) {
+            *doc = DocumentModel::new(root);
+            self.engine.clear_cache();
+            self.last_pages.clear();
+        }
+        Ok(txs)
+    }
+}

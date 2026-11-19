@@ -688,9 +688,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "tok-core",
+ "tok-engine-service",
  "tok-ipc",
  "tok-pdf",
- "tok-plugin-host",
  "tok-storage",
  "tok-typeset",
 ]
@@ -706,6 +706,21 @@ dependencies = [
  "serde_json",
  "thiserror",
  "unicode-normalization",
+]
+
+[[package]]
+name = "tok-engine-service"
+version = "0.36.6"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tok-core",
+ "tok-pdf",
+ "tok-plugin-host",
+ "tok-storage",
+ "tok-typeset",
 ]
 
 [[package]]
