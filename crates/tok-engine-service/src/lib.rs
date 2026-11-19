@@ -205,4 +205,89 @@ mod tests {
             tok_core::numbering::GematriaPunctuation::StandardPunctuation,
         );
     }
+
+    #[test]
+    fn workspace_session_is_send_across_threads_and_preserves_cache() {
+        use std::sync::{Arc, Mutex};
+
+        let session = Arc::new(Mutex::new(WorkspaceSession::new()));
+        let doc = create_sample_hebrew_document(8);
+        let doc_json = doc.root().to_json().unwrap();
+
+        {
+            let mut guard = session.lock().unwrap();
+            let first = guard
+                .typeset_json_or_path(Some(&doc_json), None, None, None, false)
+                .unwrap();
+            assert!(!first.pages.is_empty());
+            assert_eq!(guard.cache_metrics().misses, 8);
+        }
+
+        let worker_session = Arc::clone(&session);
+        let handle = std::thread::spawn(move || {
+            let mut guard = worker_session.lock().unwrap();
+            let second = guard
+                .typeset_json_or_path(Some(&doc_json), None, None, None, true)
+                .unwrap();
+            assert!(second.preflight.is_some());
+            assert!(
+                guard.cache_metrics().hits >= 8,
+                "expected cross-thread cache hits >= 8, got {}",
+                guard.cache_metrics().hits
+            );
+        });
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn session_save_render_and_preflight_facade_roundtrip() {
+        let dir = env::temp_dir().join(format!("tok_engine_service_facade_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let pkg_path = dir.join("facade.tok");
+        let pdf_path = dir.join("facade.pdf");
+        let html_path = dir.join("facade.html");
+
+        let model = create_sample_hebrew_document(4);
+        let doc_json = model.root().to_json().unwrap();
+
+        let mut session = WorkspaceSession::new();
+        session
+            .save_document_json(&doc_json, &pkg_path, None, None)
+            .unwrap();
+        assert!(pkg_path.exists());
+
+        let pdf_req = PdfRenderRequest::from_ui_options(
+            Some("pdfx4"),
+            Some("fogra51"),
+            Some(false),
+            Some(false),
+            Some(true),
+        );
+        assert_eq!(pdf_req.standard, tok_pdf::pdf_engine::PdfXStandard::PdfX4);
+        assert_eq!(pdf_req.bleed_pt, 0.0);
+        assert!(!pdf_req.draw_crop_marks);
+        assert!(pdf_req.draw_registration_marks);
+
+        let pdf_len = session
+            .render_pdf_from_json_or_path(None, Some(&pkg_path), &pdf_path, None, None, &pdf_req)
+            .unwrap();
+        assert!(pdf_len > 100);
+        assert!(fs::read(&pdf_path).unwrap().starts_with(b"%PDF-"));
+
+        let html_len = session
+            .render_html_from_json_or_path(None, Some(&pkg_path), &html_path, None, None)
+            .unwrap();
+        assert!(html_len > 50);
+        assert!(fs::read_to_string(&html_path).unwrap().contains("<html"));
+
+        let pf_req = PreflightRequest::from_ui_options(Some("pdfx4"), Some(false));
+        assert_eq!(pf_req.standard, tok_pdf::pdf_engine::PdfXStandard::PdfX4);
+        assert_eq!(pf_req.bleed_pt, 0.0);
+        let report = session
+            .run_preflight_from_json_or_path(Some(&doc_json), None, None, Some(&pkg_path), &pf_req)
+            .unwrap();
+        assert!(!report.checks.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

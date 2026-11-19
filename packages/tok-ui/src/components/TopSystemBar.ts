@@ -67,6 +67,7 @@ export class TopSystemBar {
     this.callbacks = callbacks;
     this.element = document.createElement('header');
     this.element.className = 'tok-top-bar';
+    this.element.setAttribute('data-tauri-drag-region', '');
     this.element.dir = i18n.getDirection();
 
     i18n.onChange(() => {
@@ -254,7 +255,7 @@ export class TopSystemBar {
     this.element.appendChild(start);
 
     // ---- Center: Brand logo + "TypesetOK" + " - " + Project Title ----
-    const center = el('div', 'tok-top-center');
+    const center = el('div', 'tok-top-center', { 'data-tauri-drag-region': '' });
     const brand = el('button', 'tok-brand-btn', {
       type: 'button',
       title: t('topBarProjects'),
@@ -268,7 +269,7 @@ export class TopSystemBar {
     center.appendChild(brand);
 
     const cleanTitle = (this.documentTitle || 'ללא שם').replace(/\.tok$/i, '');
-    const sep = el('span', 'tok-doc-title-sep', { 'aria-hidden': 'true' }, ' - ');
+    const sep = el('span', 'tok-doc-title-sep', { 'aria-hidden': 'true', 'data-tauri-drag-region': '' }, ' - ');
     center.appendChild(sep);
 
     const titleSpan = el('span', 'tok-doc-title-name', {
@@ -290,9 +291,9 @@ export class TopSystemBar {
     center.appendChild(titleSpan);
 
     if (this.pageLabel) {
-      const pageSep = el('span', 'tok-doc-title-sep', { 'aria-hidden': 'true' }, ' / ');
+      const pageSep = el('span', 'tok-doc-title-sep', { 'aria-hidden': 'true', 'data-tauri-drag-region': '' }, ' / ');
       center.appendChild(pageSep);
-      this.pageLabelEl = el('span', 'tok-doc-title-page', undefined, this.pageLabel);
+      this.pageLabelEl = el('span', 'tok-doc-title-page', { 'data-tauri-drag-region': '' }, this.pageLabel);
       center.appendChild(this.pageLabelEl);
     }
 

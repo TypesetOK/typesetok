@@ -254,7 +254,7 @@ test('Offline & Browserless Updater - Full Test Suite', async (t) => {
     assert.ok(settingsSource.includes('updatesDownloadInApp'), 'SettingsModal must offer direct in-app download');
     assert.ok(settingsSource.includes('updatesOfflineSelectFile'), 'SettingsModal must offer offline file picker');
     assert.ok(settingsSource.includes('updatesOfflineScanUsb'), 'SettingsModal must offer USB drive scanning');
-    assert.ok(settingsSource.includes('tokIpc.applyUpdate'), 'SettingsModal must invoke applyUpdate');
+    assert.ok(settingsSource.includes('host.applyUpdate'), 'SettingsModal must invoke applyUpdate');
     assert.ok(settingsSource.includes('updatesSha256'), 'SettingsModal must render SHA-256 verification');
   });
 });

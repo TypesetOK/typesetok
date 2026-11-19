@@ -3,9 +3,13 @@
  *
  * Isolates all desktop IPC calls behind `TokHostBridge` so UI modules never
  * touch `window.tokIpc` directly. Supports Electron (`ElectronHostAdapter`),
- * standalone browser preview (`WebPreviewAdapter`), and future Tauri adapters
- * injected via `setHostBridge()`.
+ * standalone browser preview (`WebPreviewAdapter`), and Tauri v2 (`TauriHostAdapter`),
+ * plus custom adapters injected via `setHostBridge()`.
  */
+
+import { TauriHostAdapter, type TauriRuntimeApi } from './tauriHostAdapter.js';
+
+export { TauriHostAdapter, type TauriRuntimeApi };
 
 export type TokHostKind = 'electron' | 'tauri' | 'web';
 
@@ -14,6 +18,7 @@ export interface TokHostBootstrap {
   startupFile?: string | null;
   settings?: Record<string, string>;
   platform?: TokHostKind;
+  capabilities?: (keyof TokHostMethods)[];
 }
 
 export interface TokUpdateDownloadProgress {
@@ -193,6 +198,10 @@ export function readWindowBootstrap(): TokHostBootstrap {
   }
   if (raw.platform === 'electron' || raw.platform === 'tauri' || raw.platform === 'web') {
     out.platform = raw.platform;
+  }
+  if (Array.isArray(raw.capabilities)) {
+    const caps = raw.capabilities.filter((c: unknown): c is keyof TokHostMethods => typeof c === 'string');
+    out.capabilities = caps;
   }
   return out;
 }
@@ -606,6 +615,8 @@ export class WebPreviewAdapter implements TokHostBridge {
 let explicitBridge: TokHostBridge | null = null;
 let cachedElectronRaw: unknown = null;
 let cachedElectronAdapter: ElectronHostAdapter | null = null;
+let cachedTauriRaw: unknown = null;
+let cachedTauriAdapter: TauriHostAdapter | null = null;
 const webPreviewAdapter = new WebPreviewAdapter();
 
 /** Injects a custom host bridge (e.g. TauriHostAdapter or test stub). Pass `null` to restore auto-detection. */
@@ -628,10 +639,25 @@ export function getHostBridge(): TokHostBridge {
       cachedElectronRaw = raw;
       cachedElectronAdapter = new ElectronHostAdapter(raw);
     }
+    cachedTauriRaw = null;
+    cachedTauriAdapter = null;
     return cachedElectronAdapter;
+  }
+
+  const tauriInternals = win?.__TAURI_INTERNALS__ ?? g?.__TAURI_INTERNALS__;
+  if (tauriInternals && typeof tauriInternals === 'object' && typeof tauriInternals.invoke === 'function') {
+    if (tauriInternals !== cachedTauriRaw || !cachedTauriAdapter) {
+      cachedTauriRaw = tauriInternals;
+      cachedTauriAdapter = new TauriHostAdapter();
+    }
+    cachedElectronRaw = null;
+    cachedElectronAdapter = null;
+    return cachedTauriAdapter;
   }
 
   cachedElectronRaw = null;
   cachedElectronAdapter = null;
+  cachedTauriRaw = null;
+  cachedTauriAdapter = null;
   return webPreviewAdapter;
 }

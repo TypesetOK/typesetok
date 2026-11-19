@@ -8,6 +8,7 @@ import {
   getHostBridge,
   setHostBridge,
   ElectronHostAdapter,
+  TauriHostAdapter,
   WebPreviewAdapter,
 } from '../packages/tok-ui/dist/platform/hostBridge.js';
 import {
@@ -15,6 +16,8 @@ import {
   HostSettingsStore,
   PERSISTED_SETTING_KEYS,
 } from '../packages/tok-ui/dist/platform/hostSettings.js';
+import { buildTauriFrontendDist } from '../scripts/bundle-ui.mjs';
+import { parseMeasureArgs, parseTraceLine } from '../scripts/measure-startup.mjs';
 import { loadTs } from './e2e/cli_helper.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,17 +42,21 @@ describe('Phase 0 Host Bridge & Persistent Settings', () => {
     savedGlobals.window = globalThis.window;
     savedGlobals.localStorage = globalThis.localStorage;
     savedGlobals.__TOK_BOOTSTRAP__ = globalThis.__TOK_BOOTSTRAP__;
+    savedGlobals.__TAURI_INTERNALS__ = globalThis.__TAURI_INTERNALS__;
+    savedGlobals.__TAURI__ = globalThis.__TAURI__;
     delete globalThis.tokIpc;
     delete globalThis.window;
     delete globalThis.localStorage;
     delete globalThis.__TOK_BOOTSTRAP__;
+    delete globalThis.__TAURI_INTERNALS__;
+    delete globalThis.__TAURI__;
     setHostBridge(null);
     hostSettings.resetForTesting();
   });
 
   afterEach(() => {
     setHostBridge(null);
-    for (const key of ['tokIpc', 'window', 'localStorage', '__TOK_BOOTSTRAP__']) {
+    for (const key of ['tokIpc', 'window', 'localStorage', '__TOK_BOOTSTRAP__', '__TAURI_INTERNALS__', '__TAURI__']) {
       if (savedGlobals[key] === undefined) delete globalThis[key];
       else globalThis[key] = savedGlobals[key];
     }
@@ -301,5 +308,208 @@ describe('Phase 0 Host Bridge & Persistent Settings', () => {
       assert.ok(preloadSrc.includes(ch), `preload.ts must invoke ${ch}`);
     }
     assert.ok(preloadSrc.includes("exposeInMainWorld('__TOK_BOOTSTRAP__'"));
+  });
+
+  test('8. TauriHostAdapter auto-detection preserves Electron priority and resets cleanly', () => {
+    globalThis.window = {
+      __TAURI_INTERNALS__: { invoke: async () => ({}) },
+      __TOK_BOOTSTRAP__: {
+        platform: 'tauri',
+        installLanguage: 'he',
+        startupFile: 'D:\\Sefarim\\gemara.tok',
+        settings: { tok_lang: 'he' },
+      },
+    };
+
+    const tauriBridge = getHostBridge();
+    assert.ok(tauriBridge instanceof TauriHostAdapter);
+    assert.equal(tauriBridge.kind, 'tauri');
+    assert.equal(tauriBridge.isDesktop, true);
+    assert.equal(tauriBridge.getBootstrap().startupFile, 'D:\\Sefarim\\gemara.tok');
+
+    // Electron tokIpc takes priority if both exist
+    globalThis.window.tokIpc = { sendCommand: async () => ({ ok: true }) };
+    const electronBridge = getHostBridge();
+    assert.ok(electronBridge instanceof ElectronHostAdapter);
+    assert.equal(electronBridge.kind, 'electron');
+
+    // Removing both falls back to WebPreviewAdapter
+    delete globalThis.window.tokIpc;
+    delete globalThis.window.__TAURI_INTERNALS__;
+    assert.ok(getHostBridge() instanceof WebPreviewAdapter);
+  });
+
+  test('9. TauriHostAdapter command mapping, capability gating, and async event unsubscribe safety', async () => {
+    const invoked = [];
+    const listeners = new Map();
+    let unlistenCount = 0;
+    let deferredResolve = null;
+
+    const mockRuntime = {
+      invoke: async (cmd, args) => {
+        invoked.push({ cmd, args });
+        if (cmd === 'tok_render_pdf') return 'ok-pdf';
+        if (cmd === 'tok_render_html') return 'ok-html';
+        if (cmd === 'tok_typeset_document') return { success: true, pages: [], preflight: null };
+        if (cmd === 'tok_read_settings') return { tok_lang: 'he' };
+        if (cmd === 'tok_set_setting') return { success: true };
+        if (cmd === 'tok_set_settings') return { success: true };
+        if (cmd === 'tok_remove_setting') return { success: true };
+        if (cmd === 'tok_list_system_fonts') return ['Frank Ruhl Libre'];
+        return null;
+      },
+      listen: (eventName, handler) => {
+        if (eventName === 'tok:update-download-progress') {
+          return new Promise((resolve) => {
+            deferredResolve = () => {
+              listeners.set(eventName, handler);
+              resolve(() => {
+                unlistenCount++;
+                listeners.delete(eventName);
+              });
+            };
+          });
+        }
+        listeners.set(eventName, handler);
+        return Promise.resolve(() => {
+          unlistenCount++;
+          listeners.delete(eventName);
+        });
+      },
+    };
+
+    globalThis.window = {
+      __TOK_BOOTSTRAP__: {
+        platform: 'tauri',
+        startupFile: 'C:\\Books\\boot.tok',
+        capabilities: [
+          'renderPdf',
+          'renderHtml',
+          'typesetDocument',
+          'readSettings',
+          'setSetting',
+          'setSettings',
+          'removeSetting',
+          'listSystemFonts',
+          'onEvent',
+          'onOpenFile',
+          'onUpdateDownloadProgress',
+        ],
+      },
+    };
+
+    const adapter = new TauriHostAdapter(mockRuntime);
+    assert.equal(adapter.has('typesetDocument'), true);
+    assert.equal(adapter.has('scanUsbUpdates'), false);
+    assert.equal(adapter.has('getStartupFile'), false);
+    // When getStartupFile is outside declared capabilities, falls back to bootstrap without invoking IPC
+    assert.equal(await adapter.getStartupFile(), 'C:\\Books\\boot.tok');
+
+    assert.equal(await adapter.renderPdf('in.tok', 'out.pdf'), 'ok-pdf');
+    assert.equal(await adapter.renderPdf({ document: { id: 1 } }, 'out2.pdf'), 'ok-pdf');
+    assert.equal(await adapter.renderHtml({ inputPath: 'doc.tok', outputPath: 'doc.html' }), 'ok-html');
+    await adapter.typesetDocument({ inputPath: 'book.tok', withPreflight: true });
+    await adapter.setSetting('tok_lang', 'en');
+    await adapter.setSettings({ tok_canvas_zoom: '110' });
+    await adapter.removeSetting('tok_canvas_zoom');
+    assert.deepEqual(await adapter.listSystemFonts(), ['Frank Ruhl Libre']);
+
+    assert.deepEqual(invoked, [
+      { cmd: 'tok_render_pdf', args: { payload: { inputPath: 'in.tok', outputPath: 'out.pdf' } } },
+      { cmd: 'tok_render_pdf', args: { payload: { document: { id: 1 }, outputPath: 'out2.pdf' } } },
+      { cmd: 'tok_render_html', args: { payload: { inputPath: 'doc.tok', outputPath: 'doc.html' } } },
+      { cmd: 'tok_typeset_document', args: { payload: { inputPath: 'book.tok', withPreflight: true } } },
+      { cmd: 'tok_set_setting', args: { key: 'tok_lang', value: 'en' } },
+      { cmd: 'tok_set_settings', args: { entries: { tok_canvas_zoom: '110' } } },
+      { cmd: 'tok_remove_setting', args: { key: 'tok_canvas_zoom' } },
+      { cmd: 'tok_list_system_fonts', args: undefined },
+    ]);
+
+    // Default capabilities without bootstrap restriction cover all host methods
+    delete globalThis.window.__TOK_BOOTSTRAP__.capabilities;
+    assert.equal(adapter.has('scanUsbUpdates'), true);
+    assert.equal(adapter.has('getStartupFile'), true);
+
+    const events = [];
+    const openFiles = [];
+    const unsubEvent = adapter.onEvent((e) => events.push(e));
+    const unsubOpen = adapter.onOpenFile((p) => openFiles.push(p));
+    await Promise.resolve();
+    listeners.get('tok:event')?.({ payload: { action: 'menu-save' } });
+    listeners.get('tok:open-file')?.({ payload: 'C:\\Books\\opened.tok' });
+    assert.deepEqual(events, [{ action: 'menu-save' }]);
+    assert.deepEqual(openFiles, ['C:\\Books\\opened.tok']);
+    unsubEvent();
+    unsubOpen();
+    assert.equal(unlistenCount, 2);
+
+    // Unsubscribing before async listen resolves still triggers unlisten on resolution without delivering late events
+    const progressCalls = [];
+    const unsubProgressEarly = adapter.onUpdateDownloadProgress((d) => progressCalls.push(d));
+    unsubProgressEarly();
+    assert.equal(typeof deferredResolve, 'function');
+    deferredResolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(unlistenCount, 3);
+    assert.deepEqual(progressCalls, []);
+  });
+
+  test('10. TopSystemBar applies data-tauri-drag-region only to non-interactive drag elements', () => {
+    const topBarSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/TopSystemBar.ts'), 'utf-8');
+    assert.ok(topBarSrc.includes("this.element.setAttribute('data-tauri-drag-region', '')"));
+    assert.ok(topBarSrc.includes("el('div', 'tok-top-center', { 'data-tauri-drag-region': '' })"));
+    assert.ok(topBarSrc.includes("'data-tauri-drag-region': '' }, ' - ')"));
+    assert.ok(topBarSrc.includes("el('span', 'tok-doc-title-page', { 'data-tauri-drag-region': '' }"));
+    // Interactive buttons must not hijack click targets as drag regions
+    for (const marker of ['menuBtn', 'minBtn', 'maxBtn', 'closeBtn', 'brand']) {
+      const snippetRe = new RegExp(`const\\s+${marker}\\s*=[^;]+data-tauri-drag-region`);
+      assert.equal(snippetRe.test(topBarSrc), false, `${marker} must not set data-tauri-drag-region`);
+    }
+  });
+
+  test('11. Tauri frontend dist rewrites assets/CSP cleanly while keeping Electron src/index.html intact', () => {
+    const srcHtmlBefore = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/index.html'), 'utf-8');
+    const result = buildTauriFrontendDist(rootDir, path.join(rootDir, 'packages/tok-ui'));
+    const srcHtmlAfter = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/index.html'), 'utf-8');
+    assert.equal(srcHtmlAfter, srcHtmlBefore, 'src/index.html must never be mutated');
+    assert.ok(srcHtmlAfter.includes('../../../assets/icon.png'));
+
+    const tauriHtml = fs.readFileSync(path.join(result.tauriDistDir, 'index.html'), 'utf-8');
+    assert.equal(tauriHtml.includes('../../../assets/'), false, 'dist-tauri/index.html must rewrite all ../../../assets/');
+    assert.ok(tauriHtml.includes('./assets/icon.png'));
+    assert.ok(tauriHtml.includes('http://ipc.localhost'));
+    assert.ok(tauriHtml.includes('http://tok-asset.localhost'));
+    assert.ok(fs.existsSync(path.join(result.tauriDistDir, 'renderer.js')));
+    assert.ok(result.copiedAssets.length >= 16);
+    for (const rel of result.copiedAssets) {
+      assert.ok(fs.existsSync(path.join(result.tauriDistDir, 'assets', rel)), `Missing copied asset: ${rel}`);
+    }
+  });
+
+  test('12. Gate 1 startup measurement script parses --tauri, --electron, and trace/memory lines', () => {
+    const parsedMixed = parseMeasureArgs(['--runs', '5', '--electron', '.', '--tauri', 'target/release/tok-desktop.exe'], rootDir);
+    assert.equal(parsedMixed.runs, 5);
+    assert.equal(parsedMixed.targets.length, 2);
+    assert.equal(parsedMixed.targets[0].kind, 'electron');
+    assert.equal(parsedMixed.targets[1].kind, 'tauri');
+    assert.ok(parsedMixed.targets[1].targetPath.endsWith(path.join('target', 'release', 'tok-desktop.exe')));
+
+    const parsedLegacy = parseMeasureArgs(['3', '.'], rootDir);
+    assert.equal(parsedLegacy.runs, 3);
+    assert.equal(parsedLegacy.targets.length, 1);
+    assert.equal(parsedLegacy.targets[0].kind, 'electron');
+
+    assert.deepEqual(parseTraceLine('[TOK-TRACE] main-shown 1700000000512', 1700000000000), {
+      kind: 'trace',
+      label: 'main-shown',
+      value: 512,
+    });
+    assert.deepEqual(parseTraceLine('[TOK-MEM] working-set-bytes 73400320', 1700000000000), {
+      kind: 'mem',
+      label: 'working-set-bytes',
+      value: 73400320,
+    });
+    assert.equal(parseTraceLine('unrelated stdout log line', 0), null);
   });
 });

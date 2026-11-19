@@ -1,10 +1,12 @@
 use crate::document::{
-    build_font_manager, load_package_or_doc, manifest_for_root, run_builtin_plugins, save_package,
+    build_font_manager, load_package_or_doc, manifest_for_root, parse_document_json,
+    run_builtin_plugins, save_package,
 };
 use crate::error::EngineServiceError;
 use crate::export::{
     evaluate_preflight, render_html_string, render_pdf_bytes, PdfRenderRequest, PreflightRequest,
 };
+use crate::io::write_atomic;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -123,6 +125,11 @@ pub struct WorkspaceSession {
     last_document_id: Option<NodeId>,
 }
 
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<WorkspaceSession>();
+};
+
 impl Default for WorkspaceSession {
     fn default() -> Self {
         Self::new()
@@ -185,17 +192,22 @@ impl WorkspaceSession {
         let fonts_changed = next_fonts_fp != self.fonts_dir_fingerprint;
 
         let next_assets_fp = assets_from.and_then(compute_assets_fingerprint);
-        let assets_changed = inline_pkg.is_some()
+        let same_fingerprinted_assets = next_assets_fp.is_some()
+            && next_assets_fp == self.assets_source_fingerprint
+            && self.assets_package.is_some();
+        let assets_changed = (inline_pkg.is_some() && !same_fingerprinted_assets)
             || next_assets_fp != self.assets_source_fingerprint
-            || (assets_from.is_none() && self.assets_package.is_some());
+            || (assets_from.is_none() && self.assets_package.is_some() && inline_pkg.is_none());
 
         if !fonts_changed && !assets_changed {
             return;
         }
 
         if let Some(pkg) = inline_pkg {
-            self.assets_package = Some(pkg);
-            self.assets_source_fingerprint = next_assets_fp;
+            if !same_fingerprinted_assets {
+                self.assets_package = Some(pkg);
+                self.assets_source_fingerprint = next_assets_fp;
+            }
         } else if assets_changed {
             self.assets_package =
                 assets_from.and_then(|p| TokPackage::open(p).ok().map(|(_, pkg)| pkg));
@@ -317,11 +329,41 @@ impl WorkspaceSession {
         )
     }
 
-    /// Typesets (if needed) and exports the active document to ISO PDF/X bytes.
-    pub fn render_active_pdf(
+    fn prepare_session_target(
         &mut self,
-        req: &PdfRenderRequest,
-    ) -> Result<Vec<u8>, EngineServiceError> {
+        document_json: Option<&str>,
+        input_path: Option<&Path>,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+        demo_paragraphs: usize,
+    ) -> Result<DocumentModel, EngineServiceError> {
+        let (doc, pkg_opt, fallback_assets) = if let Some(json_str) = document_json {
+            let (model, _) = parse_document_json(json_str)?;
+            (model, None, None)
+        } else if let Some(path) = input_path {
+            let path_str = path.to_str().ok_or_else(|| {
+                EngineServiceError::Validation("Invalid non-UTF8 path".to_string())
+            })?;
+            let (model, _, pkg) = load_package_or_doc(path_str, demo_paragraphs)?;
+            let inline_src = if pkg.is_some() { Some(path) } else { None };
+            (model, pkg, inline_src)
+        } else {
+            return Err(EngineServiceError::Validation(
+                "Either document_json or input_path must be provided".to_string(),
+            ));
+        };
+
+        let effective_assets_from = assets_from.or(fallback_assets);
+        let inline_pkg = if assets_from.is_some() && assets_from != fallback_assets {
+            None
+        } else {
+            pkg_opt
+        };
+        self.sync_fonts_and_assets(fonts_dir, effective_assets_from, inline_pkg);
+        Ok(doc)
+    }
+
+    fn ensure_active_layout(&mut self) -> Result<DocumentRoot, EngineServiceError> {
         let doc_root = self
             .document
             .as_ref()
@@ -339,6 +381,124 @@ impl WorkspaceSession {
             self.last_pages = self.engine.typeset_document(&doc_root);
             self.last_document_id = Some(doc_root.id);
         }
+
+        Ok(doc_root)
+    }
+
+    /// Loads or parses a document target, syncs fonts/assets, and typesets via the persistent session.
+    pub fn typeset_json_or_path(
+        &mut self,
+        document_json: Option<&str>,
+        input_path: Option<&Path>,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+        with_preflight: bool,
+    ) -> Result<TypesetOutput, EngineServiceError> {
+        let doc =
+            self.prepare_session_target(document_json, input_path, fonts_dir, assets_from, 20)?;
+        Ok(self.typeset_document(doc.root(), with_preflight))
+    }
+
+    /// Parses JSON document state, syncs external fonts/assets, and atomically writes a `.tok` package.
+    pub fn save_document_json(
+        &mut self,
+        document_json: &str,
+        output_path: &Path,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+    ) -> Result<(), EngineServiceError> {
+        let (doc, manifest) = parse_document_json(document_json)?;
+        self.sync_fonts_and_assets(fonts_dir, assets_from, None);
+        save_package(
+            &doc,
+            manifest.clone(),
+            output_path,
+            self.assets_package.as_ref(),
+            fonts_dir,
+        )?;
+        self.document = Some(doc);
+        self.manifest = manifest;
+        if assets_from == Some(output_path) {
+            self.assets_source_fingerprint = compute_assets_fingerprint(output_path);
+        }
+        Ok(())
+    }
+
+    /// Typesets (if target provided) and atomically writes an ISO PDF/X export to `output_path`.
+    pub fn render_pdf_from_json_or_path(
+        &mut self,
+        document_json: Option<&str>,
+        input_path: Option<&Path>,
+        output_path: &Path,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+        req: &PdfRenderRequest,
+    ) -> Result<usize, EngineServiceError> {
+        if document_json.is_some() || input_path.is_some() {
+            let doc =
+                self.prepare_session_target(document_json, input_path, fonts_dir, assets_from, 30)?;
+            self.typeset_document(doc.root(), false);
+        } else if fonts_dir.is_some() || assets_from.is_some() {
+            self.sync_fonts_and_assets(fonts_dir, assets_from, None);
+        }
+        let pdf_bytes = self.render_active_pdf(req)?;
+        write_atomic(output_path, &pdf_bytes)?;
+        Ok(pdf_bytes.len())
+    }
+
+    /// Typesets (if target provided) and atomically writes pre-paginated HTML to `output_path`.
+    pub fn render_html_from_json_or_path(
+        &mut self,
+        document_json: Option<&str>,
+        input_path: Option<&Path>,
+        output_path: &Path,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+    ) -> Result<usize, EngineServiceError> {
+        if document_json.is_some() || input_path.is_some() {
+            let doc =
+                self.prepare_session_target(document_json, input_path, fonts_dir, assets_from, 20)?;
+            self.typeset_document(doc.root(), false);
+        } else if fonts_dir.is_some() || assets_from.is_some() {
+            self.sync_fonts_and_assets(fonts_dir, assets_from, None);
+        }
+        let html = self.render_active_html()?;
+        write_atomic(output_path, html.as_bytes())?;
+        Ok(html.len())
+    }
+
+    /// Runs prepress preflight diagnostics against a provided target or active session document.
+    pub fn run_preflight_from_json_or_path(
+        &mut self,
+        document_json: Option<&str>,
+        input_path: Option<&Path>,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+        req: &PreflightRequest,
+    ) -> Result<PreflightReport, EngineServiceError> {
+        if document_json.is_some() || input_path.is_some() {
+            let doc =
+                self.prepare_session_target(document_json, input_path, fonts_dir, assets_from, 1)?;
+            self.typeset_document(doc.root(), false);
+        } else if fonts_dir.is_some() || assets_from.is_some() {
+            self.sync_fonts_and_assets(fonts_dir, assets_from, None);
+        }
+        let doc_root = self.ensure_active_layout()?;
+        Ok(evaluate_preflight(
+            &doc_root,
+            &self.last_pages,
+            &self.engine.font_manager,
+            self.assets_package.as_ref(),
+            req,
+        ))
+    }
+
+    /// Typesets (if needed) and exports the active document to ISO PDF/X bytes.
+    pub fn render_active_pdf(
+        &mut self,
+        req: &PdfRenderRequest,
+    ) -> Result<Vec<u8>, EngineServiceError> {
+        let doc_root = self.ensure_active_layout()?;
 
         render_pdf_bytes(
             &doc_root,
@@ -352,24 +512,7 @@ impl WorkspaceSession {
 
     /// Typesets (if needed) and exports the active document to pre-paginated HTML.
     pub fn render_active_html(&mut self) -> Result<String, EngineServiceError> {
-        let doc_root = self
-            .document
-            .as_ref()
-            .ok_or_else(|| {
-                EngineServiceError::Validation(
-                    "No active document in workspace session".to_string(),
-                )
-            })?
-            .root()
-            .clone();
-
-        if self.last_pages.is_empty() || self.last_document_id != Some(doc_root.id) {
-            let config = TypesettingEngineConfig::from_document_root(&doc_root);
-            self.engine.set_config(config);
-            self.last_pages = self.engine.typeset_document(&doc_root);
-            self.last_document_id = Some(doc_root.id);
-        }
-
+        let _ = self.ensure_active_layout()?;
         Ok(render_html_string(&self.last_pages))
     }
 

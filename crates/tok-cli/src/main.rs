@@ -6,8 +6,8 @@ use tok_core::model::{DocumentModel, DocumentRoot};
 use tok_engine_service::{
     build_font_manager, create_sample_hebrew_document, evaluate_preflight, format_hex,
     inspect_font_file, inspect_package, load_document_input, load_package_or_doc,
-    parse_document_json, render_html_string, render_pdf_bytes, run_builtin_plugins, save_package,
-    sync_heading_numbers, write_atomic, PdfRenderRequest, PreflightRequest, WorkspaceSession,
+    render_html_string, render_pdf_bytes, run_builtin_plugins, save_package, sync_heading_numbers,
+    write_atomic, PdfRenderRequest, PreflightRequest, WorkspaceSession,
 };
 use tok_ipc::protocol::{WorkerRequest, WorkerResponse};
 use tok_pdf::color::IccProfileId;
@@ -736,21 +736,17 @@ fn process_worker_request(session: &mut WorkspaceSession, req: WorkerRequest) ->
         if req.command != "typeset" {
             return Err(format!("Unsupported worker command: {}", req.command));
         }
-        let (doc, pkg_opt) = if let Some(ref json_str) = req.document_json {
-            let (model, _) = parse_document_json(json_str).map_err(|e| e.to_string())?;
-            (model, None)
-        } else if let Some(ref input_path) = req.input_path {
-            let (model, _, pkg) = load_package_or_doc(input_path, 20).map_err(|e| e.to_string())?;
-            (model, pkg)
-        } else {
-            return Err("Either document_json or input_path must be provided".to_string());
-        };
 
-        let fonts_dir = req.fonts_dir.as_deref().map(Path::new);
-        let assets_from = req.assets_from.as_deref().map(Path::new);
-        session.sync_fonts_and_assets(fonts_dir, assets_from, pkg_opt);
+        let output = session
+            .typeset_json_or_path(
+                req.document_json.as_deref(),
+                req.input_path.as_deref().map(Path::new),
+                req.fonts_dir.as_deref().map(Path::new),
+                req.assets_from.as_deref().map(Path::new),
+                req.with_preflight,
+            )
+            .map_err(|e| e.to_string())?;
 
-        let output = session.typeset_document(doc.root(), req.with_preflight);
         if req.with_preflight {
             serde_json::to_value(&output).map_err(|e| e.to_string())
         } else {

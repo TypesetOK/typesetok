@@ -31,6 +31,39 @@ impl Default for PdfRenderRequest {
     }
 }
 
+impl PdfRenderRequest {
+    /// Parses UI/host export dialog options into a typed [`PdfRenderRequest`].
+    pub fn from_ui_options(
+        format: Option<&str>,
+        color_profile: Option<&str>,
+        bleed: Option<bool>,
+        crop_marks: Option<bool>,
+        registration_marks: Option<bool>,
+    ) -> Self {
+        let mut req = Self::default();
+        if let Some(fmt) = format {
+            if fmt.trim().eq_ignore_ascii_case("pdfx4") {
+                req.standard = PdfXStandard::PdfX4;
+            }
+        }
+        if let Some(profile) = color_profile {
+            if !profile.trim().is_empty() {
+                req.color_profile = IccProfileId::from_id_str(profile);
+            }
+        }
+        if bleed == Some(false) {
+            req.bleed_pt = 0.0;
+        }
+        if crop_marks == Some(false) {
+            req.draw_crop_marks = false;
+        }
+        if registration_marks == Some(true) {
+            req.draw_registration_marks = true;
+        }
+        req
+    }
+}
+
 /// Configuration options for prepress preflight evaluation.
 #[derive(Debug, Clone)]
 pub struct PreflightRequest {
@@ -44,6 +77,22 @@ impl Default for PreflightRequest {
             standard: PdfXStandard::PdfX1a2001,
             bleed_pt: 8.504,
         }
+    }
+}
+
+impl PreflightRequest {
+    /// Parses UI/host preflight options into a typed [`PreflightRequest`].
+    pub fn from_ui_options(standard: Option<&str>, bleed: Option<bool>) -> Self {
+        let mut req = Self::default();
+        if let Some(std_arg) = standard {
+            if std_arg.trim().eq_ignore_ascii_case("pdfx4") {
+                req.standard = PdfXStandard::PdfX4;
+            }
+        }
+        if bleed == Some(false) {
+            req.bleed_pt = 0.0;
+        }
+        req
     }
 }
 
