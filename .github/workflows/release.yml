@@ -189,11 +189,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Download all built artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
+
+      - name: Generate Release Notes from CHANGELOG.md
+        id: release-notes
+        run: |
+          node scripts/generate-release-notes.mjs "${{ needs.check-release.outputs.tag_name }}" --out release-notes.md --github-output "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -204,32 +213,5 @@ jobs:
           draft: false
           prerelease: false
           files: release-assets/*
-          
-          body: |
-            ## TypesetOK (TOK) ${{ needs.check-release.outputs.tag_name }}
-
-            ### 🚀 מה חדש?
-
-            #### שדרוג מנגנון העדכון המובנה (PR #30)
-            - הורדה ישירה של קובצי ההתקנה מתוך התוכנה, ללא צורך בדפדפן חיצוני.
-            - הצגת התקדמות ההורדה, מהירות ההורדה וזמן משוער לסיומה.
-            - אימות תקינות הקובץ באמצעות SHA-256 במהלך ההורדה.
-            - שימוש בקובץ זמני למניעת שימוש בהורדות חלקיות או פגומות.
-            - בדיקת תקינות קובצי ההתקנה, לרבות חתימת PE וכותרת MZ.
-            - איתור מתקינים קיימים בסריקה מעמיקה של כוננים חיצוניים ותיקיות נפוצות.
-            - השוואת גרסאות באמצעות SemVer וזיהוי המתקין המתאים ביותר.
-            - הפעלה בטוחה יותר של המתקין וסגירה מסודרת של התוכנה לפני העדכון.
-            - הרחבת בדיקות היחידה ובדיקות הרגרסיה.
-            - ללא הוספת תלויות חיצוניות חדשות של Node.js.
-
-            #### תיקוני באגים (Issue #28)
-            - תיקון סדר האתחול של המסמך.
-            - הבטחת אתחול `ContextualInspector` לפני הקריאה ל־`setFlows()`.
-            - תיקון פתיחת מסמכים חדשים וייבוא קובצי DOCX, שמנע הופעת סביבת עבודה ריקה.
-
-            ### 📦 קובצי הורדה
-
-            - **מומלץ – מתקין ל-Windows:** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-Setup.exe`
-            - **גרסה ניידת:** `TypesetOK-${{ needs.check-release.outputs.tag_name }}-windows-desktop-app.zip`
-            - **ממשק שורת הפקודה (CLI):** `tok-cli-${{ needs.check-release.outputs.tag_name }}-windows-x64.zip`
-            - **חבילת קוד המקור:** `typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz`
+          body_path: release-notes.md
+          generate_release_notes: ${{ steps.release-notes.outputs.has_changelog_entry != 'true' }}
