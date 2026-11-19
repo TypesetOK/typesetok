@@ -83,3 +83,6 @@ skills/
 server.mjs
 metadata.json
 bun.lock
+
+# --- דוחות מחקר מקומיים (מוחרגים מהעלאה ל-GitHub) ---
+docs/research/tauri-v2-migration-report.md
