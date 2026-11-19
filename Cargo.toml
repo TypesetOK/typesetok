@@ -47,3 +47,8 @@ tok-pdf = { path = "crates/tok-pdf" }
 tok-storage = { path = "crates/tok-storage" }
 tok-ipc = { path = "crates/tok-ipc" }
 tok-plugin-host = { path = "crates/tok-plugin-host" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
