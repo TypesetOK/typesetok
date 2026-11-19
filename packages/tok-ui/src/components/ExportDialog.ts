@@ -2,6 +2,7 @@ import { t, tf, i18n } from '../i18n';
 import type { PreflightReport, PreflightStatus } from '../engine/typesetBridge';
 import { el, icon, iconButton, button, kbd, switchRow, segmented, group, selectField } from '../ui';
 import { ModalController } from './ModalController';
+import { getHostBridge } from '../platform/hostBridge.js';
 
 export type ExportFormat = 'pdfx1a' | 'pdfx4' | 'pdf';
 export type ExportRange = 'all' | 'spread' | 'range';
@@ -289,9 +290,9 @@ export class ExportDialog {
       icon: 'folder',
       attrs: { 'data-focus-key': 'browse-export-file', title: t('exportChooseLocation') },
       onClick: async () => {
-        const win = window as any;
-        if (win.tokIpc?.showSaveDialog) {
-          const path = await win.tokIpc.showSaveDialog({
+        const host = getHostBridge();
+        if (host.has('showSaveDialog')) {
+          const path = await host.showSaveDialog({
             defaultPath: o.fileName || defaultExportFileName(this.context.documentTitle),
             filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
           });

@@ -1,8 +1,10 @@
 /**
  * Document fonts that ship with TypesetOK or are available on the system.
- * The UI supports built-in fonts, local operating system fonts (via Local Font Access API),
+ * The UI supports built-in fonts, local operating system fonts (via host bridge or Local Font Access API),
  * and custom dynamically loaded fonts (.ttf, .otf, .woff, .woff2).
  */
+
+import { getHostBridge } from './platform/hostBridge.js';
 
 export interface FontEntry {
   family: string;
@@ -108,8 +110,25 @@ export async function loadCustomFontFile(file: File): Promise<FontEntry> {
  */
 export async function discoverSystemFonts(): Promise<FontEntry[]> {
   if (localFontsDiscovered) return getAvailableFonts();
-  const win = window as any;
-  if (typeof win.queryLocalFonts === 'function') {
+  const host = getHostBridge();
+  if (host.has('listSystemFonts') && host.listSystemFonts) {
+    try {
+      const families = await host.listSystemFonts();
+      const seen = new Set<string>();
+      for (const family of families) {
+        if (family && !seen.has(family)) {
+          seen.add(family);
+          registerFontFamily(family, `${family} (מערכת)`);
+        }
+      }
+      localFontsDiscovered = true;
+      return getAvailableFonts();
+    } catch {
+      // Fall back to Web Local Font Access API if host discovery fails
+    }
+  }
+  const win = typeof window !== 'undefined' ? (window as any) : undefined;
+  if (win && typeof win.queryLocalFonts === 'function') {
     try {
       const fonts = await win.queryLocalFonts();
       const seen = new Set<string>();

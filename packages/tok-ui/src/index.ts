@@ -13,3 +13,5 @@ export * from './components/AboutModal';
 export * from './plugins/PluginEngine';
 export * from './engine/documentBridge';
 export * from './engine/typesetBridge';
+export * from './platform/hostBridge';
+export * from './platform/hostSettings';

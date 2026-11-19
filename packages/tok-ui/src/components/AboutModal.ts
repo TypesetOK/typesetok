@@ -2,6 +2,7 @@ import { t, tf, i18n } from '../i18n';
 import { el, icon, iconButton, button } from '../ui';
 import { ModalController } from './ModalController';
 import { fillAppVersion } from '../appInfo';
+import { getHostBridge } from '../platform/hostBridge.js';
 import { MAIN_DEVELOPER, CONTRIBUTORS, Contributor } from '../contributors.generated';
 
 export interface AboutModalCallbacks {
@@ -23,14 +24,10 @@ function safeProfileUrl(url: string): string | null {
 }
 
 function openExternalUrl(url: string): void {
-  const win = window as any;
-  if (win.tokIpc && win.tokIpc.openExternal) {
-    Promise.resolve(win.tokIpc.openExternal(url)).catch((e: any) => {
-      console.warn('[ABOUT] openExternal failed:', e?.message ?? e);
-    });
-  } else {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+  const host = getHostBridge();
+  Promise.resolve(host.openExternal(url)).catch((e: any) => {
+    console.warn('[ABOUT] openExternal failed:', e?.message ?? e);
+  });
 }
 
 /** Profile picture (embedded data: URI) or, when there is none, a round badge with the first letter. */

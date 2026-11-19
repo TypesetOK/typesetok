@@ -1,11 +1,15 @@
+import { getHostBridge } from './platform/hostBridge.js';
+
 let versionPromise: Promise<string> | null = null;
 
-/** The running app's version from the main process (package.json), or '' when unavailable. */
+/** The running app's version from the host process, or '' when unavailable. */
 export function getAppVersion(): Promise<string> {
   if (!versionPromise) {
     versionPromise = (async () => {
       try {
-        const info = await (window as any).tokIpc?.getAppInfo?.();
+        const host = getHostBridge();
+        if (!host.has('getAppInfo')) return '';
+        const info = await host.getAppInfo();
         return typeof info?.version === 'string' ? info.version : '';
       } catch {
         return '';

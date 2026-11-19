@@ -1,6 +1,7 @@
 import { ViewMode } from '../types';
 import { t, i18n } from '../i18n';
 import { el, icon, iconButton, kbd, button } from '../ui';
+import { getHostBridge } from '../platform/hostBridge.js';
 
 export interface TopSystemBarCallbacks {
   onMenuAction: (action: string, data?: unknown) => void;
@@ -320,23 +321,23 @@ export class TopSystemBar {
   }
 
   private async minimizeWindow(): Promise<void> {
-    const tokIpc = (window as any).tokIpc;
-    if (tokIpc?.minimizeWindow) {
-      await tokIpc.minimizeWindow();
+    const host = getHostBridge();
+    if (host.has('minimizeWindow')) {
+      await host.minimizeWindow();
     }
   }
 
   private async toggleMaximize(): Promise<void> {
-    const tokIpc = (window as any).tokIpc;
-    if (tokIpc?.maximizeWindow) {
-      await tokIpc.maximizeWindow();
+    const host = getHostBridge();
+    if (host.has('maximizeWindow')) {
+      await host.maximizeWindow();
     }
   }
 
   private async closeWindow(): Promise<void> {
-    const tokIpc = (window as any).tokIpc;
-    if (tokIpc?.closeWindow) {
-      await tokIpc.closeWindow();
+    const host = getHostBridge();
+    if (host.has('closeWindow')) {
+      await host.closeWindow();
     } else {
       this.callbacks.onMenuAction('quit-app');
     }

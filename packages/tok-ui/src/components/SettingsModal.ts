@@ -8,6 +8,8 @@ import { IconName } from '../icons';
 import { el, icon, iconButton, button, kbd, switchRow, segmented, group, selectField } from '../ui';
 import { ModalController } from './ModalController';
 import { fillAppVersion, getAppVersion } from '../appInfo';
+import { getHostBridge } from '../platform/hostBridge.js';
+import { hostSettings } from '../platform/hostSettings.js';
 
 export interface SettingsModalCallbacks {
   onLanguageChange: (lang: Language) => void;
@@ -78,7 +80,7 @@ export class SettingsModal {
     this.element = el('div', 'tok-overlay tok-settings-overlay');
 
     try {
-      const savedRetention = localStorage.getItem('tok_log_retention');
+      const savedRetention = hostSettings.get('tok_log_retention');
       const parsed = savedRetention ? parseInt(savedRetention, 10) : NaN;
       if (parsed >= 1 && parsed <= 365) this.logRetentionDays = parsed;
     } catch (err) {
@@ -346,11 +348,9 @@ export class SettingsModal {
     }
 
     const autosaveBox = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px' });
-    const isAutosave = typeof localStorage !== 'undefined' ? localStorage.getItem('tok_autosave_enabled') !== 'false' : true;
+    const isAutosave = hostSettings.get('tok_autosave_enabled') !== 'false';
     autosaveBox.appendChild(switchRow(t('settingsDocAutosaveEnable'), isAutosave, (val) => {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('tok_autosave_enabled', String(val));
-      }
+      hostSettings.set('tok_autosave_enabled', String(val));
       this.callbacks.showToast(`${t('settingsDocAutosave')}: ${onOff(val)}`);
     }, { description: t('settingsDocAutosaveHelp'), focusKey: 'doc-autosave' }));
     container.appendChild(group(t('settingsDocAutosave'), autosaveBox));
@@ -407,13 +407,13 @@ export class SettingsModal {
     const select = selectField(t('logsRetentionLabel'), options.map((o) => ({ value: String(o), label: `${o} ${t('logsRetentionDays')}` })), String(this.logRetentionDays), (value) => {
       this.logRetentionDays = parseInt(value, 10);
       try {
-        localStorage.setItem('tok_log_retention', value);
+        hostSettings.set('tok_log_retention', value);
       } catch (err) {
         console.warn('[SETTINGS] Failed to persist log retention preference:', err);
       }
-      const win = window as any;
-      if (win.tokIpc && win.tokIpc.setLogRetention) {
-        Promise.resolve(win.tokIpc.setLogRetention(this.logRetentionDays)).catch((e: any) => {
+      const host = getHostBridge();
+      if (host.has('setLogRetention')) {
+        Promise.resolve(host.setLogRetention(this.logRetentionDays)).catch((e: any) => {
           console.warn('[SETTINGS] setLogRetention failed:', e?.message ?? e);
         });
       }
@@ -428,10 +428,10 @@ export class SettingsModal {
       icon: 'folder',
       attrs: { 'data-focus-key': 'logs-folder' },
       onClick: async () => {
-        const win = window as any;
-        if (win.tokIpc && win.tokIpc.openLogsFolder) {
+        const host = getHostBridge();
+        if (host.has('openLogsFolder')) {
           try {
-            await win.tokIpc.openLogsFolder();
+            await host.openLogsFolder();
           } catch (e: any) {
             this.callbacks.showToast(`${t('actionFailed')}: ${e?.message ?? e}`);
           }
@@ -444,10 +444,10 @@ export class SettingsModal {
       icon: 'trash',
       attrs: { 'data-focus-key': 'logs-clean' },
       onClick: async () => {
-        const win = window as any;
-        if (win.tokIpc && win.tokIpc.cleanOldLogs) {
+        const host = getHostBridge();
+        if (host.has('cleanOldLogs')) {
           try {
-            const deleted = await win.tokIpc.cleanOldLogs(this.logRetentionDays);
+            const deleted = await host.cleanOldLogs(this.logRetentionDays);
             this.callbacks.showToast(tf('logsCleanedCount', { n: Number(deleted) || 0 }));
           } catch (e: any) {
             this.callbacks.showToast(`${t('actionFailed')}: ${e?.message ?? e}`);
@@ -462,9 +462,9 @@ export class SettingsModal {
 
     // Log lines are English/ISO text: lay them out LTR so the "[timestamp] [LEVEL]" brackets stay in order.
     const logBox = el('div', 'tok-log-box', { dir: 'ltr', tabindex: '0', role: 'log', 'aria-label': t('logsRecentTitle') }, t('logsLoading'));
-    const win = window as any;
-    if (win.tokIpc && win.tokIpc.getRecentLogs) {
-      win.tokIpc.getRecentLogs().then((lines: string[]) => {
+    const host = getHostBridge();
+    if (host.has('getRecentLogs')) {
+      host.getRecentLogs().then((lines: string[]) => {
         logBox.textContent = Array.isArray(lines) && lines.length ? lines.join('\n') : t('logsEmpty');
       }).catch((e: any) => {
         logBox.textContent = `[${t('logsLoadFailed')}: ${e?.message ?? e}]`;
@@ -530,10 +530,10 @@ export class SettingsModal {
     checkBtn.addEventListener('click', async () => {
       if (checkBtn.disabled) return;
       setChecking(true);
-      const win = window as any;
-      if (win.tokIpc && win.tokIpc.checkForUpdates) {
+      const host = getHostBridge();
+      if (host.has('checkForUpdates')) {
         try {
-          const res = await win.tokIpc.checkForUpdates();
+          const res = await host.checkForUpdates();
           if (res && res.error) {
             // The updater resolves (never rejects) on network/HTTP/parse failures.
             resultBox.textContent = `${t('updatesCheckFailed')}: ${res.error}`;
@@ -549,7 +549,7 @@ export class SettingsModal {
             const btnRow = el('div', undefined, { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;' });
 
             // Direct in-app streaming download with live metrics
-            if (win.tokIpc && win.tokIpc.downloadUpdate && res.downloadUrl) {
+            if (host.has('downloadUpdate') && res.downloadUrl) {
               const downloadInAppBtn = button(t('updatesDownloadInApp'), {
                 className: 'tok-btn tok-btn-primary tok-btn-sm',
                 icon: 'download',
@@ -579,8 +579,8 @@ export class SettingsModal {
                   resultBox.appendChild(progressWrap);
 
                   let unsub: (() => void) | undefined;
-                  if (win.tokIpc.onUpdateDownloadProgress) {
-                    unsub = win.tokIpc.onUpdateDownloadProgress((p: any) => {
+                  if (host.has('onUpdateDownloadProgress')) {
+                    unsub = host.onUpdateDownloadProgress((p: any) => {
                       progressBar.style.width = `${p.percent}%`;
                       progressLabel.textContent = `${t('updatesDownloading')} ${p.percent}%`;
                       
@@ -599,7 +599,7 @@ export class SettingsModal {
                   }
 
                   try {
-                    const dlRes = await win.tokIpc.downloadUpdate(res.downloadUrl);
+                    const dlRes = await host.downloadUpdate(res.downloadUrl);
                     if (unsub) unsub();
                     if (dlRes && dlRes.success && dlRes.filePath) {
                       progressWrap.remove();
@@ -615,7 +615,7 @@ export class SettingsModal {
                         className: 'tok-btn tok-btn-primary tok-btn-sm',
                         icon: 'check',
                         onClick: async () => {
-                          const applyRes = await win.tokIpc.applyUpdate(dlRes.filePath);
+                          const applyRes = await host.applyUpdate(dlRes.filePath!);
                           if (applyRes && !applyRes.success) {
                             this.callbacks.showToast(applyRes.error || t('actionFailed'));
                           }
@@ -644,7 +644,7 @@ export class SettingsModal {
               className: 'tok-btn tok-btn-secondary tok-btn-sm',
               icon: 'link',
               onClick: () => {
-                Promise.resolve(win.tokIpc.openReleaseUrl(res.downloadUrl || res.releaseUrl)).catch((e: any) => {
+                Promise.resolve(host.openReleaseUrl(res.downloadUrl || res.releaseUrl)).catch((e: any) => {
                   this.callbacks.showToast(`${t('updatesCheckFailed')}: ${e?.message ?? e}`);
                 });
               }
@@ -678,15 +678,15 @@ export class SettingsModal {
       className: 'tok-btn tok-btn-secondary tok-btn-sm',
       icon: 'folder',
       onClick: async () => {
-        const win = window as any;
-        if (!win.tokIpc || !win.tokIpc.showOpenDialog) {
+        const host = getHostBridge();
+        if (!host.has('showOpenDialog')) {
           offlineResult.style.display = 'block';
           offlineResult.style.color = 'var(--tok-status-error)';
           offlineResult.textContent = t('desktopOnlyFeature');
           return;
         }
         try {
-          const filePath = await win.tokIpc.showOpenDialog({
+          const filePath = await host.showOpenDialog({
             filters: [
               { name: 'TypesetOK Installer (*.exe, *.AppImage, *.dmg)', extensions: ['exe', 'AppImage', 'dmg'] },
               { name: 'All Files (*.*)', extensions: ['*'] }
@@ -695,7 +695,7 @@ export class SettingsModal {
           if (!filePath) return;
           offlineResult.style.display = 'block';
           offlineResult.innerHTML = '';
-          const inspect = win.tokIpc.inspectOfflineUpdate ? await win.tokIpc.inspectOfflineUpdate(filePath) : null;
+          const inspect = host.has('inspectOfflineUpdate') ? await host.inspectOfflineUpdate(filePath) : null;
           if (inspect && inspect.version) {
             const info = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--tok-bg-secondary);border-radius:6px;' });
             const titleRow = el('div', undefined, { style: 'display:flex;justify-content:space-between;align-items:center;' });
@@ -714,7 +714,7 @@ export class SettingsModal {
               className: 'tok-btn tok-btn-primary tok-btn-sm',
               icon: 'check',
               onClick: async () => {
-                const res = await win.tokIpc.applyUpdate(filePath);
+                const res = await host.applyUpdate(filePath);
                 if (res && !res.success) {
                   this.callbacks.showToast(res.error || t('actionFailed'));
                 }
@@ -737,8 +737,8 @@ export class SettingsModal {
       className: 'tok-btn tok-btn-secondary tok-btn-sm',
       icon: 'refresh',
       onClick: async () => {
-        const win = window as any;
-        if (!win.tokIpc || !win.tokIpc.scanUsbUpdates) {
+        const host = getHostBridge();
+        if (!host.has('scanUsbUpdates')) {
           offlineResult.style.display = 'block';
           offlineResult.style.color = 'var(--tok-status-error)';
           offlineResult.textContent = t('desktopOnlyFeature');
@@ -748,7 +748,7 @@ export class SettingsModal {
           offlineResult.style.display = 'block';
           offlineResult.style.color = 'var(--tok-text-secondary)';
           offlineResult.textContent = t('updatesStatusChecking');
-          const candidates = await win.tokIpc.scanUsbUpdates();
+          const candidates = await host.scanUsbUpdates();
           offlineResult.innerHTML = '';
           if (!candidates || candidates.length === 0) {
             offlineResult.textContent = t('updatesOfflineNoFilesFound');
@@ -774,7 +774,7 @@ export class SettingsModal {
                 className: `tok-btn ${cand.isRecommended ? 'tok-btn-primary' : 'tok-btn-secondary'} tok-btn-sm`,
                 icon: 'check',
                 onClick: async () => {
-                  const res = await win.tokIpc.applyUpdate(cand.filePath);
+                  const res = await host.applyUpdate(cand.filePath);
                   if (res && !res.success) {
                     this.callbacks.showToast(res.error || t('actionFailed'));
                   }

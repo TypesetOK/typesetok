@@ -1226,6 +1226,113 @@ function withProjectsDir(defaultPath?: string): string {
 
 handle('tok:get-projects-dir', () => getProjectsDir());
 
+const MAX_SETTING_KEY_LEN = 128;
+const MAX_SETTING_VAL_LEN = 2 * 1024 * 1024;
+const FORBIDDEN_SETTING_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function getSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+let settingsCache: Record<string, string> | null = null;
+let settingsWriteQueue: Promise<void> = Promise.resolve();
+
+function isValidSettingKey(key: unknown): key is string {
+  return typeof key === 'string' && key.length > 0 && key.length <= MAX_SETTING_KEY_LEN && !FORBIDDEN_SETTING_KEYS.has(key);
+}
+
+function sanitizeSettingsMap(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return out;
+  }
+  for (const [k, v] of Object.entries(raw)) {
+    if (isValidSettingKey(k) && typeof v === 'string' && v.length <= MAX_SETTING_VAL_LEN) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function loadSettingsSync(): Record<string, string> {
+  if (settingsCache) {
+    return settingsCache;
+  }
+  const settingsPath = getSettingsPath();
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8');
+      settingsCache = sanitizeSettingsMap(JSON.parse(raw));
+      return settingsCache;
+    }
+  } catch (err: any) {
+    logger.warn('[SETTINGS] Failed to load settings.json; starting with empty map', { error: err?.message });
+  }
+  settingsCache = {};
+  return settingsCache;
+}
+
+function persistSettingsAtomic(snapshot: Record<string, string>): Promise<void> {
+  const payload = JSON.stringify(snapshot, null, 2);
+  const task = settingsWriteQueue.then(async () => {
+    const settingsPath = getSettingsPath();
+    const dir = path.dirname(settingsPath);
+    if (!fs.existsSync(dir)) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+    const tmpPath = path.join(dir, `.settings.json.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`);
+    try {
+      await fs.promises.writeFile(tmpPath, payload, 'utf-8');
+      await fs.promises.rename(tmpPath, settingsPath);
+    } catch (err) {
+      try { await fs.promises.unlink(tmpPath); } catch { /* ignore cleanup failure */ }
+      throw err;
+    }
+  });
+  settingsWriteQueue = task.catch((err: any) => {
+    logger.warn('[SETTINGS] Queued settings write failed', { error: err?.message });
+  });
+  return task;
+}
+
+handle('tok:read-settings', () => ({ ...loadSettingsSync() }));
+
+handle('tok:set-setting', async (_, key: unknown, value: unknown) => {
+  if (!isValidSettingKey(key)) {
+    throw new Error('Invalid setting key');
+  }
+  if (typeof value !== 'string' || value.length > MAX_SETTING_VAL_LEN) {
+    throw new Error('Invalid setting value');
+  }
+  const cache = loadSettingsSync();
+  cache[key] = value;
+  await persistSettingsAtomic({ ...cache });
+  return { success: true };
+});
+
+handle('tok:set-settings', async (_, entries: unknown) => {
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    throw new Error('Invalid settings payload');
+  }
+  const cache = loadSettingsSync();
+  const sanitized = sanitizeSettingsMap(entries);
+  for (const [k, v] of Object.entries(sanitized)) {
+    cache[k] = v;
+  }
+  await persistSettingsAtomic({ ...cache });
+  return { success: true };
+});
+
+handle('tok:remove-setting', async (_, key: unknown) => {
+  if (!isValidSettingKey(key)) {
+    throw new Error('Invalid setting key');
+  }
+  const cache = loadSettingsSync();
+  delete cache[key];
+  await persistSettingsAtomic({ ...cache });
+  return { success: true };
+});
+
 function getDraftRecoveryPath(): string {
   return path.join(app.getPath('userData'), 'draft-recovery.json');
 }
@@ -1513,6 +1620,19 @@ handle('tok:show-import-dialog', async (_, options?: { filters?: { name: string;
 
 ipcMain.on('tok:get-startup-file-sync', (event) => {
   event.returnValue = isAppUrl(event.senderFrame?.url) ? startupFilePath : null;
+});
+
+ipcMain.on('tok:get-bootstrap-sync', (event) => {
+  if (!isAppUrl(event.senderFrame?.url)) {
+    event.returnValue = {};
+    return;
+  }
+  event.returnValue = {
+    installLanguage: readInstallRegistry().language,
+    startupFile: startupFilePath,
+    settings: { ...loadSettingsSync() },
+    platform: 'electron',
+  };
 });
 
 handle('tok:get-startup-file', () => startupFilePath);

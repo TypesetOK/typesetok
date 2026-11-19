@@ -1,3 +1,6 @@
+import { getHostBridge } from './platform/hostBridge.js';
+import { hostSettings } from './platform/hostSettings.js';
+
 export type Language = 'he' | 'en';
 
 export interface Translations {
@@ -651,9 +654,15 @@ class I18nManager {
 
   constructor() {
     try {
-      const saved = localStorage.getItem('tok_lang');
+      const saved = hostSettings.get('tok_lang');
       if (saved === 'en' || saved === 'he') {
         this.currentLang = saved;
+      } else {
+        const installLang = getHostBridge().getBootstrap().installLanguage;
+        if (installLang === 'en' || installLang === 'he') {
+          this.currentLang = installLang;
+          hostSettings.set('tok_lang', installLang);
+        }
       }
     } catch (err) {
       console.warn('[I18N] Failed to read saved language:', err);
@@ -682,7 +691,7 @@ class I18nManager {
     if (this.currentLang === lang) return;
     this.currentLang = lang;
     try {
-      localStorage.setItem('tok_lang', lang);
+      hostSettings.set('tok_lang', lang);
     } catch (err) {
       console.warn('[I18N] Failed to persist language preference:', err);
     }

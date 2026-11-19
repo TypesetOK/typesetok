@@ -2,6 +2,7 @@ import { t, tf, i18n } from '../i18n';
 import { el, iconButton, button } from '../ui';
 import { ModalController } from './ModalController';
 import { getAvailableFonts, registerFontFamily } from '../fonts';
+import { getHostBridge } from '../platform/hostBridge.js';
 
 export interface MissingFontsModalCallbacks {
   onApplySubstitutions: (mapping: Record<string, string>) => void;
@@ -57,13 +58,13 @@ export class MissingFontsModal {
   }
 
   private async installTtfForFamily(missingFamily: string): Promise<void> {
-    const win = typeof window !== 'undefined' ? (window as any) : {};
-    if (win.tokIpc?.showOpenDialog && win.tokIpc?.installFont) {
-      const filePath: string | null = await win.tokIpc.showOpenDialog({
+    const host = getHostBridge();
+    if (host.has('showOpenDialog') && host.has('installFont')) {
+      const filePath: string | null = await host.showOpenDialog({
         filters: [{ name: 'TrueType Fonts (.ttf)', extensions: ['ttf'] }]
       });
       if (!filePath) return;
-      const res = await win.tokIpc.installFont(filePath);
+      const res = await host.installFont(filePath);
       if (!res?.success || !res?.report) {
         const msg = res?.message || res?.error || 'Invalid font';
         this.statusByFamily.set(missingFamily, {

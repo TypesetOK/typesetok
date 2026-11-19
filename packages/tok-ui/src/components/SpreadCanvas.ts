@@ -4,6 +4,7 @@ import { SelectionMode, TextFrameData } from '../types';
 import { t, tf, i18n } from '../i18n';
 import { el, icon, iconButton, button } from '../ui';
 import { alignFrames, FrameAlignType, FrameRect } from '../utils/frameAlignment';
+import { hostSettings } from '../platform/hostSettings.js';
 
 /**
  * Spread geometry for a right-to-left bound book.
@@ -158,13 +159,13 @@ export class SpreadCanvas {
     this.bindEvents();
 
     try {
-      const savedGuides = localStorage.getItem('tok_canvas_guides');
+      const savedGuides = hostSettings.get('tok_canvas_guides');
       if (savedGuides) {
         const parsed = JSON.parse(savedGuides);
         if (typeof parsed.margins === 'boolean') this.showMargins = parsed.margins;
         if (typeof parsed.baseline === 'boolean') this.showBaseline = parsed.baseline;
       }
-      const savedZoom = localStorage.getItem('tok_canvas_zoom');
+      const savedZoom = hostSettings.get('tok_canvas_zoom');
       if (savedZoom) {
         const z = parseInt(savedZoom, 10);
         if (z >= MIN_ZOOM && z <= MAX_ZOOM) this.zoomPercent = z;
@@ -329,7 +330,7 @@ export class SpreadCanvas {
   public setZoom(zoom: number): void {
     this.zoomPercent = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoom)));
     try {
-      localStorage.setItem('tok_canvas_zoom', String(this.zoomPercent));
+      hostSettings.set('tok_canvas_zoom', String(this.zoomPercent));
     } catch (err) {
       console.warn('[CANVAS] Failed to persist zoom level:', err);
     }
@@ -411,7 +412,7 @@ export class SpreadCanvas {
 
   private saveGuides(): void {
     try {
-      localStorage.setItem('tok_canvas_guides', JSON.stringify({ margins: this.showMargins, baseline: this.showBaseline }));
+      hostSettings.set('tok_canvas_guides', JSON.stringify({ margins: this.showMargins, baseline: this.showBaseline }));
     } catch (err) {
       console.warn('[CANVAS] Failed to persist guide preferences:', err);
     }

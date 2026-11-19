@@ -1,4 +1,5 @@
 import { TypesetOkApp } from './app';
+import { getHostBridge } from './platform/hostBridge.js';
 
 // Bootstrap TypesetOK Workbench
 window.addEventListener('DOMContentLoaded', () => {
@@ -18,19 +19,21 @@ window.addEventListener('DOMContentLoaded', () => {
     if (typeof action === 'string' && action) app.handleSystemAction(action, data);
   };
 
-  // Hook into IPC bridge if running inside Electron
-  const tokIpc = (window as any).tokIpc;
-  if (tokIpc) {
-    // Native menu actions from the main process
-    tokIpc.onEvent?.((payload: any) => {
+  // Hook into desktop host bridge if running inside Electron or Tauri
+  const host = getHostBridge();
+  if (host.isDesktop) {
+    // Native menu actions from the host process
+    host.onEvent((payload: any) => {
       if (payload && typeof payload === 'object') runAction(payload.action, payload.data);
     });
     // Check if launched with a file from OS file association or CLI
-    tokIpc.getStartupFile?.().then((file: string | null) => {
-      if (file) {
-        app.openAnyFile(file);
-      }
-    }).catch(() => {});
+    if (host.has('getStartupFile')) {
+      host.getStartupFile().then((file: string | null) => {
+        if (file) {
+          app.openAnyFile(file);
+        }
+      }).catch(() => {});
+    }
   } else {
     console.log('[TOK] Running in standalone web preview mode');
   }

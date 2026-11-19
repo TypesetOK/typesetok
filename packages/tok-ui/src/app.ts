@@ -1,4 +1,6 @@
 import { getAppVersion } from './appInfo';
+import { getHostBridge } from './platform/hostBridge.js';
+import { hostSettings } from './platform/hostSettings.js';
 import { TopSystemBar } from './components/TopSystemBar';
 import { StructureBar } from './components/StructureBar';
 import { ContextualInspector } from './components/ContextualInspector';
@@ -67,7 +69,7 @@ const IMPORT_TEMPLATE_IDS: readonly TemplateType[] = ['prose', 'notes', 'gemara'
 
 function readImportTemplates(): Record<string, string> {
   try {
-    const parsed = JSON.parse(localStorage.getItem(IMPORT_TEMPLATE_STORAGE_KEY) || '{}');
+    const parsed = JSON.parse(hostSettings.get(IMPORT_TEMPLATE_STORAGE_KEY) || '{}');
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
@@ -82,7 +84,7 @@ function rememberImportTemplate(filePath: string | undefined, templateId: Templa
     const keys = Object.keys(all);
     // Keep the map small: drop the oldest entries beyond 100 files.
     for (const k of keys.slice(0, Math.max(0, keys.length - 100))) delete all[k];
-    localStorage.setItem(IMPORT_TEMPLATE_STORAGE_KEY, JSON.stringify(all));
+    hostSettings.set(IMPORT_TEMPLATE_STORAGE_KEY, JSON.stringify(all));
   } catch (err) {
     console.warn('[TOK] Failed to remember import template:', err);
   }
@@ -186,8 +188,7 @@ export class TypesetOkApp {
     if (this.documentTitle) {
       updateProjectClosedTime(this.documentTitle);
     }
-    const isElectron = typeof window !== 'undefined' && Boolean((window as any).tokIpc);
-    if (!isElectron && this.documentState?.isDirty) {
+    if (!getHostBridge().isDesktop && this.documentState?.isDirty) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -234,9 +235,9 @@ export class TypesetOkApp {
 
   private async loadUserInstalledFonts(): Promise<void> {
     try {
-      const win = window as any;
-      if (!win?.tokIpc?.listUserFonts) return;
-      const fonts = await win.tokIpc.listUserFonts();
+      const host = getHostBridge();
+      if (!host.has('listUserFonts')) return;
+      const fonts = await host.listUserFonts();
       if (!Array.isArray(fonts)) return;
       for (const item of fonts) {
         const family = item?.report?.family_name;
@@ -710,20 +711,19 @@ export class TypesetOkApp {
       this.pluginEngine.loadPlugins().catch(console.error);
     });
 
-    // 8b. Check for major updates popup on startup
+    // 8b. Check for major updates popup on startup and migrate legacy localStorage settings
     runWhenIdle(() => {
+      void hostSettings.syncAndMigrate();
       this.checkStartupUpdatesPrompt();
     });
 
     // 8. Startup file inspection and initial screen state
-    const win = window as any;
+    const host = getHostBridge();
     let initialStartupFile: string | null = null;
     try {
-      if (win?.tokIpc?.getStartupFileSync) {
-        initialStartupFile = win.tokIpc.getStartupFileSync();
-      }
+      initialStartupFile = host.getBootstrap().startupFile ?? null;
     } catch (err) {
-      console.warn('[TOK] Failed to read startup file from IPC:', err);
+      console.warn('[TOK] Failed to read startup file from host bootstrap:', err);
     }
 
     if (initialStartupFile) {
@@ -741,14 +741,14 @@ export class TypesetOkApp {
       this.checkDraftRecoveryOnStartup();
     });
 
-    if (win?.tokIpc?.onOpenFile) {
-      win.tokIpc.onOpenFile((file: string) => {
+    if (host.has('onOpenFile')) {
+      host.onOpenFile((file: string) => {
         if (file) this.openProjectFile(file);
       });
     }
 
-    if (!initialStartupFile && win?.tokIpc?.getStartupFile) {
-      win.tokIpc.getStartupFile().then((startupFile: string | null) => {
+    if (!initialStartupFile && host.has('getStartupFile')) {
+      host.getStartupFile().then((startupFile: string | null) => {
         if (startupFile && !this.hasOpenDocument) {
           this.openProjectFile(startupFile);
         }
@@ -1423,8 +1423,8 @@ export class TypesetOkApp {
 
   /** Runs the export with the options chosen in the dialog. */
   private runExport(options: ExportOptions): void {
-    const win = window as any;
-    if (win.tokIpc) {
+    const host = getHostBridge();
+    if (host.has('renderPdf')) {
       this.showToast(t('toastExporting'));
       // Sync active story editor changes to documentState
       if (this.storyEditor && this.activeFlowId) {
@@ -1437,7 +1437,7 @@ export class TypesetOkApp {
       console.log('[TOK] Exporting real document to PDF:', { title: docRoot.metadata.title, options });
 
       this.statusBar?.setBusy(true, 'מייצא ל-PDF...');
-      win.tokIpc.renderPdf({ document: docRoot, outputPath: options.fileName, options, assetsFrom: this.currentFilePath || undefined })
+      host.renderPdf({ document: docRoot, outputPath: options.fileName, options, assetsFrom: this.currentFilePath || undefined })
         .then(() => {
           this.statusBar?.setBusy(false);
           this.showToast(t('toastExportDone'));
@@ -2383,14 +2383,14 @@ export class TypesetOkApp {
 
     const requestId = ++this.latestTypesetRequestId;
     this.statusBar?.setBusy(true, 'מעמד מחדש...');
-    const win = window as any;
+    const host = getHostBridge();
     let newPages: PageDescriptor[] = [];
 
     try {
-      if (win.tokIpc?.typesetDocument) {
+      if (host.has('typesetDocument')) {
         try {
           const docRoot = documentStateToDocumentRoot(this.documentState);
-          const res = await win.tokIpc.typesetDocument({ document: docRoot, assetsFrom: this.currentFilePath || undefined });
+          const res = await host.typesetDocument({ document: docRoot, assetsFrom: this.currentFilePath || undefined });
           // Discard stale response if a newer typeset request was dispatched while this was in flight
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
             return;
@@ -2429,7 +2429,7 @@ export class TypesetOkApp {
 
       if (newPages.length === 0) {
         const minPages = Math.max(1, this.pages.length);
-        const isExplicitFallback = Boolean(win.tokIpc?.typesetDocument);
+        const isExplicitFallback = host.has('typesetDocument');
         newPages = FlowPaginator.paginateDocument(this.documentState, minPages, isExplicitFallback);
       }
 
@@ -2549,7 +2549,7 @@ export class TypesetOkApp {
       this.statusBar?.setBusy(true, 'שומר מסמך...');
     }
     try {
-      const win = window as any;
+      const host = getHostBridge();
       if (this.storyEditor && this.activeFlowId) {
         this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory(true);
       }
@@ -2563,9 +2563,9 @@ export class TypesetOkApp {
 
       const docRoot = documentStateToDocumentRoot(this.documentState);
 
-      if (win.tokIpc?.saveDocument) {
+      if (host.has('saveDocument')) {
         try {
-          await win.tokIpc.saveDocument({ document: docRoot, filePath: targetPath, assetsFrom: this.currentFilePath || undefined });
+          await host.saveDocument({ document: docRoot, filePath: targetPath, assetsFrom: this.currentFilePath || undefined });
           this.currentFilePath = targetPath;
           this.documentTitle = this.documentTitle || baseName.replace(/\.tok$/i, '');
           this.setDirty(false);
@@ -2708,11 +2708,11 @@ export class TypesetOkApp {
       this.promptAndImportDocument(filePath);
       return;
     }
-    const win = window as any;
+    const host = getHostBridge();
     const baseName = filePath.split(/[\\/]/).pop() || filePath;
 
-    if (win.tokIpc?.openDocument) {
-      win.tokIpc.openDocument(filePath)
+    if (host.has('openDocument')) {
+      host.openDocument(filePath)
         .then((docRoot: any) => {
           return this.loadDocumentRoot(docRoot, filePath, docRoot.metadata?.title || baseName);
         })
@@ -2753,26 +2753,26 @@ export class TypesetOkApp {
   }
 
   public async promptAndImportDocument(explicitPath?: string): Promise<void> {
-    const win = window as any;
+    const host = getHostBridge();
     let targetPath = explicitPath;
 
     if (!targetPath) {
-      if (win.tokIpc?.showImportDialog) {
-        targetPath = await win.tokIpc.showImportDialog();
-      } else if (win.tokIpc?.showOpenDialog) {
-        targetPath = await win.tokIpc.showOpenDialog({
+      if (host.has('showImportDialog')) {
+        targetPath = (await host.showImportDialog()) || undefined;
+      } else if (host.has('showOpenDialog')) {
+        targetPath = (await host.showOpenDialog({
           filters: [
             { name: 'כל המסמכים הנתמכים (*.docx, *.md, *.txt)', extensions: ['docx', 'md', 'txt'] },
             { name: 'Microsoft Word (*.docx)', extensions: ['docx'] },
             { name: 'Markdown (*.md)', extensions: ['md'] },
             { name: 'טקסט פשוט (*.txt)', extensions: ['txt'] }
           ]
-        });
+        })) || undefined;
       }
     }
 
     if (!targetPath) {
-      if (typeof document !== 'undefined' && !win.tokIpc) {
+      if (typeof document !== 'undefined' && !host.isDesktop) {
         this.promptWebFileImport();
       }
       return;
@@ -2780,8 +2780,8 @@ export class TypesetOkApp {
 
     try {
       let result: ImportResult;
-      if (win.tokIpc?.readImportFile) {
-        const fileInfo = await win.tokIpc.readImportFile(targetPath);
+      if (host.has('readImportFile')) {
+        const fileInfo = await host.readImportFile(targetPath);
         if (fileInfo.docxXml) {
           result = parseDocxXml(fileInfo.docxXml, {
             fileName: fileInfo.fileName,
@@ -3100,11 +3100,11 @@ export class TypesetOkApp {
         break;
       case 'open-document': {
         if (!this.confirmDiscardUnsaved()) return;
-        const win = window as any;
+        const host = getHostBridge();
         if (typeof data === 'string' && data) {
           this.openAnyFile(data);
-        } else if (win.tokIpc?.showOpenDialog) {
-          win.tokIpc.showOpenDialog({ filters: [{ name: 'TypesetOK Document', extensions: ['tok', 'json'] }] })
+        } else if (host.has('showOpenDialog')) {
+          host.showOpenDialog({ filters: [{ name: 'TypesetOK Document', extensions: ['tok', 'json'] }] })
             .then((filePath: string | null) => {
               if (filePath) this.openProjectFile(filePath);
             });
@@ -3145,9 +3145,9 @@ export class TypesetOkApp {
         if (this.currentFilePath && this.currentFilePath.toLowerCase().endsWith('.tok')) {
           return this.saveDocumentToFile(this.currentFilePath);
         } else {
-          const win = window as any;
-          if (win.tokIpc?.getProjectsDir) {
-            return Promise.resolve(win.tokIpc.getProjectsDir()).then((projectsDir: string) => {
+          const host = getHostBridge();
+          if (host.has('getProjectsDir')) {
+            return Promise.resolve(host.getProjectsDir()).then((projectsDir: string) => {
               if (projectsDir) {
                 const safeName = (this.documentTitle || 'document').replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';
                 const sep = projectsDir.includes('/') ? '/' : '\\';
@@ -3164,10 +3164,10 @@ export class TypesetOkApp {
         break;
       }
       case 'save-as': {
-        const win = window as any;
+        const host = getHostBridge();
         const defaultName = (this.documentTitle || 'document').replace(/\.tok$/i, '') + '.tok';
-        if (win.tokIpc?.showSaveDialog) {
-          return win.tokIpc.showSaveDialog({
+        if (host.has('showSaveDialog')) {
+          return host.showSaveDialog({
             defaultPath: defaultName,
             filters: [{ name: 'TypesetOK Document', extensions: ['tok', 'json'] }]
           }).then((filePath: string | null) => {
@@ -3322,18 +3322,18 @@ export class TypesetOkApp {
     this.documentState.title = trimmed;
     this.showDocumentTitle(trimmed, true);
 
-    const win = window as any;
+    const host = getHostBridge();
     let recentPath = oldPath;
     let renamedTokOnDisk = false;
     // Only a real .tok project file is renamed on disk. An imported source (.docx/.md/.txt) is the
     // user's original file and must never be renamed or turned into a ".tok" file by a title change.
-    if (oldPath && /\.tok$/i.test(oldPath) && win.tokIpc?.renameDocumentFile) {
+    if (oldPath && /\.tok$/i.test(oldPath) && host.has('renameDocumentFile')) {
       const dir = oldPath.replace(/[^/\\]+$/, '');
       const safeNewName = trimmed.replace(/[<>:"/\\|?*]/g, '_').trim() || 'document';
       const newPath = `${dir}${safeNewName}.tok`;
       if (newPath !== oldPath) {
         try {
-          const res = await win.tokIpc.renameDocumentFile({ oldPath, newPath });
+          const res = await host.renameDocumentFile({ oldPath, newPath });
           if (res && !res.success) {
             this.documentTitle = oldTitle;
             this.documentState.title = oldTitle;
@@ -3408,9 +3408,7 @@ export class TypesetOkApp {
 
   private initAutosave(): void {
     try {
-      this.isAutosaveEnabled = typeof localStorage !== 'undefined'
-        ? localStorage.getItem('tok_autosave_enabled') !== 'false'
-        : true;
+      this.isAutosaveEnabled = hostSettings.get('tok_autosave_enabled') !== 'false';
     } catch {
       this.isAutosaveEnabled = true;
     }
@@ -3440,11 +3438,11 @@ export class TypesetOkApp {
       if (this.currentFilePath && this.currentFilePath.toLowerCase().endsWith('.tok')) {
         await this.saveDocumentToFile(this.currentFilePath, { silent: true });
       } else {
-        const win = window as any;
+        const host = getHostBridge();
         let projectsDir: string | undefined;
-        if (win.tokIpc?.getProjectsDir) {
+        if (host.has('getProjectsDir')) {
           try {
-            projectsDir = await win.tokIpc.getProjectsDir();
+            projectsDir = await host.getProjectsDir();
           } catch (err) {
             console.warn('[TOK] Failed to resolve projects dir during autosave:', err);
           }
@@ -3478,18 +3476,14 @@ export class TypesetOkApp {
         templateType: this.documentState.templateType,
         document: docRoot
       };
-      const win = typeof window !== 'undefined' ? (window as any) : null;
-      if (win?.tokIpc?.saveDraftRecovery) {
-        void win.tokIpc.saveDraftRecovery(snapshot).catch((err: unknown) => {
+      const host = getHostBridge();
+      if (host.has('saveDraftRecovery')) {
+        void host.saveDraftRecovery(snapshot).catch((err: unknown) => {
           console.warn('[TOK] Failed to save draft recovery snapshot to disk:', err);
         });
-        try {
-          if (typeof localStorage !== 'undefined') localStorage.removeItem('tok_draft_recovery');
-        } catch (err) {
-          console.warn('[TOK] Failed to clear legacy draft recovery key:', err);
-        }
-      } else if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('tok_draft_recovery', JSON.stringify(snapshot));
+        hostSettings.remove('tok_draft_recovery');
+      } else {
+        hostSettings.set('tok_draft_recovery', JSON.stringify(snapshot));
       }
       this.setDirty(false);
       this.statusBar?.setTemporaryStatus(t('draftSavedStatus'), 2000);
@@ -3499,30 +3493,24 @@ export class TypesetOkApp {
   }
 
   public clearDraftRecovery(): void {
-    const win = typeof window !== 'undefined' ? (window as any) : null;
-    if (win?.tokIpc?.clearDraftRecovery) {
-      void win.tokIpc.clearDraftRecovery().catch((err: unknown) => {
+    const host = getHostBridge();
+    if (host.has('clearDraftRecovery')) {
+      void host.clearDraftRecovery().catch((err: unknown) => {
         console.warn('[TOK] Failed to clear disk draft recovery:', err);
       });
     }
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem('tok_draft_recovery');
-      }
-    } catch (err) {
-      console.warn('[TOK] Failed to clear localStorage draft recovery:', err);
-    }
+    hostSettings.remove('tok_draft_recovery');
   }
 
   private async checkDraftRecoveryOnStartup(): Promise<void> {
     try {
-      const win = typeof window !== 'undefined' ? (window as any) : null;
+      const host = getHostBridge();
       let parsed: any = null;
-      if (win?.tokIpc?.loadDraftRecovery) {
-        parsed = await win.tokIpc.loadDraftRecovery();
+      if (host.has('loadDraftRecovery')) {
+        parsed = await host.loadDraftRecovery();
       }
-      if (!parsed && typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem('tok_draft_recovery');
+      if (!parsed) {
+        const raw = hostSettings.get('tok_draft_recovery');
         if (raw) {
           parsed = JSON.parse(raw);
         }
@@ -3565,16 +3553,16 @@ export class TypesetOkApp {
     if (this.isClosingInProgress) return false;
     this.isClosingInProgress = true;
     try {
-      const win = typeof window !== 'undefined' ? (window as any) : null;
+      const host = getHostBridge();
       if (this.documentTitle) {
         updateProjectClosedTime(this.documentTitle);
       }
-      if (win?.tokIpc?.quitApp && action === 'quit') {
-        await win.tokIpc.quitApp();
+      if (host.has('quitApp') && action === 'quit') {
+        await host.quitApp();
         return true;
       }
-      if (win?.tokIpc?.closeWindow && action === 'close') {
-        await win.tokIpc.closeWindow();
+      if (host.has('closeWindow') && action === 'close') {
+        await host.closeWindow();
         return true;
       }
       // Web environment fallback

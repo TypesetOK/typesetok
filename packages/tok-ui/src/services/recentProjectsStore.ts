@@ -1,4 +1,5 @@
 import { i18n } from '../i18n';
+import { hostSettings } from '../platform/hostSettings.js';
 
 export interface RecentProject {
   name: string;
@@ -99,17 +100,16 @@ export function isDemoProject(name?: string, path?: string): boolean {
 }
 
 /**
- * Actively purges all legacy sample, demo, or phantom projects from localStorage.
+ * Actively purges all legacy sample, demo, or phantom projects from storage.
  */
 export function purgeAllDemoProjects(): void {
   try {
-    if (typeof localStorage === 'undefined') return;
-    const raw = localStorage.getItem('tok_recent_projects');
+    const raw = hostSettings.get('tok_recent_projects');
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
     const cleaned = parsed.filter((p) => p && typeof p.name === 'string' && !isDemoProject(p.name, p.path));
-    localStorage.setItem('tok_recent_projects', JSON.stringify(cleaned));
+    hostSettings.set('tok_recent_projects', JSON.stringify(cleaned));
   } catch (err) {
     console.warn('[WELCOME] Failed to prune demo recent projects:', err);
   }
@@ -140,14 +140,14 @@ export function formatProjectTimestamp(isoOrDate?: string): string {
 
 export function getRecentProjects(): RecentProject[] {
   try {
-    const raw = localStorage.getItem('tok_recent_projects');
+    const raw = hostSettings.get('tok_recent_projects');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         const filtered = parsed
           .filter((p) => p && typeof p.name === 'string' && !isDemoProject(p.name, p.path));
         if (filtered.length !== parsed.length) {
-          localStorage.setItem('tok_recent_projects', JSON.stringify(filtered));
+          hostSettings.set('tok_recent_projects', JSON.stringify(filtered));
         }
         return filtered.map((p) => {
           const accurateTime = p.lastSavedAt || p.lastClosedAt;
@@ -188,7 +188,7 @@ export function addRecentProject(entry: {
       pages: entry.pages ?? 1,
       template: entry.template ?? 0
     });
-    localStorage.setItem('tok_recent_projects', JSON.stringify(list.slice(0, 50)));
+    hostSettings.set('tok_recent_projects', JSON.stringify(list.slice(0, 50)));
   } catch (err) {
     console.warn('[WELCOME] Failed to save recent project:', err);
   }
@@ -204,7 +204,7 @@ export function updateProjectClosedTime(nameOrPath: string): void {
         break;
       }
     }
-    localStorage.setItem('tok_recent_projects', JSON.stringify(list));
+    hostSettings.set('tok_recent_projects', JSON.stringify(list));
   } catch (err) {
     console.warn('[WELCOME] Failed to update recent projects:', err);
   }
@@ -214,7 +214,7 @@ export function removeRecentProject(nameOrPath: string): void {
   if (!nameOrPath) return;
   try {
     const list = getRecentProjects().filter((p) => p.name !== nameOrPath && p.path !== nameOrPath);
-    localStorage.setItem('tok_recent_projects', JSON.stringify(list));
+    hostSettings.set('tok_recent_projects', JSON.stringify(list));
   } catch (err) {
     console.warn('[WELCOME] Failed to update recent projects:', err);
   }
@@ -230,7 +230,7 @@ export function renameRecentProject(oldName: string, newName: string): void {
       }
       return p;
     });
-    localStorage.setItem('tok_recent_projects', JSON.stringify(list));
+    hostSettings.set('tok_recent_projects', JSON.stringify(list));
   } catch (err) {
     console.warn('[WELCOME] Failed to update recent projects:', err);
   }

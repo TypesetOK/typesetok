@@ -87,6 +87,12 @@ export interface TokIpcBridge {
   isMaximized: () => Promise<{ isMaximized: boolean }>;
   quitApp: () => Promise<void>;
   onOpenFile: (callback: (filePath: string) => void) => () => void;
+
+  // Host-backed Persistent Settings
+  readSettings: () => Promise<Record<string, string>>;
+  setSetting: (key: string, value: string) => Promise<{ success: boolean }>;
+  setSettings: (entries: Record<string, string>) => Promise<{ success: boolean }>;
+  removeSetting: (key: string) => Promise<{ success: boolean }>;
 }
 
 const tokIpc: TokIpcBridge = {
@@ -289,7 +295,32 @@ const tokIpc: TokIpcBridge = {
     const handler = (_: Electron.IpcRendererEvent, filePath: string) => callback(filePath);
     ipcRenderer.on('tok:open-file', handler);
     return () => ipcRenderer.removeListener('tok:open-file', handler);
+  },
+
+  // Host-backed Persistent Settings
+  readSettings: async () => {
+    return await ipcRenderer.invoke('tok:read-settings');
+  },
+  setSetting: async (key: string, value: string) => {
+    return await ipcRenderer.invoke('tok:set-setting', key, value);
+  },
+  setSettings: async (entries: Record<string, string>) => {
+    return await ipcRenderer.invoke('tok:set-settings', entries);
+  },
+  removeSetting: async (key: string) => {
+    return await ipcRenderer.invoke('tok:remove-setting', key);
   }
 };
 
+let bootstrapPayload: Record<string, unknown> = { platform: 'electron' };
+try {
+  const res = ipcRenderer.sendSync('tok:get-bootstrap-sync');
+  if (res && typeof res === 'object') {
+    bootstrapPayload = res;
+  }
+} catch {
+  // fallback to minimal electron bootstrap
+}
+
+contextBridge.exposeInMainWorld('__TOK_BOOTSTRAP__', bootstrapPayload);
 contextBridge.exposeInMainWorld('tokIpc', tokIpc);

@@ -6,6 +6,7 @@ import {
   ChangeCategory
 } from './types';
 import { CHANGELOG_ENTRIES } from './changelogData.js';
+import { hostSettings } from '../platform/hostSettings.js';
 
 const STORAGE_KEY = 'tok_updates_state_v1';
 
@@ -55,20 +56,18 @@ export class UpdatesStateManager {
     };
 
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return {
-            lastSeenVersion: typeof parsed.lastSeenVersion === 'string' ? parsed.lastSeenVersion : defaultState.lastSeenVersion,
-            lastSeenMajorVersion: typeof parsed.lastSeenMajorVersion === 'string' ? parsed.lastSeenMajorVersion : defaultState.lastSeenMajorVersion,
-            dismissedVersions: Array.isArray(parsed.dismissedVersions) ? parsed.dismissedVersions : defaultState.dismissedVersions,
-            lastCheckedTime: typeof parsed.lastCheckedTime === 'number' ? parsed.lastCheckedTime : undefined
-          };
-        }
+      const raw = hostSettings.get(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          lastSeenVersion: typeof parsed.lastSeenVersion === 'string' ? parsed.lastSeenVersion : defaultState.lastSeenVersion,
+          lastSeenMajorVersion: typeof parsed.lastSeenMajorVersion === 'string' ? parsed.lastSeenMajorVersion : defaultState.lastSeenMajorVersion,
+          dismissedVersions: Array.isArray(parsed.dismissedVersions) ? parsed.dismissedVersions : defaultState.dismissedVersions,
+          lastCheckedTime: typeof parsed.lastCheckedTime === 'number' ? parsed.lastCheckedTime : undefined
+        };
       }
     } catch (e) {
-      console.warn('[UPDATES] Failed to load updates state from localStorage:', e);
+      console.warn('[UPDATES] Failed to load updates state:', e);
     }
 
     return defaultState;
@@ -76,9 +75,7 @@ export class UpdatesStateManager {
 
   private persistState(): void {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
-      }
+      hostSettings.set(STORAGE_KEY, JSON.stringify(this.state));
     } catch (e) {
       console.warn('[UPDATES] Failed to persist updates state:', e);
     }

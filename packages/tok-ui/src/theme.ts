@@ -6,6 +6,8 @@
  * the OS) plus an accent color. The page itself is always paper-colored, in both themes.
  */
 
+import { hostSettings } from './platform/hostSettings.js';
+
 export interface ThemePalette {
   id: string;
   /** Dark palettes use the dark accent shades and a dark color-scheme. */
@@ -314,7 +316,7 @@ export class ThemeManager {
     this.settings = { ...DEFAULT_THEME_SETTINGS };
 
     try {
-      const saved = localStorage.getItem('tok_theme_settings');
+      const saved = hostSettings.get('tok_theme_settings');
       if (saved) {
         this.settings = sanitizeThemeSettings(migrateThemeSettings(JSON.parse(saved)), this.settings);
       }
@@ -402,7 +404,7 @@ export class ThemeManager {
 
   private saveAndApply(): void {
     try {
-      localStorage.setItem('tok_theme_settings', JSON.stringify({ ...this.settings, version: THEME_SETTINGS_VERSION }));
+      hostSettings.set('tok_theme_settings', JSON.stringify({ ...this.settings, version: THEME_SETTINGS_VERSION }));
     } catch (err) {
       console.warn('[THEME] Failed to persist theme settings:', err);
     }

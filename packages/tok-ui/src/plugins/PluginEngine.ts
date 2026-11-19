@@ -25,6 +25,7 @@ import {
   TokUIAPI
 } from './plugin-types';
 import { hebrewUtils } from './hebrew-utils';
+import { getHostBridge } from '../platform/hostBridge.js';
 
 export interface PluginItem {
   id: string;
@@ -155,9 +156,9 @@ export class PluginEngine {
   }
 
   public async setSafeMode(enabled: boolean): Promise<boolean> {
-    const win = window as any;
-    if (win.tokIpc && win.tokIpc.setPluginSafeMode) {
-      const ok = await win.tokIpc.setPluginSafeMode(enabled);
+    const host = getHostBridge();
+    if (host.has('setPluginSafeMode')) {
+      const ok = await host.setPluginSafeMode(enabled);
       if (ok) {
         this.isSafeMode = enabled;
         await this.loadPlugins();
@@ -170,12 +171,12 @@ export class PluginEngine {
   }
 
   public async loadPlugins(): Promise<PluginItem[]> {
-    const win = window as any;
-    if (win.tokIpc) {
+    const host = getHostBridge();
+    if (host.isDesktop) {
       // 1. Fetch system status (Safe mode, Safer environment)
-      if (win.tokIpc.getPluginSystemStatus) {
+      if (host.has('getPluginSystemStatus')) {
         try {
-          const status = await win.tokIpc.getPluginSystemStatus();
+          const status = await host.getPluginSystemStatus();
           if (status) {
             this.isSafeMode = Boolean(status.isSafeMode);
             this.isSaferActive = Boolean(status.isSaferActive);
@@ -186,9 +187,9 @@ export class PluginEngine {
       }
 
       // 2. Fetch app info
-      if (win.tokIpc.getAppInfo) {
+      if (host.has('getAppInfo')) {
         try {
-          const info = await win.tokIpc.getAppInfo();
+          const info = await host.getAppInfo();
           if (info?.version) this.appVersion = info.version;
         } catch (err) {
           console.warn('[PLUGIN-ENGINE] Failed to fetch app info:', err);
@@ -196,9 +197,9 @@ export class PluginEngine {
       }
 
       // 3. Fetch plugin entries
-      if (win.tokIpc.getPlugins) {
+      if (host.has('getPlugins')) {
         try {
-          const rawPlugins = await win.tokIpc.getPlugins();
+          const rawPlugins = await host.getPlugins();
           const list: unknown[] = Array.isArray(rawPlugins) ? rawPlugins : [];
           const seen = new Set<string>();
           this.plugins = [];
@@ -209,7 +210,7 @@ export class PluginEngine {
             this.plugins.push(item);
           }
         } catch (err: any) {
-          console.warn('[PLUGIN-ENGINE] Failed to fetch plugins from IPC:', err?.message ?? err);
+          console.warn('[PLUGIN-ENGINE] Failed to fetch plugins from host:', err?.message ?? err);
         }
       }
     } else {
@@ -516,6 +517,9 @@ export class PluginEngine {
 
     const blockedKeys = new Set([
       'tokIpc',
+      '__TOK_BOOTSTRAP__',
+      '__TAURI_INTERNALS__',
+      '__TAURI__',
       'document',
       'localStorage',
       'sessionStorage',
@@ -532,7 +536,7 @@ export class PluginEngine {
 
     const sandboxedGlobal: any = new Proxy(rawGlobal, {
       get(target, prop) {
-        if (prop === 'tokIpc' || prop === 'document') {
+        if (blockedKeys.has(prop as string)) {
           return undefined;
         }
         if (prop === 'window' || prop === 'globalThis' || prop === 'self' || prop === 'top' || prop === 'parent') {
@@ -543,9 +547,6 @@ export class PluginEngine {
         }
         if (prop === 'Function') {
           return sandboxedFunction;
-        }
-        if (blockedKeys.has(prop as string)) {
-          return undefined;
         }
         const val = Reflect.get(target, prop);
         if (typeof val === 'function') {
@@ -576,13 +577,18 @@ export class PluginEngine {
       }
     });
 
-    const originalTokIpc = (rawGlobal as any).tokIpc;
-    let maskedTokIpc = false;
-    try {
-      delete (rawGlobal as any).tokIpc;
-      maskedTokIpc = true;
-    } catch (err) {
-      console.warn('[PLUGIN-ENGINE] Could not delete global tokIpc before sandbox eval:', err);
+    const maskedKeys = ['tokIpc', '__TOK_BOOTSTRAP__', '__TAURI_INTERNALS__', '__TAURI__'] as const;
+    const savedMaskedGlobals = new Map<string, { present: boolean; value: unknown }>();
+    for (const key of maskedKeys) {
+      if (Object.prototype.hasOwnProperty.call(rawGlobal, key)) {
+        const val = (rawGlobal as any)[key];
+        try {
+          delete (rawGlobal as any)[key];
+          savedMaskedGlobals.set(key, { present: true, value: val });
+        } catch (err) {
+          console.warn(`[PLUGIN-ENGINE] Could not delete global ${key} before sandbox eval:`, err);
+        }
+      }
     }
 
     try {
@@ -592,6 +598,9 @@ export class PluginEngine {
         'module',
         'exports',
         'tokIpc',
+        '__TOK_BOOTSTRAP__',
+        '__TAURI_INTERNALS__',
+        '__TAURI__',
         'window',
         'globalThis',
         'self',
@@ -621,6 +630,9 @@ export class PluginEngine {
         fakeModule,
         fakeModule.exports,
         undefined, // tokIpc shadowed
+        undefined, // __TOK_BOOTSTRAP__ shadowed
+        undefined, // __TAURI_INTERNALS__ shadowed
+        undefined, // __TAURI__ shadowed
         sandboxedGlobal, // window hardened
         sandboxedGlobal, // globalThis hardened
         sandboxedGlobal, // self hardened
@@ -648,8 +660,14 @@ export class PluginEngine {
       this.deactivatePlugin(p.id);
       return false;
     } finally {
-      if (maskedTokIpc && originalTokIpc !== undefined && (rawGlobal as any).tokIpc === undefined) {
-        (rawGlobal as any).tokIpc = originalTokIpc;
+      for (const [key, saved] of savedMaskedGlobals.entries()) {
+        if (saved.present && (rawGlobal as any)[key] === undefined) {
+          try {
+            (rawGlobal as any)[key] = saved.value;
+          } catch (err) {
+            console.warn(`[PLUGIN-ENGINE] Could not restore global ${key} after sandbox eval:`, err);
+          }
+        }
       }
     }
   }
@@ -710,9 +728,9 @@ export class PluginEngine {
    * Disabling removes its commands from the palette.
    */
   public async togglePlugin(pluginId: string, enabled: boolean): Promise<boolean> {
-    const win = window as any;
-    if (win.tokIpc && win.tokIpc.togglePlugin) {
-      await win.tokIpc.togglePlugin(pluginId, enabled);
+    const host = getHostBridge();
+    if (host.has('togglePlugin')) {
+      await host.togglePlugin(pluginId, enabled);
     }
     const target = this.plugins.find((p) => p.id === pluginId);
     if (target) {
@@ -735,9 +753,9 @@ export class PluginEngine {
   }
 
   public async openPluginsFolder(): Promise<void> {
-    const win = window as any;
-    if (win.tokIpc && win.tokIpc.openPluginsFolder) {
-      await win.tokIpc.openPluginsFolder();
+    const host = getHostBridge();
+    if (host.has('openPluginsFolder')) {
+      await host.openPluginsFolder();
     }
   }
 }
