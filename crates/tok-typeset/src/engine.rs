@@ -2051,6 +2051,236 @@ impl TypesettingEngine {
     ///    only the containing page is updated, completing in sub-millisecond latency.
     /// 3. Incremental Page Breaking with Convergence: repaginates downstream only until
     ///    break tokens converge with the previous page boundaries.
+    fn shape_paragraph_with_sessions<'a>(
+        &'a self,
+        doc: &DocumentRoot,
+        p: &ParagraphNode,
+        content_width: f32,
+        sessions: &mut HashMap<String, ShapingSession<'a>>,
+    ) -> Vec<LineBox> {
+        let base_style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
+        let resolved_style = p.effective_style(&doc.paragraph_styles);
+        let (font_family, font_size, line_height) =
+            if base_style.is_some() || !p.style_patches.is_empty() {
+                (
+                    self.font_manager
+                        .face_for(&resolved_style.font_family, resolved_style.font_weight),
+                    resolved_style.font_size_pt,
+                    resolved_style.line_height_pt,
+                )
+            } else {
+                (
+                    DEFAULT_FONT_FAMILY.to_string(),
+                    DEFAULT_FONT_SIZE_PT,
+                    DEFAULT_LINE_HEIGHT_PT,
+                )
+            };
+        let profile = MeasureProfile::uniform(content_width);
+        if resolved_style
+            .drop_cap
+            .as_ref()
+            .is_some_and(|dc| dc.enabled)
+        {
+            self.typeset_paragraph_shaped_with_style(
+                p,
+                Some(&resolved_style),
+                &font_family,
+                &profile,
+                font_size,
+                line_height,
+            )
+        } else {
+            let session = sessions
+                .entry(font_family.clone())
+                .or_insert_with(|| self.font_manager.session(&font_family));
+            Self::typeset_with_session_shaped_opts(
+                session,
+                p,
+                Some(&resolved_style),
+                &profile,
+                font_size,
+                line_height,
+            )
+        }
+    }
+
+    fn try_zero_cascade_single_paragraph_core<P: std::borrow::Borrow<PageLayoutBox>>(
+        &self,
+        doc: &DocumentRoot,
+        previous_pages: &[P],
+        target_id: tok_core::id::NodeId,
+        content_width: f32,
+        start_time: std::time::Instant,
+    ) -> Option<(
+        usize,
+        PageLayoutBox,
+        crate::incremental::IncrementalTypesetDiagnostics,
+    )> {
+        let mut target_para: Option<&ParagraphNode> = None;
+        let mut total_paras = 0usize;
+        for sec in &doc.sections {
+            if let Some(flow) = sec.main_flow() {
+                total_paras += flow.paragraphs.len();
+                if target_para.is_none() {
+                    target_para = flow.paragraphs.iter().find(|p| p.id == target_id);
+                }
+            }
+        }
+        let p = target_para?;
+
+        let mut containing_page: Option<usize> = None;
+        for (idx, page_ref) in previous_pages.iter().enumerate() {
+            let page = page_ref.borrow();
+            let has_target = page
+                .frames
+                .iter()
+                .any(|f| f.lines.iter().any(|l| l.paragraph_id == Some(target_id)));
+            if has_target {
+                if containing_page.is_some() {
+                    // Spans multiple pages: cannot use single-page zero-cascade
+                    return None;
+                }
+                containing_page = Some(idx);
+            }
+        }
+        let page_idx = containing_page?;
+
+        let mut sessions = HashMap::new();
+        let new_lines = self.shape_paragraph_with_sessions(doc, p, content_width, &mut sessions);
+
+        let old_page = previous_pages[page_idx].borrow();
+        let old_lines: Vec<&LineBox> = old_page
+            .frames
+            .iter()
+            .flat_map(|f| &f.lines)
+            .filter(|l| l.paragraph_id == Some(target_id))
+            .collect();
+
+        if new_lines.len() != old_lines.len() {
+            return None;
+        }
+
+        let heights_match = new_lines
+            .iter()
+            .zip(&old_lines)
+            .all(|(n, o)| (n.height - o.height).abs() < 1e-3);
+        if !heights_match {
+            return None;
+        }
+
+        let default_style = tok_core::styles::ParagraphStyle::default();
+        let style = doc
+            .paragraph_styles
+            .iter()
+            .find(|s| s.id == p.style_id)
+            .unwrap_or(&default_style);
+        let key = crate::layout_cache::ParagraphLayoutCache::make_key(p, style, content_width);
+        {
+            let mut cache = self
+                .paragraph_cache
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
+            cache.insert(key, new_lines.clone());
+        }
+
+        let mut page = old_page.clone();
+        for frame in &mut page.frames {
+            let mut new_frame_lines = Vec::with_capacity(frame.lines.len());
+            let mut new_lines_iter = new_lines.iter().cloned();
+            for old_line in &frame.lines {
+                let line = if old_line.paragraph_id == Some(target_id) {
+                    let mut n = new_lines_iter.next().unwrap_or_else(|| old_line.clone());
+                    n.baseline_y = old_line.baseline_y;
+                    n
+                } else {
+                    old_line.clone()
+                };
+                new_frame_lines.push(line);
+            }
+            frame.lines = new_frame_lines;
+        }
+
+        let total = previous_pages.len();
+        let diag = crate::incremental::IncrementalTypesetDiagnostics {
+            total_pages: total,
+            first_affected_page: page_idx,
+            recomputed_pages: 1,
+            reused_pages: total.saturating_sub(1),
+            recomputed_paragraphs: 1,
+            reused_paragraphs: total_paras.saturating_sub(1),
+            zero_cascade: true,
+            converged_at_page: Some(page_idx),
+            duration: start_time.elapsed(),
+        };
+        Some((page_idx, page, diag))
+    }
+
+    /// Arc-shared variant of [`Self::typeset_document_incremental`] that avoids deep-cloning
+    /// unchanged pages on zero-cascade edits.
+    pub fn typeset_document_incremental_arcs(
+        &self,
+        doc: &DocumentRoot,
+        previous_pages: &[std::sync::Arc<PageLayoutBox>],
+        modified_node_id: Option<tok_core::id::NodeId>,
+    ) -> (
+        Vec<std::sync::Arc<PageLayoutBox>>,
+        crate::incremental::IncrementalTypesetDiagnostics,
+    ) {
+        let start_time = std::time::Instant::now();
+        if previous_pages.is_empty() {
+            let pages = self
+                .typeset_document(doc)
+                .into_iter()
+                .map(std::sync::Arc::new)
+                .collect::<Vec<_>>();
+            let total = pages.len();
+            let total_paras: usize = doc
+                .sections
+                .iter()
+                .flat_map(|s| &s.flows)
+                .map(|f| f.paragraphs.len())
+                .sum();
+            let diag = crate::incremental::IncrementalTypesetDiagnostics {
+                total_pages: total,
+                first_affected_page: 0,
+                recomputed_pages: total,
+                reused_pages: 0,
+                recomputed_paragraphs: total_paras,
+                reused_paragraphs: 0,
+                zero_cascade: false,
+                converged_at_page: None,
+                duration: start_time.elapsed(),
+            };
+            return (pages, diag);
+        }
+
+        let content = self.content_rect_for_side(SpreadSide::Recto);
+        if let Some(target_id) = modified_node_id {
+            if let Some((page_idx, updated_page, diag)) = self
+                .try_zero_cascade_single_paragraph_core(
+                    doc,
+                    previous_pages,
+                    target_id,
+                    content.width,
+                    start_time,
+                )
+            {
+                let mut new_pages = previous_pages.to_vec();
+                new_pages[page_idx] = std::sync::Arc::new(updated_page);
+                return (new_pages, diag);
+            }
+        }
+
+        let prev_owned: Vec<PageLayoutBox> =
+            previous_pages.iter().map(|p| (**p).clone()).collect();
+        let (pages, diag) =
+            self.typeset_document_incremental(doc, &prev_owned, modified_node_id);
+        (
+            pages.into_iter().map(std::sync::Arc::new).collect(),
+            diag,
+        )
+    }
+
     pub fn typeset_document_incremental(
         &self,
         doc: &DocumentRoot,
@@ -2089,6 +2319,24 @@ impl TypesettingEngine {
         let content = self.content_rect_for_side(SpreadSide::Recto);
         let content_width = content.width;
         let content_height = content.height;
+
+        // Early Zero-Cascade Fast Path: when a single modified paragraph is specified,
+        // shape only that paragraph before touching the full-document cache or page breaker.
+        if let Some(target_id) = modified_node_id {
+            if let Some((page_idx, updated_page, diag)) = self
+                .try_zero_cascade_single_paragraph_core(
+                    doc,
+                    previous_pages,
+                    target_id,
+                    content_width,
+                    start_time,
+                )
+            {
+                let mut new_pages = previous_pages.to_vec();
+                new_pages[page_idx] = updated_page;
+                return (new_pages, diag);
+            }
+        }
         let flow_id = doc
             .sections
             .first()
@@ -2159,52 +2407,8 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
-                    let base_style = doc.paragraph_styles.iter().find(|s| s.id == p.style_id);
-                    let resolved_style = p.effective_style(&doc.paragraph_styles);
-                    let (font_family, font_size, line_height) = if base_style.is_some()
-                        || !p.style_patches.is_empty()
-                    {
-                        (
-                            self.font_manager
-                                .face_for(&resolved_style.font_family, resolved_style.font_weight),
-                            resolved_style.font_size_pt,
-                            resolved_style.line_height_pt,
-                        )
-                    } else {
-                        (
-                            DEFAULT_FONT_FAMILY.to_string(),
-                            DEFAULT_FONT_SIZE_PT,
-                            DEFAULT_LINE_HEIGHT_PT,
-                        )
-                    };
-                    let lines = if resolved_style
-                        .drop_cap
-                        .as_ref()
-                        .is_some_and(|dc| dc.enabled)
-                    {
-                        let profile = MeasureProfile::uniform(content_width);
-                        self.typeset_paragraph_shaped_with_style(
-                            p,
-                            Some(&resolved_style),
-                            &font_family,
-                            &profile,
-                            font_size,
-                            line_height,
-                        )
-                    } else {
-                        let session = sessions
-                            .entry(font_family.clone())
-                            .or_insert_with(|| self.font_manager.session(&font_family));
-                        let profile = MeasureProfile::uniform(content_width);
-                        Self::typeset_with_session_shaped_opts(
-                            session,
-                            p,
-                            Some(&resolved_style),
-                            &profile,
-                            font_size,
-                            line_height,
-                        )
-                    };
+                    let lines =
+                        self.shape_paragraph_with_sessions(doc, p, content_width, sessions);
                     (idx, key.clone(), lines)
                 },
             )

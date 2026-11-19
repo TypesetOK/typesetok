@@ -10,6 +10,7 @@ use crate::io::write_atomic;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use tok_core::id::NodeId;
 use tok_core::model::{DocumentModel, DocumentRoot};
@@ -90,17 +91,31 @@ fn is_single_section_multi_flow(doc: &DocumentRoot) -> bool {
         .iter()
         .filter(|f| f.flow_type != tok_core::model::FlowType::Footnote)
         .count();
+    if non_fn_flows > 1 {
+        return true;
+    }
     let col_req = sec.column_count.unwrap_or(1).clamp(1, 6);
+    if col_req > 1 || sec.flows.len() <= 1 {
+        return false;
+    }
     let has_span_all = sec
         .main_flow()
         .or_else(|| sec.flows.first())
         .is_some_and(|f| {
             f.paragraphs.iter().any(|p| {
-                p.effective_style(&doc.paragraph_styles).column_span
-                    == tok_core::styles::ColumnSpanMode::SpanAllColumns
+                p.style_patches
+                    .last()
+                    .and_then(|patch| patch.column_span)
+                    .or_else(|| {
+                        doc.paragraph_styles
+                            .iter()
+                            .find(|s| s.id == p.style_id)
+                            .map(|s| s.column_span)
+                    })
+                    == Some(tok_core::styles::ColumnSpanMode::SpanAllColumns)
             })
         });
-    non_fn_flows > 1 || (col_req <= 1 && !has_span_all && sec.flows.len() > 1)
+    !has_span_all
 }
 
 /// Output returned by [`WorkspaceSession::typeset_document`].
@@ -121,7 +136,7 @@ pub struct WorkspaceSession {
     fonts_dir_fingerprint: Option<FontsDirFingerprint>,
     engine: TypesettingEngine,
     plugin_host: PluginHost,
-    last_pages: Vec<PageLayoutBox>,
+    last_pages: Vec<Arc<PageLayoutBox>>,
     last_document_id: Option<NodeId>,
 }
 
@@ -160,8 +175,12 @@ impl WorkspaceSession {
         &self.manifest
     }
 
-    pub fn last_pages(&self) -> &[PageLayoutBox] {
+    pub fn last_pages(&self) -> &[Arc<PageLayoutBox>] {
         &self.last_pages
+    }
+
+    fn last_pages_owned(&self) -> Vec<PageLayoutBox> {
+        self.last_pages.iter().map(|p| (**p).clone()).collect()
     }
 
     pub fn font_manager(&self) -> &FontManager {
@@ -251,7 +270,7 @@ impl WorkspaceSession {
         self.document = Some(DocumentModel::new(root.clone()));
         self.manifest = manifest;
         self.last_document_id = Some(root.id);
-        self.last_pages = pages.clone();
+        self.last_pages = pages.iter().cloned().map(Arc::new).collect();
 
         TypesetOutput { pages, preflight }
     }
@@ -261,32 +280,47 @@ impl WorkspaceSession {
         &mut self,
         root: &DocumentRoot,
         modified_node_id: Option<NodeId>,
-    ) -> (Vec<PageLayoutBox>, IncrementalTypesetDiagnostics) {
+    ) -> (Vec<Arc<PageLayoutBox>>, IncrementalTypesetDiagnostics) {
+        self.typeset_incremental_owned(root.clone(), modified_node_id)
+    }
+
+    /// Incrementally typesets an owned `root` without cloning the entire document tree.
+    pub fn typeset_incremental_owned(
+        &mut self,
+        root: DocumentRoot,
+        modified_node_id: Option<NodeId>,
+    ) -> (Vec<Arc<PageLayoutBox>>, IncrementalTypesetDiagnostics) {
         if self.last_document_id != Some(root.id) {
             self.engine.clear_cache();
             self.last_pages.clear();
         }
 
-        let config = TypesettingEngineConfig::from_document_root(root);
+        let config = TypesettingEngineConfig::from_document_root(&root);
         if self.engine.config() != &config {
             self.engine.set_config(config);
             self.last_pages.clear();
         }
 
-        let (pages, diag) = if is_single_section_multi_flow(root) {
-            self.engine.typeset_document_multi_flow_incremental(
-                root,
+        let (pages, diag) = if is_single_section_multi_flow(&root) {
+            let prev_owned = self.last_pages_owned();
+            let (p, d) = self.engine.typeset_document_multi_flow_incremental(
+                &root,
+                &prev_owned,
+                modified_node_id,
+            );
+            (p.into_iter().map(Arc::new).collect(), d)
+        } else {
+            self.engine.typeset_document_incremental_arcs(
+                &root,
                 &self.last_pages,
                 modified_node_id,
             )
-        } else {
-            self.engine
-                .typeset_document_incremental(root, &self.last_pages, modified_node_id)
         };
 
-        self.document = Some(DocumentModel::new(root.clone()));
-        self.manifest = manifest_for_root(root);
-        self.last_document_id = Some(root.id);
+        let root_id = root.id;
+        self.manifest = manifest_for_root(&root);
+        self.document = Some(DocumentModel::new(root));
+        self.last_document_id = Some(root_id);
         self.last_pages = pages.clone();
 
         (pages, diag)
@@ -378,7 +412,12 @@ impl WorkspaceSession {
         if self.last_pages.is_empty() || self.last_document_id != Some(doc_root.id) {
             let config = TypesettingEngineConfig::from_document_root(&doc_root);
             self.engine.set_config(config);
-            self.last_pages = self.engine.typeset_document(&doc_root);
+            self.last_pages = self
+                .engine
+                .typeset_document(&doc_root)
+                .into_iter()
+                .map(Arc::new)
+                .collect();
             self.last_document_id = Some(doc_root.id);
         }
 
@@ -484,9 +523,10 @@ impl WorkspaceSession {
             self.sync_fonts_and_assets(fonts_dir, assets_from, None);
         }
         let doc_root = self.ensure_active_layout()?;
+        let pages = self.last_pages_owned();
         Ok(evaluate_preflight(
             &doc_root,
-            &self.last_pages,
+            &pages,
             &self.engine.font_manager,
             self.assets_package.as_ref(),
             req,
@@ -499,11 +539,12 @@ impl WorkspaceSession {
         req: &PdfRenderRequest,
     ) -> Result<Vec<u8>, EngineServiceError> {
         let doc_root = self.ensure_active_layout()?;
+        let pages = self.last_pages_owned();
 
         render_pdf_bytes(
             &doc_root,
             &self.manifest,
-            &self.last_pages,
+            &pages,
             &self.engine.font_manager,
             self.assets_package.as_ref(),
             req,
@@ -513,7 +554,8 @@ impl WorkspaceSession {
     /// Typesets (if needed) and exports the active document to pre-paginated HTML.
     pub fn render_active_html(&mut self) -> Result<String, EngineServiceError> {
         let _ = self.ensure_active_layout()?;
-        Ok(render_html_string(&self.last_pages))
+        let pages = self.last_pages_owned();
+        Ok(render_html_string(&pages))
     }
 
     /// Runs built-in Rust typographic plugins against the active session document.

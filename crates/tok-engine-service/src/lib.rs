@@ -290,4 +290,46 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    #[ignore = "Gate 1 300-page incremental typesetting benchmark (run with --release -- --ignored --nocapture)"]
+    fn bench_300_page_incremental_typeset_latency() {
+        use std::time::Instant;
+
+        // ~8,100 Hebrew Mishnah/Gemara paragraphs -> ~300 pages
+        let model = create_sample_hebrew_document(8100);
+        let mut root = model.root().clone();
+        let mut session = WorkspaceSession::new();
+
+        let t_cold = Instant::now();
+        let cold = session.typeset_document(&root, false);
+        let cold_ms = t_cold.elapsed().as_secs_f64() * 1000.0;
+        let page_count = cold.pages.len();
+        assert!(page_count >= 250, "expected >= 250 pages, got {page_count}");
+
+        // Edit 1 paragraph in the middle (same-length character tweak, typical live typing)
+        let mid_idx = root.sections[0].main_flow().unwrap().paragraphs.len() / 2;
+        let mid_id = {
+            let flow = root.sections[0].main_flow_mut().unwrap();
+            let p = &mut flow.paragraphs[mid_idx];
+            p.text.push_str(" וְכֵן הֲלָכָה.");
+            p.id
+        };
+
+        let t_inc = Instant::now();
+        let (inc_pages, diag) = session.typeset_incremental_owned(root, Some(mid_id));
+        let inc_ms = t_inc.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(inc_pages.len(), page_count);
+
+        println!(
+            "[GATE1-BENCH] pages={} cold_ms={:.2} incremental_ms={:.2} engine_ms={:.2} reused_pages={} recomputed_pages={} cache_hits={}",
+            page_count,
+            cold_ms,
+            inc_ms,
+            diag.duration.as_secs_f64() * 1000.0,
+            diag.reused_pages,
+            diag.recomputed_pages,
+            session.cache_metrics().hits
+        );
+    }
 }
