@@ -45,6 +45,20 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
           "he": "דחיסת מתקין מהירה כפליים (zip) וניקוי תלויות מיותרות",
           "en": "~2x faster installer compression (zip) and cleanup of unused dependencies"
         }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "ניתוק שכבת הממשק מ-Electron מאחורי שכבת TokHostBridge והעברת העדפות משתמש ופרויקטים אחרונים לקובץ settings.json אטומי עם מיגרציה אוטומטית מ-localStorage",
+          "en": "Decouple UI layer from Electron behind TokHostBridge and persist user settings and recent projects atomically to settings.json with automatic localStorage migration"
+        }
+      },
+      {
+        "category": "performance",
+        "text": {
+          "he": "חילוץ שירות המנוע המשותף tok-engine-service עם WorkspaceSession מתמיד השומר מטמון פסקאות וגופנים בזיכרון בין בקשות עובד העימוד",
+          "en": "Extract shared tok-engine-service crate with persistent WorkspaceSession reusing paragraph layout cache and loaded fonts across live worker typeset requests"
+        }
       }
     ],
     "highlights": [],

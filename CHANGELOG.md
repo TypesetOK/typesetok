@@ -16,6 +16,8 @@
 - [fixes] עברית: עיצוב ריצות טקסט עם הגופן המשויך להן, תיקון ספירת שורות בעימוד משולב, שמירת שחזור טיוטה לדיסק ותיקון גלישת רשימת הקדם-דפוס בחלונית הייצוא | en: Shape text runs with their tagged font, fix co-pagination line counts, persist draft recovery snapshots to disk, and fix export preflight list overflow
 - [fixes] עברית: אכיפת אימות תעודות TLS ו-HTTPS במנגנון העדכון, הגבלת גישת קבצים ב-IPC לנתיבים מורשים וכתיבה אטומית בקבצים | en: Enforce TLS verification and HTTPS in the updater, confine IPC file access to authorized paths, and use atomic temp-file writes
 - [improvements] עברית: דחיסת מתקין מהירה כפליים (zip) וניקוי תלויות מיותרות | en: ~2x faster installer compression (zip) and cleanup of unused dependencies
+- [improvements] עברית: ניתוק שכבת הממשק מ-Electron מאחורי שכבת TokHostBridge והעברת העדפות משתמש ופרויקטים אחרונים לקובץ settings.json אטומי עם מיגרציה אוטומטית מ-localStorage | en: Decouple UI layer from Electron behind TokHostBridge and persist user settings and recent projects atomically to settings.json with automatic localStorage migration
+- [performance] עברית: חילוץ שירות המנוע המשותף tok-engine-service עם WorkspaceSession מתמיד השומר מטמון פסקאות וגופנים בזיכרון בין בקשות עובד העימוד | en: Extract shared tok-engine-service crate with persistent WorkspaceSession reusing paragraph layout cache and loaded fonts across live worker typeset requests
 
 ---
 
