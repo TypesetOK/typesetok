@@ -9,6 +9,7 @@ members = [
     "crates/tok-plugin-host",
     "crates/tok-engine-service",
     "crates/tok-cli",
+    "crates/tok-desktop",
 ]
 
 [workspace.package]

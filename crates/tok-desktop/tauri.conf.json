@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TypesetOK",
+  "version": "0.36.6",
+  "identifier": "com.typesetok.app",
+  "build": {
+    "frontendDist": "../../packages/tok-ui/dist-tauri"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
+        "font-src": "'self' data: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost https://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "../../assets/icon.ico",
+      "../../assets/icon.png"
+    ]
+  }
+}
