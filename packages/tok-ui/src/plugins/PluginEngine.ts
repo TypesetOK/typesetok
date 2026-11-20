@@ -118,6 +118,8 @@ export class PluginEngine {
   private commandsByPlugin = new Map<string, Map<string, PluginCommand>>();
   /** Disposables per plugin */
   private subscriptionsByPlugin = new Map<string, Disposable[]>();
+  /** Isolated WebWorkers per plugin (browser/WebView2 runtime) */
+  private workersByPlugin = new Map<string, { worker: Worker; blobUrl: string }>();
 
   // System & Environment Status
   private isSafeMode = false;
@@ -500,7 +502,16 @@ export class PluginEngine {
     this.activated.add(p.id);
     const ctx = this.createContext(p);
 
-    // Network sandbox guard
+    if (
+      typeof Worker !== 'undefined' &&
+      typeof Blob !== 'undefined' &&
+      typeof URL !== 'undefined' &&
+      typeof URL.createObjectURL === 'function'
+    ) {
+      return this.activatePluginInWorker(p, ctx);
+    }
+
+    // Network sandbox guard (Node.js / non-Worker fallback)
     const allowNetwork = this.hasPermission(p, 'network:fetch') && !this.isSaferActive;
     const rawGlobal = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? (globalThis as any) : {});
     const sandboxedFetch = allowNetwork
@@ -672,6 +683,264 @@ export class PluginEngine {
     }
   }
 
+  private buildWorkerBootstrap(p: PluginItem, ctx: TokPluginContext, allowNetwork: boolean): string {
+    const initialSnapshot = JSON.stringify({
+      manifest: ctx.manifest,
+      env: ctx.env,
+      story: this.delegate?.getStory ? this.delegate.getStory() : [],
+      selectedText: this.delegate?.getSelectedText ? this.delegate.getSelectedText() : '',
+      documentTitle: this.delegate?.getDocumentTitle ? this.delegate.getDocumentTitle() : '',
+      stats: ctx.document.getStats(),
+      viewMode: ctx.ui.getViewMode(),
+      theme: ctx.ui.getTheme(),
+      language: ctx.ui.getLanguage(),
+      pageCount: ctx.canvas.getPageCount(),
+      activePageIndex: ctx.canvas.getActivePageIndex(),
+      zoom: ctx.canvas.getZoom(),
+    });
+    const permsJson = JSON.stringify(p.permissions ?? []);
+    const pluginCode = p.compiledCode ?? '';
+
+    return `
+"use strict";
+(function () {
+  const _allowNetwork = ${allowNetwork ? 'true' : 'false'};
+  if (!_allowNetwork) {
+    const blockedNet = function () {
+      throw new Error("[TOK-SECURITY] Network access blocked in plugin worker.");
+    };
+    try { Object.defineProperty(self, 'fetch', { value: blockedNet, configurable: false }); } catch (_) {}
+    try { Object.defineProperty(self, 'XMLHttpRequest', { value: undefined, configurable: false }); } catch (_) {}
+    try { Object.defineProperty(self, 'WebSocket', { value: undefined, configurable: false }); } catch (_) {}
+  }
+  try { Object.defineProperty(self, 'importScripts', { value: undefined, configurable: false }); } catch (_) {}
+
+  let _snap = ${initialSnapshot};
+  const _perms = new Set(${permsJson});
+  const _hasPerm = (perm) => _perms.size === 0 ? perm !== 'network:fetch' : _perms.has(perm);
+  const _assertPerm = (perm, action) => {
+    if (!_hasPerm(perm)) {
+      throw new Error("[TOK-SECURITY] Permission denied: requires '" + perm + "' to " + action);
+    }
+  };
+
+  const _commands = new Map();
+  const _deactivates = [];
+  const _post = (type, payload) => self.postMessage({ type, payload });
+
+  const tok = {
+    manifest: _snap.manifest,
+    env: _snap.env,
+    subscriptions: [],
+    hebrew: {
+      stripNiqqud: (t) => String(t || '').replace(/[\\u0591-\\u05C7]/g, ''),
+      stripCantillation: (t) => String(t || '').replace(/[\\u0591-\\u05AF]/g, ''),
+    },
+    showToast: (msg, isError) => {
+      _assertPerm('ui:notifications', 'display toasts');
+      _post('showToast', { msg: String(msg), isError: Boolean(isError) });
+    },
+    registerCommand: (cmd) => {
+      _assertPerm('ui:commands', 'register commands');
+      if (!cmd || typeof cmd.id !== 'string' || typeof cmd.action !== 'function') {
+        return { dispose: () => {} };
+      }
+      _commands.set(cmd.id, cmd.action);
+      _post('registerCommand', {
+        id: cmd.id,
+        title: cmd.title || cmd.id,
+        category: cmd.category,
+        shortcut: cmd.shortcut,
+      });
+      return {
+        dispose: () => {
+          _commands.delete(cmd.id);
+          _post('unregisterCommand', { id: cmd.id });
+        },
+      };
+    },
+    onDeactivate: (fn) => {
+      if (typeof fn === 'function') _deactivates.push(fn);
+    },
+    document: {
+      getStory: () => { _assertPerm('document:read', 'read story'); return JSON.parse(JSON.stringify(_snap.story || [])); },
+      loadStory: (paragraphs) => { _assertPerm('document:write', 'modify story'); _snap.story = paragraphs; _post('loadStory', { paragraphs }); },
+      getParagraph: (id) => { _assertPerm('document:read', 'get paragraph'); return (_snap.story || []).find((x) => x.id === id); },
+      updateParagraph: (id, text, styleId) => {
+        _assertPerm('document:write', 'update paragraph');
+        const t = (_snap.story || []).find((x) => x.id === id);
+        if (!t) return false;
+        t.text = text;
+        if (styleId !== undefined) t.styleId = styleId;
+        _post('loadStory', { paragraphs: _snap.story });
+        return true;
+      },
+      insertParagraph: (index, text, styleId) => {
+        _assertPerm('document:write', 'insert paragraph');
+        const newId = 'para-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        const arr = _snap.story || [];
+        arr.splice(Math.max(0, Math.min(arr.length, index)), 0, { id: newId, text, styleId: styleId || '' });
+        _snap.story = arr;
+        _post('loadStory', { paragraphs: arr });
+        return newId;
+      },
+      deleteParagraph: (id) => {
+        _assertPerm('document:write', 'delete paragraph');
+        const arr = _snap.story || [];
+        const next = arr.filter((x) => x.id !== id);
+        if (next.length === arr.length) return false;
+        _snap.story = next;
+        _post('loadStory', { paragraphs: next });
+        return true;
+      },
+      getSelectedText: () => { _assertPerm('document:read', 'get selected text'); return _snap.selectedText || ''; },
+      replaceSelection: (text) => { _assertPerm('document:write', 'replace selection'); _post('replaceSelection', { text: String(text) }); },
+      getDocumentTitle: () => _snap.documentTitle || '',
+      getStats: () => _snap.stats || { wordCount: 0, charCount: 0, paragraphCount: 0 },
+      batch: (fn) => { _assertPerm('document:write', 'run batch'); fn(); },
+      transformText: (fn) => {
+        _assertPerm('document:write', 'transform text');
+        _snap.story = (_snap.story || []).map((p) => Object.assign({}, p, { text: fn(p.text, p) }));
+        _post('loadStory', { paragraphs: _snap.story });
+      },
+    },
+    ui: {
+      registerCommand: (cmd) => tok.registerCommand(cmd),
+      showToast: (msg, isError) => tok.showToast(msg, isError),
+      getViewMode: () => _snap.viewMode || 'canvas',
+      setViewMode: (mode) => _post('setViewMode', { mode }),
+      getTheme: () => _snap.theme || 'classic-blue',
+      getLanguage: () => _snap.language || 'he',
+      openModal: () => ({ dispose: () => {} }),
+    },
+    canvas: {
+      getPageCount: () => _snap.pageCount || 1,
+      getActivePageIndex: () => _snap.activePageIndex || 0,
+      scrollToPage: (index) => { _assertPerm('canvas:navigate', 'navigate pages'); _post('scrollToPage', { index }); },
+      getZoom: () => _snap.zoom || 100,
+      setZoom: (percent) => { _assertPerm('canvas:navigate', 'set zoom'); _post('setZoom', { percent }); },
+      toggleMarginsGuide: () => { _assertPerm('canvas:navigate', 'toggle margins'); _post('toggleMarginsGuide', {}); },
+      toggleBaselineGuide: () => { _assertPerm('canvas:navigate', 'toggle baseline'); _post('toggleBaselineGuide', {}); },
+    },
+    events: { on: () => ({ dispose: () => {} }) },
+  };
+
+  self.addEventListener('message', async (ev) => {
+    const msg = ev.data || {};
+    if (msg.type === 'invoke-command') {
+      if (msg.snapshot) _snap = Object.assign({}, _snap, msg.snapshot);
+      const fn = _commands.get(msg.commandId);
+      if (typeof fn === 'function') {
+        try {
+          await fn();
+        } catch (err) {
+          _post('error', { message: err && err.message ? err.message : String(err) });
+        }
+      }
+    } else if (msg.type === 'deactivate') {
+      for (const fn of _deactivates) {
+        try { fn(); } catch (_) {}
+      }
+    }
+  });
+
+  try {
+    const module = { exports: {} };
+    const exports = module.exports;
+    ${pluginCode}
+    if (typeof activate === 'function') {
+      activate(tok);
+    } else if (module.exports && typeof module.exports.activate === 'function') {
+      module.exports.activate(tok);
+    }
+    _post('ready', {});
+  } catch (err) {
+    _post('error', { message: err && err.message ? err.message : String(err) });
+  }
+})();
+`;
+  }
+
+  private activatePluginInWorker(p: PluginItem, ctx: TokPluginContext): boolean {
+    const allowNetwork = this.hasPermission(p, 'network:fetch') && !this.isSaferActive;
+    const script = this.buildWorkerBootstrap(p, ctx, allowNetwork);
+    const blob = new Blob([script], { type: 'application/javascript' });
+    const blobUrl = URL.createObjectURL(blob);
+    const worker = new Worker(blobUrl);
+
+    worker.onmessage = (ev: MessageEvent) => {
+      const msg = ev.data || {};
+      const payload = msg.payload || {};
+      switch (msg.type) {
+        case 'registerCommand':
+          ctx.ui.registerCommand({
+            id: payload.id,
+            title: payload.title,
+            category: payload.category,
+            shortcut: payload.shortcut,
+            action: () => {
+              worker.postMessage({
+                type: 'invoke-command',
+                commandId: payload.id,
+                snapshot: {
+                  story: this.delegate?.getStory ? this.delegate.getStory() : [],
+                  selectedText: this.delegate?.getSelectedText ? this.delegate.getSelectedText() : '',
+                  documentTitle: this.delegate?.getDocumentTitle ? this.delegate.getDocumentTitle() : '',
+                  stats: ctx.document.getStats(),
+                  viewMode: ctx.ui.getViewMode(),
+                  pageCount: ctx.canvas.getPageCount(),
+                  activePageIndex: ctx.canvas.getActivePageIndex(),
+                  zoom: ctx.canvas.getZoom(),
+                },
+              });
+            },
+          });
+          break;
+        case 'unregisterCommand':
+          this.onCommandUnregistered?.(payload.id);
+          break;
+        case 'showToast':
+          ctx.ui.showToast(payload.msg, payload.isError);
+          break;
+        case 'loadStory':
+          ctx.document.loadStory(payload.paragraphs);
+          break;
+        case 'replaceSelection':
+          ctx.document.replaceSelection(payload.text);
+          break;
+        case 'setViewMode':
+          ctx.ui.setViewMode(payload.mode);
+          break;
+        case 'scrollToPage':
+          ctx.canvas.scrollToPage(payload.index);
+          break;
+        case 'setZoom':
+          ctx.canvas.setZoom(payload.percent);
+          break;
+        case 'toggleMarginsGuide':
+          ctx.canvas.toggleMarginsGuide();
+          break;
+        case 'toggleBaselineGuide':
+          ctx.canvas.toggleBaselineGuide();
+          break;
+        case 'error':
+          console.error(`[PLUGIN-WORKER] ${p.name}:`, payload.message);
+          p.error = payload.message;
+          break;
+      }
+    };
+
+    worker.onerror = (err: ErrorEvent) => {
+      console.error(`[PLUGIN-WORKER] Uncaught error in ${p.name}:`, err.message);
+      p.error = err.message;
+      this.deactivatePlugin(p.id);
+    };
+
+    this.workersByPlugin.set(p.id, { worker, blobUrl });
+    console.log(`[PLUGIN-ENGINE] Activated plugin in isolated WebWorker: ${p.name}`);
+    return true;
+  }
+
   /**
    * Completely tears down an active plugin:
    * - Runs its custom cleanup callbacks and `deactivate()`
@@ -715,6 +984,23 @@ export class PluginEngine {
         }
       }
       this.commandsByPlugin.delete(pluginId);
+    }
+
+    // 4. Terminate isolated WebWorker if running
+    const workerEntry = this.workersByPlugin.get(pluginId);
+    if (workerEntry) {
+      try {
+        workerEntry.worker.postMessage({ type: 'deactivate' });
+        workerEntry.worker.terminate();
+      } catch (err) {
+        console.warn(`[PLUGIN-ENGINE] Error terminating worker for ${pluginId}:`, err);
+      }
+      try {
+        URL.revokeObjectURL(workerEntry.blobUrl);
+      } catch {
+        // Ignore URL cleanup error
+      }
+      this.workersByPlugin.delete(pluginId);
     }
 
     this.activated.delete(pluginId);

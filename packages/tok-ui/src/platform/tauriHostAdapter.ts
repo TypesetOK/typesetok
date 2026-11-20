@@ -327,10 +327,10 @@ export class TauriHostAdapter implements TokHostBridge {
   }
   public installFont(
     fontPath: string
-  ): Promise<{ success: boolean; path?: string; error?: string; message?: string; report?: any; base64Data?: string }> {
+  ): Promise<{ success: boolean; path?: string; error?: string; message?: string; report?: any; base64Data?: string; assetUrl?: string }> {
     return this.invokeCmd('tok_install_font', { fontPath });
   }
-  public listUserFonts(): Promise<{ fileName: string; path: string; base64Data: string; report?: any }[]> {
+  public listUserFonts(): Promise<{ fileName: string; path: string; base64Data?: string; assetUrl?: string; report?: any }[]> {
     return this.invokeCmd('tok_list_user_fonts');
   }
   public listSystemFonts(): Promise<string[]> {
@@ -425,6 +425,9 @@ export class TauriHostAdapter implements TokHostBridge {
   }
   public quitApp(): Promise<void> {
     return this.invokeCmd('tok_quit_app');
+  }
+  public async setDirty(dirty: boolean): Promise<void> {
+    await this.invokeCmd('tok_set_dirty', { dirty });
   }
   public onOpenFile(callback: (filePath: string) => void): () => void {
     return this.subscribe('tok:open-file', callback);

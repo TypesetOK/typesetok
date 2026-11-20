@@ -243,12 +243,17 @@ export class TypesetOkApp {
         const family = item?.report?.family_name;
         if (!family || typeof family !== 'string') continue;
         registerFontFamily(family);
-        if (item.base64Data && typeof document !== 'undefined') {
+        const fontSrc = item.assetUrl
+          ? `url('${item.assetUrl.replace(/'/g, "\\'")}') format('truetype')`
+          : item.base64Data
+            ? `url(data:font/ttf;base64,${item.base64Data}) format('truetype')`
+            : '';
+        if (fontSrc && typeof document !== 'undefined') {
           const styleId = `tok-custom-font-${family.replace(/[^a-z0-9_-]/gi, '_')}`;
           if (!document.getElementById(styleId)) {
             const st = document.createElement('style');
             st.id = styleId;
-            st.textContent = `@font-face { font-family: '${family.replace(/'/g, "\\'")}'; src: url(data:font/ttf;base64,${item.base64Data}) format('truetype'); font-display: swap; }`;
+            st.textContent = `@font-face { font-family: '${family.replace(/'/g, "\\'")}'; src: ${fontSrc}; font-display: swap; }`;
             document.head.appendChild(st);
           }
         }
@@ -3395,6 +3400,10 @@ export class TypesetOkApp {
     this.documentState.isDirty = dirty;
     if (typeof window !== 'undefined') {
       (window as any).__tokIsDirty = dirty;
+    }
+    const host = getHostBridge();
+    if (host.setDirty) {
+      void host.setDirty(dirty).catch(() => {});
     }
     this.topBar?.setDirty(dirty);
     const cleanTitle = (this.documentTitle || 'TypesetOK').replace(/\.tok$/i, '');

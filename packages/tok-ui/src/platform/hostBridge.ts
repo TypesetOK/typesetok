@@ -101,8 +101,8 @@ export interface TokHostMethods {
   inspectFont: (fontPath: string) => Promise<{ valid: boolean; error?: string; message?: string; report?: any }>;
   installFont: (
     fontPath: string
-  ) => Promise<{ success: boolean; path?: string; error?: string; message?: string; report?: any; base64Data?: string }>;
-  listUserFonts: () => Promise<{ fileName: string; path: string; base64Data: string; report?: any }[]>;
+  ) => Promise<{ success: boolean; path?: string; error?: string; message?: string; report?: any; base64Data?: string; assetUrl?: string }>;
+  listUserFonts: () => Promise<{ fileName: string; path: string; base64Data?: string; assetUrl?: string; report?: any }[]>;
   listSystemFonts?: () => Promise<string[]>;
 
   // Heading & Outline Numbering
@@ -155,6 +155,7 @@ export interface TokHostMethods {
   maximizeWindow: () => Promise<{ success: boolean; isMaximized: boolean }>;
   isMaximized: () => Promise<{ isMaximized: boolean }>;
   quitApp: () => Promise<void>;
+  setDirty?: (dirty: boolean) => Promise<void>;
   onOpenFile: (callback: (filePath: string) => void) => () => void;
 
   // Host-backed Persistent Settings

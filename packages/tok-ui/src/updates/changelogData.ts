@@ -66,6 +66,13 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
           "he": "הוספת מתאם TauriHostAdapter בשכבת הממשק, בונה dist-tauri מותאם לנכסים ו-CSP, אזור גרירת חלון data-tauri-drag-region, ממשקי שירות רב-נימיים ב-tok-engine-service והרחבת מדידות הפתיחה של Gate 1",
           "en": "Add TauriHostAdapter frontend bridge, asset/CSP dist-tauri bundler, data-tauri-drag-region window drag support, thread-safe tok-engine-service desktop facades, and Gate 1 A/B startup harness support"
         }
+      },
+      {
+        "category": "performance",
+        "text": {
+          "he": "אופטימיזציית עימוד אינקרמנטלי (נתיב Zero-Cascade מוקדם, שיתוף עמודים ב-Arc, קיצור דרך ב-is_single_section_multi_flow ו-typeset_incremental_owned) המקצרת עריכת פסקה בודדת במסמך בן 300 עמודים מ-329.9ms ל-6.9ms",
+          "en": "Optimize incremental typesetting (early Zero-Cascade fast path, Arc-shared page reuse, is_single_section_multi_flow short-circuit, and typeset_incremental_owned), cutting 300-page single-paragraph edit latency from 329.9ms to 6.9ms"
+        }
       }
     ],
     "highlights": [],
