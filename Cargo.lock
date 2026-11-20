@@ -4566,7 +4566,6 @@ version = "0.36.6"
 dependencies = [
  "serde",
  "serde_json",
- "sha2 0.11.1",
  "thiserror 1.0.69",
  "tok-core",
  "tok-pdf",

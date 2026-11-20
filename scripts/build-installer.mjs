@@ -10,15 +10,22 @@ const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), '
 const version = rootPkg.version || '0.35.0';
 const distDir = path.join(rootDir, 'dist');
 const bundleDir = path.join(distDir, `TypesetOK-v${version}-windows-x64`);
+const useTauri = process.argv.includes('--tauri') || process.env.TOK_RUNTIME === 'tauri';
+const buildOffline = process.argv.includes('--offline');
+const buildDual = process.argv.includes('--dual');
+const rebuildBundle = process.argv.includes('--rebuild');
 
 console.log('====================================================');
-console.log(' TypesetOK Modern Windows Installer Builder');
+console.log(` TypesetOK Modern Windows Installer Builder (${useTauri ? 'Tauri v2' : 'Electron'})`);
 console.log('====================================================');
 
-// 1. Check if desktop bundle exists
-if (!fs.existsSync(bundleDir)) {
-  console.log('[BUILD-INSTALLER] Desktop bundle not found. Building desktop bundle first...');
-  execSync('node scripts/build-desktop-bundle.mjs', { cwd: rootDir, stdio: 'inherit' });
+// 1. Build or reuse desktop bundle
+if (rebuildBundle || useTauri || !fs.existsSync(bundleDir)) {
+  console.log('[BUILD-INSTALLER] Building desktop bundle...');
+  execSync(`node scripts/build-desktop-bundle.mjs${useTauri ? ' --tauri' : ''}`, {
+    cwd: rootDir,
+    stdio: 'inherit'
+  });
 }
 
 // 2. Ensure modern installer graphics exist
@@ -100,14 +107,49 @@ if (!foundIscc) {
 }
 
 if (foundIscc) {
+  const runtimeMode = useTauri ? 'tauri' : 'electron';
   console.log(`[BUILD-INSTALLER] Compiling with Inno Setup 6: ${foundIscc}`);
+  console.log(`[BUILD-INSTALLER] Runtime Mode: ${runtimeMode}`);
   console.log(`[BUILD-INSTALLER] Visual Theme: Windows 11 Fluent Dynamic Mode (No retro bevels)`);
   console.log(`[BUILD-INSTALLER] Components: Core App, System Hebrew Fonts, Layout Templates`);
   console.log(`[BUILD-INSTALLER] File Associations: .tok (Document)`);
-  
+
   const issFile = path.join(rootDir, 'scripts/installer.iss');
-  execSync(`"${foundIscc}" "/DMyAppVersion=${version}" "${issFile}"`, { cwd: rootDir, stdio: 'inherit' });
-  console.log(`[BUILD-INSTALLER] SUCCESS! Installer created in dist/TypesetOK-v${version}-Setup-x64.exe`);
+  const webview2Candidates = [
+    process.env.WEBVIEW2_INSTALLER_PATH,
+    path.join(rootDir, 'assets/redist/MicrosoftEdgeWebView2RuntimeInstallerX64.exe'),
+    path.join(distDir, 'redist/MicrosoftEdgeWebView2RuntimeInstallerX64.exe'),
+  ].filter(Boolean);
+  const foundWebView2 = webview2Candidates.find((p) => fs.existsSync(p));
+
+  const runStandard = !buildOffline || buildDual;
+  const runOffline = buildOffline || buildDual;
+
+  if (runStandard) {
+    execSync(
+      `"${foundIscc}" "/DMyAppVersion=${version}" "/DRuntimeMode=${runtimeMode}" "/DOfflineWebView2=0" "${issFile}"`,
+      { cwd: rootDir, stdio: 'inherit' }
+    );
+    console.log(`[BUILD-INSTALLER] SUCCESS! Standard installer created in dist/TypesetOK-v${version}-Setup-x64.exe`);
+  }
+
+  if (runOffline) {
+    if (!foundWebView2) {
+      const msg = 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe not found (checked WEBVIEW2_INSTALLER_PATH, assets/redist/, dist/redist/).';
+      if (buildOffline) {
+        console.error(`[BUILD-INSTALLER] Error: ${msg}`);
+        process.exit(1);
+      } else {
+        console.warn(`[BUILD-INSTALLER] Skipping offline installer: ${msg}`);
+      }
+    } else {
+      execSync(
+        `"${foundIscc}" "/DMyAppVersion=${version}" "/DRuntimeMode=${runtimeMode}" "/DOfflineWebView2=1" "/DWebView2InstallerPath=${foundWebView2}" "${issFile}"`,
+        { cwd: rootDir, stdio: 'inherit' }
+      );
+      console.log(`[BUILD-INSTALLER] SUCCESS! Offline installer created in dist/TypesetOK-v${version}-Setup-Offline-x64.exe`);
+    }
+  }
 } else if (foundNsis) {
   console.log(`[BUILD-INSTALLER] Compiling with NSIS: ${foundNsis}`);
   const nsiFile = path.join(rootDir, 'scripts/installer.nsi');

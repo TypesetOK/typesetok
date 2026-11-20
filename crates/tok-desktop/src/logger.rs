@@ -114,8 +114,7 @@ impl TokLogger {
         let mut lines = Vec::new();
         for path in files.into_iter().rev() {
             if let Ok(content) = fs::read_to_string(&path) {
-                let mut file_lines: Vec<String> =
-                    content.lines().map(|l| l.to_string()).collect();
+                let mut file_lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
                 file_lines.reverse();
                 for line in file_lines {
                     lines.push(line);

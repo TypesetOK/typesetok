@@ -14,11 +14,28 @@
 #define MyAppExeName "TypesetOK.exe"
 #define SourceDir "..\dist\TypesetOK-v" + MyAppVersion + "-windows-x64"
 
-; zip extracts about twice as fast as lzma2; most of the install time is spent
-; unpacking the 168 MB Electron executable. Pass /DCompressionLevel=lzma2 for a
-; smaller (75 MB vs 100 MB) but slower installer.
+; RuntimeMode: "electron" (legacy) or "tauri" (Stage 4+ Tauri v2 shell)
+#ifndef RuntimeMode
+  #define RuntimeMode "electron"
+#endif
+
+; OfflineWebView2: "0" (standard ~10-20 MB installer) or "1" (bundles MicrosoftEdgeWebView2RuntimeInstallerX64.exe)
+#ifndef OfflineWebView2
+  #define OfflineWebView2 "0"
+#endif
+
+#ifndef WebView2InstallerPath
+  #define WebView2InstallerPath "..\assets\redist\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+#endif
+
+; For Tauri (~17 MB binary), lzma2 produces a ~8-10 MB installer quickly.
+; For Electron (168 MB binary), zip extracts about twice as fast as lzma2.
 #ifndef CompressionLevel
-  #define CompressionLevel "zip"
+  #if RuntimeMode == "tauri"
+    #define CompressionLevel "lzma2"
+  #else
+    #define CompressionLevel "zip"
+  #endif
 #endif
 
 [Setup]
@@ -37,7 +54,11 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE.md
 OutputDir=..\dist
-OutputBaseFilename=TypesetOK-v{#MyAppVersion}-Setup-x64
+#if OfflineWebView2 == "1"
+  OutputBaseFilename=TypesetOK-v{#MyAppVersion}-Setup-Offline-x64
+#else
+  OutputBaseFilename=TypesetOK-v{#MyAppVersion}-Setup-x64
+#endif
 Compression={#CompressionLevel}
 SolidCompression=yes
 
@@ -69,6 +90,8 @@ hebrew.CreateTaskbarIcon=צור קיצור דרך בתפריט התחל והצמ
 hebrew.ProjectsDirTitle=בחירת תיקיית פרויקטים
 hebrew.ProjectsDirSubtitle=בחר את התיקייה שבה ייפתחו ויישמרו כל פרויקטי העימוד שלך כברירת מחדל.
 hebrew.ProjectsDirPrompt=תיקיית פרויקטים של TypesetOK:
+hebrew.WebView2MissingMessage=רכיב Microsoft Edge WebView2 Runtime אינו מותקן במחשב זה.%n%nתוכנת TypesetOK זקוקה לרכיב זה כדי לפעול.%nבמחשבים מנותקי אינטרנט מומלץ להשתמש במתקין האופליין המלא (TypesetOK-v{#MyAppVersion}-Setup-Offline-x64.exe).%n%nהאם להמשיך בהתקנה בכל זאת?
+hebrew.InstallingWebView2=מתקין רכיב Microsoft Edge WebView2 Runtime (אופליין)...
 
 ; English translations
 english.LaunchProgram=Launch TypesetOK now
@@ -78,6 +101,8 @@ english.CreateTaskbarIcon=Create Start Menu and Taskbar shortcut
 english.ProjectsDirTitle=Select Projects Directory
 english.ProjectsDirSubtitle=Choose the directory where all your typesetting projects will be saved and opened by default.
 english.ProjectsDirPrompt=TypesetOK Projects Directory:
+english.WebView2MissingMessage=Microsoft Edge WebView2 Runtime is not installed on this computer.%n%nTypesetOK requires this component to run.%nOn offline computers, please use the full Offline Installer (TypesetOK-v{#MyAppVersion}-Setup-Offline-x64.exe).%n%nContinue installation anyway?
+english.InstallingWebView2=Installing Microsoft Edge WebView2 Runtime (offline)...
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:ShortcutsGroup}"; Flags: unchecked
@@ -86,6 +111,11 @@ Name: "taskbaricon"; Description: "{cm:CreateTaskbarIcon}"; GroupDescription: "{
 [Files]
 ; Core application files (always installed)
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+#if OfflineWebView2 == "1"
+; Offline Microsoft Edge WebView2 Evergreen Standalone Installer (runs only if missing)
+Source: "{#WebView2InstallerPath}"; DestDir: "{tmp}"; DestName: "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: deleteafterinstall; Check: NeedsWebView2Install
+#endif
 
 ; All Professional Hebrew Fonts (always installed directly to Windows Fonts)
 Source: "..\assets\fonts\DavidLibre-Regular.ttf"; DestDir: "{autofonts}"; FontInstall: "David Libre"; Flags: onlyifdoesntexist uninsneveruninstall
@@ -109,12 +139,46 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\icon.ico"; Check: DesktopIconCheck
 
 [Run]
+#if OfflineWebView2 == "1"
+Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "{cm:InstallingWebView2}"; Flags: waituntilterminated; Check: NeedsWebView2Install
+#endif
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
   ProjectsDirPage: TInputDirWizardPage;
   IsUpgradeInstall: Boolean;
+
+function IsWebView2Installed: Boolean;
+var
+  Ver: string;
+begin
+  Result := False;
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Ver) and (Ver <> '') then
+    Result := True
+  else if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Ver) and (Ver <> '') then
+    Result := True
+  else if RegQueryStringValue(HKEY_CURRENT_USER, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Ver) and (Ver <> '') then
+    Result := True;
+end;
+
+function NeedsWebView2Install: Boolean;
+begin
+  Result := not IsWebView2Installed;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (CurPageID = wpWelcome) and ('{#RuntimeMode}' = 'tauri') and ('{#OfflineWebView2}' <> '1') then
+  begin
+    if (not IsWebView2Installed) and (not WizardSilent) then
+    begin
+      if MsgBox(ExpandConstant('{cm:WebView2MissingMessage}'), mbConfirmation, MB_YESNO) = IDNO then
+        Result := False;
+    end;
+  end;
+end;
 
 function DetectPreviousInstallation: Boolean;
 var

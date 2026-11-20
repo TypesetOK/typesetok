@@ -12,8 +12,7 @@ use logger::TokLogger;
 use plugins::PluginSystem;
 use state::{
     read_install_registry, resolve_projects_dir, resolve_user_data_dir, trace_memory,
-    trace_milestone, AppState, BootstrapPayload, PathPolicy, SettingsStore,
-    SUPPORTED_CAPABILITIES,
+    trace_milestone, AppState, BootstrapPayload, PathPolicy, SettingsStore, SUPPORTED_CAPABILITIES,
 };
 use std::env;
 use std::path::PathBuf;
@@ -195,21 +194,22 @@ fn main() {
             Ok(())
         })
         .on_page_load(move |webview, payload| {
-            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
-                if !shown_once_page.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                    let app = webview.app_handle();
-                    let trace_enabled = app
-                        .try_state::<AppState>()
-                        .is_some_and(|s| s.trace_enabled());
-                    trace_milestone(trace_enabled, "main-ready-to-show", None);
-                    if let Some(win) = app.get_webview_window("main") {
-                        let _ = win.maximize();
-                        let _ = win.show();
-                        let _ = win.set_focus();
-                    }
-                    trace_milestone(trace_enabled, "main-shown", None);
-                    trace_memory(trace_enabled, "rust-rss");
+            if webview.label() == "main"
+                && payload.event() == PageLoadEvent::Finished
+                && !shown_once_page.swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                let app = webview.app_handle();
+                let trace_enabled = app
+                    .try_state::<AppState>()
+                    .is_some_and(|s| s.trace_enabled());
+                trace_milestone(trace_enabled, "main-ready-to-show", None);
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.maximize();
+                    let _ = win.show();
+                    let _ = win.set_focus();
                 }
+                trace_milestone(trace_enabled, "main-shown", None);
+                trace_memory(trace_enabled, "rust-rss");
             }
         })
         .on_window_event(|window, event| {

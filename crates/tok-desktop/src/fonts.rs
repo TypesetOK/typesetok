@@ -48,7 +48,7 @@ pub fn list_system_fonts() -> Vec<String> {
         let hdc = GetDC(std::ptr::null_mut());
         if !hdc.is_null() {
             let mut lf: LOGFONTW = std::mem::zeroed();
-            lf.lfCharSet = DEFAULT_CHARSET as u8;
+            lf.lfCharSet = DEFAULT_CHARSET;
             let lparam = (&mut families as *mut BTreeSet<String>) as isize;
             EnumFontFamiliesExW(hdc, &lf, Some(enum_font_proc), lparam, 0);
             ReleaseDC(std::ptr::null_mut(), hdc);
@@ -140,9 +140,9 @@ pub fn list_user_fonts(fonts_dir: &Path) -> Vec<UserFontEntry> {
         .filter(|e| {
             let p = e.path();
             p.is_file()
-                && p.extension()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf"))
+                && p.extension().and_then(|s| s.to_str()).is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf")
+                })
         })
         .collect();
     files.sort_by_key(|e| e.file_name());
@@ -152,7 +152,10 @@ pub fn list_user_fonts(fonts_dir: &Path) -> Vec<UserFontEntry> {
         let full = entry.path();
         let file_name = entry.file_name().to_string_lossy().into_owned();
         if let Ok(parsed) = inspect_font_file(&full) {
-            let valid = parsed.get("valid").and_then(|v| v.as_bool()).unwrap_or(false);
+            let valid = parsed
+                .get("valid")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if valid {
                 if let Some(report) = parsed.get("report").cloned() {
                     out.push(UserFontEntry {

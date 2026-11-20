@@ -310,11 +310,8 @@ impl WorkspaceSession {
             );
             (p.into_iter().map(Arc::new).collect(), d)
         } else {
-            self.engine.typeset_document_incremental_arcs(
-                &root,
-                &self.last_pages,
-                modified_node_id,
-            )
+            self.engine
+                .typeset_document_incremental_arcs(&root, &self.last_pages, modified_node_id)
         };
 
         let root_id = root.id;

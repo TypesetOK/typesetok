@@ -97,7 +97,10 @@ fn font_mime_type(file_name: &str) -> &'static str {
     }
 }
 
-fn resolve_authorized_font_file(fonts_dir: &Path, uri_path: &str) -> Result<(PathBuf, &'static str), StatusCode> {
+fn resolve_authorized_font_file(
+    fonts_dir: &Path,
+    uri_path: &str,
+) -> Result<(PathBuf, &'static str), StatusCode> {
     let file_name = sanitize_font_filename(uri_path).ok_or(StatusCode::NOT_FOUND)?;
     let canon_dir = fs::canonicalize(fonts_dir).map_err(|_| StatusCode::NOT_FOUND)?;
     let candidate = canon_dir.join(&file_name);

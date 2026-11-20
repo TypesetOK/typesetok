@@ -87,7 +87,10 @@ pub fn strip_typescript_types(ts_source: &str) -> String {
     out = re_import_type.replace_all(&out, "").into_owned();
 
     // Remove `export type ...;` and `export interface ... { ... }`
-    let re_type_alias = Regex::new(r"(?m)^\s*(?:export\s+)?type\s+[A-Za-z_$][\w$]*\s*(?:<[^>]*>)?\s*=\s*[^;]+;\s*$").unwrap();
+    let re_type_alias = Regex::new(
+        r"(?m)^\s*(?:export\s+)?type\s+[A-Za-z_$][\w$]*\s*(?:<[^>]*>)?\s*=\s*[^;]+;\s*$",
+    )
+    .unwrap();
     out = re_type_alias.replace_all(&out, "").into_owned();
 
     let re_interface = Regex::new(r"(?s)(?:export\s+)?interface\s+[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?(?:\s+extends\s+[^{]+)?\s*\{[^{}]*\}").unwrap();
@@ -99,7 +102,8 @@ pub fn strip_typescript_types(ts_source: &str) -> String {
 
     // Strip parameter & return type annotations on function signatures and arrow functions:
     // `(a: string, b?: number): void` -> `(a, b)`
-    let re_param_type = Regex::new(r"([A-Za-z_$][\w$]*)\s*\??:\s*[A-Za-z_$][\w$.<>|\[\]\s]*(?:[,)])").unwrap();
+    let re_param_type =
+        Regex::new(r"([A-Za-z_$][\w$]*)\s*\??:\s*[A-Za-z_$][\w$.<>|\[\]\s]*(?:[,)])").unwrap();
     for _ in 0..4 {
         let next = re_param_type
             .replace_all(&out, |caps: &regex::Captures<'_>| {
@@ -128,10 +132,7 @@ pub fn strip_typescript_types(ts_source: &str) -> String {
 
 fn resolve_safe_plugin_entry(plugin_dir: &Path, main_rel: &str) -> Result<PathBuf, String> {
     let rel = Path::new(main_rel);
-    if rel.is_absolute()
-        || main_rel.contains("..")
-        || main_rel.contains('\0')
-    {
+    if rel.is_absolute() || main_rel.contains("..") || main_rel.contains('\0') {
         return Err("Unsafe plugin entry path".to_string());
     }
     let canon_dir = fs::canonicalize(plugin_dir).map_err(|e| e.to_string())?;

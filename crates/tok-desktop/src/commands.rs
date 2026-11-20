@@ -761,7 +761,10 @@ pub async fn tok_read_import_file(
     let resolved = authorize_read_path(&state, &file_path)?;
     tauri::async_runtime::spawn_blocking(move || {
         if !resolved.is_file() {
-            return Err(format!("Import file does not exist: {}", resolved.display()));
+            return Err(format!(
+                "Import file does not exist: {}",
+                resolved.display()
+            ));
         }
         let meta = fs::metadata(&resolved).map_err(|e| e.to_string())?;
         let bytes = fs::read(&resolved).map_err(|e| e.to_string())?;
@@ -791,9 +794,13 @@ pub async fn tok_read_import_file(
         }
 
         let data_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-        let text = docx_xml
-            .clone()
-            .or_else(|| if is_binary { None } else { Some(String::from_utf8_lossy(&bytes).into_owned()) });
+        let text = docx_xml.clone().or_else(|| {
+            if is_binary {
+                None
+            } else {
+                Some(String::from_utf8_lossy(&bytes).into_owned())
+            }
+        });
 
         Ok(json!({
             "fileName": resolved.file_name().and_then(|s| s.to_str()).unwrap_or(""),
@@ -955,10 +962,7 @@ pub fn tok_get_plugin_system_status(
 }
 
 #[tauri::command]
-pub fn tok_set_plugin_safe_mode(
-    state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<bool, String> {
+pub fn tok_set_plugin_safe_mode(state: State<'_, AppState>, enabled: bool) -> Result<bool, String> {
     let mut guard = state
         .plugins
         .lock()
@@ -976,7 +980,9 @@ pub fn tok_open_release_url(app: AppHandle, url: Option<String>) -> Result<(), S
     let target = url
         .filter(|u| updater::is_safe_external_url(u))
         .unwrap_or_else(updater::releases_page);
-    app.opener().open_url(target, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(target, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1025,7 +1031,10 @@ pub fn tok_inspect_offline_update(
             .map_err(|_| "PathPolicy lock poisoned".to_string())?;
         paths.assert_authorized_update(&PathBuf::from(&file_path))?
     };
-    Ok(updater::inspect_offline_file(&resolved, env!("CARGO_PKG_VERSION")))
+    Ok(updater::inspect_offline_file(
+        &resolved,
+        env!("CARGO_PKG_VERSION"),
+    ))
 }
 
 #[tauri::command]

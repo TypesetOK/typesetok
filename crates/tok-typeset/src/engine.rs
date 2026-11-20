@@ -2271,14 +2271,9 @@ impl TypesettingEngine {
             }
         }
 
-        let prev_owned: Vec<PageLayoutBox> =
-            previous_pages.iter().map(|p| (**p).clone()).collect();
-        let (pages, diag) =
-            self.typeset_document_incremental(doc, &prev_owned, modified_node_id);
-        (
-            pages.into_iter().map(std::sync::Arc::new).collect(),
-            diag,
-        )
+        let prev_owned: Vec<PageLayoutBox> = previous_pages.iter().map(|p| (**p).clone()).collect();
+        let (pages, diag) = self.typeset_document_incremental(doc, &prev_owned, modified_node_id);
+        (pages.into_iter().map(std::sync::Arc::new).collect(), diag)
     }
 
     pub fn typeset_document_incremental(
@@ -2407,8 +2402,7 @@ impl TypesettingEngine {
             .map_init(
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, ref key)| {
-                    let lines =
-                        self.shape_paragraph_with_sessions(doc, p, content_width, sessions);
+                    let lines = self.shape_paragraph_with_sessions(doc, p, content_width, sessions);
                     (idx, key.clone(), lines)
                 },
             )

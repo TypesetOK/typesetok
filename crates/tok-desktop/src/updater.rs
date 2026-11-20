@@ -164,8 +164,7 @@ pub fn diagnose_filter_ssl_error(err_msg: &str) -> FilterSslDiagnosis {
             is_filter_error: true,
             filter_type: "Etrog",
             filter_name_hebrew: "אינטרנט אתרוג",
-            error_message_hebrew:
-                "זוהתה אי-התאמת תעודת אבטחה של אינטרנט אתרוג בבדיקת עדכונים.",
+            error_message_hebrew: "זוהתה אי-התאמת תעודת אבטחה של אינטרנט אתרוג בבדיקת עדכונים.",
             recommended_action_hebrew:
                 "ודאו שתעודת האבטחה של אתרוג מותקנת במחשב, או הורידו את העדכון דרך הדפדפן.",
         };
@@ -235,7 +234,10 @@ pub async fn check_for_updates(current_version: &str) -> UpdateCheckResult {
             let msg = e.to_string();
             let diag = diagnose_filter_ssl_error(&msg);
             let final_err = if diag.is_filter_error {
-                format!("{} {}", diag.error_message_hebrew, diag.recommended_action_hebrew)
+                format!(
+                    "{} {}",
+                    diag.error_message_hebrew, diag.recommended_action_hebrew
+                )
             } else {
                 msg
             };
@@ -290,7 +292,8 @@ pub async fn check_for_updates(current_version: &str) -> UpdateCheckResult {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let latest_version = tag.trim().trim_start_matches(['v', 'V']).to_string();
-    let has_update = !latest_version.is_empty() && compare_versions(&latest_version, current_version) > 0;
+    let has_update =
+        !latest_version.is_empty() && compare_versions(&latest_version, current_version) > 0;
     let release_url = json
         .get("html_url")
         .and_then(|v| v.as_str())
@@ -345,6 +348,7 @@ pub async fn check_for_updates(current_version: &str) -> UpdateCheckResult {
     }
 }
 
+#[allow(dead_code)]
 pub fn verify_ed25519_file_signature(
     file_path: &Path,
     sig_bytes_raw: &[u8],
@@ -362,8 +366,8 @@ pub fn verify_ed25519_file_signature(
         if text.len() == 128 && text.bytes().all(|b| b.is_ascii_hexdigit()) {
             let mut arr = [0u8; 64];
             for i in 0..64 {
-                arr[i] = u8::from_str_radix(&text[i * 2..i * 2 + 2], 16)
-                    .map_err(|e| e.to_string())?;
+                arr[i] =
+                    u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).map_err(|e| e.to_string())?;
             }
             arr
         } else {
@@ -421,7 +425,10 @@ pub async fn download_update<R: Runtime>(
         Err(e) => {
             let diag = diagnose_filter_ssl_error(&e.to_string());
             let err_msg = if diag.is_filter_error {
-                format!("{} {}", diag.error_message_hebrew, diag.recommended_action_hebrew)
+                format!(
+                    "{} {}",
+                    diag.error_message_hebrew, diag.recommended_action_hebrew
+                )
             } else {
                 e.to_string()
             };
@@ -543,17 +550,10 @@ pub async fn download_update<R: Runtime>(
         if last_emit.elapsed() >= Duration::from_millis(120) {
             last_emit = Instant::now();
             let elapsed = start.elapsed().as_secs_f64().max(0.05);
-            let speed = (transferred as f64 / elapsed) as u64;
-            let percent = if total_bytes > 0 {
-                ((transferred * 100) / total_bytes).min(100) as u32
-            } else {
-                0
-            };
-            let eta = if total_bytes > transferred && speed > 0 {
-                (total_bytes - transferred) / speed
-            } else {
-                0
-            };
+            let (speed, eta) = calculate_speed_and_eta(transferred, total_bytes, elapsed);
+            let percent = (transferred * 100)
+                .checked_div(total_bytes)
+                .map_or(0, |p| p.min(100) as u32);
             let _ = app.emit(
                 "tok:update-download-progress",
                 UpdateDownloadProgress {
@@ -571,23 +571,16 @@ pub async fn download_update<R: Runtime>(
     drop(file);
 
     // Verify PE magic header ("MZ") for .exe installers
-    if safe_name.to_ascii_lowercase().ends_with(".exe") {
-        let mut magic = [0u8; 2];
-        let valid_pe = File::open(&tmp_path)
-            .and_then(|mut f| f.read_exact(&mut magic))
-            .is_ok()
-            && &magic == b"MZ";
-        if !valid_pe {
-            let _ = fs::remove_file(&tmp_path);
-            return DownloadUpdateResult {
-                success: false,
-                file_path: None,
-                file_size: None,
-                sha256: None,
-                signature_verified: None,
-                error: Some("הקובץ שהורד אינו קובץ התקנה תקין (PE/MZ)".to_string()),
-            };
-        }
+    if safe_name.to_ascii_lowercase().ends_with(".exe") && !has_pe_magic_header(&tmp_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return DownloadUpdateResult {
+            success: false,
+            file_path: None,
+            file_size: None,
+            sha256: None,
+            signature_verified: None,
+            error: Some("הקובץ שהורד אינו קובץ התקנה תקין (PE/MZ)".to_string()),
+        };
     }
 
     if let Err(e) = fs::rename(&tmp_path, &final_path) {
@@ -626,14 +619,85 @@ pub async fn download_update<R: Runtime>(
     }
 }
 
+#[allow(dead_code)]
+const MIN_OFFLINE_INSTALLER_BYTES: u64 = 100 * 1024;
+
+pub fn calculate_speed_and_eta(
+    transferred_bytes: u64,
+    total_bytes: u64,
+    elapsed_secs: f64,
+) -> (u64, u64) {
+    let speed = if elapsed_secs > 0.0 {
+        (transferred_bytes as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+    let eta = if total_bytes > transferred_bytes && speed > 0 {
+        (total_bytes - transferred_bytes) / speed
+    } else {
+        0
+    };
+    (speed, eta)
+}
+
+pub fn has_pe_magic_header(file_path: &Path) -> bool {
+    let mut magic = [0u8; 2];
+    File::open(file_path)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .is_ok()
+        && &magic == b"MZ"
+}
+
+#[allow(dead_code)]
+pub fn is_valid_pe_installer(file_path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(file_path) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() < MIN_OFFLINE_INSTALLER_BYTES {
+        return false;
+    }
+    has_pe_magic_header(file_path)
+}
+
+#[allow(dead_code)]
+pub fn compute_file_sha256(file_path: &Path) -> Result<String, String> {
+    let mut file = File::open(file_path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 fn extract_version_from_filename(name: &str) -> Option<String> {
-    let re = Regex::new(r"v?(\d+\.\d+\.\d+)").ok()?;
-    re.captures(name)
+    let strip_ext = Regex::new(r"(?i)\.(exe|msi|appimage|dmg|zip)$").ok()?;
+    let stripped_ext = strip_ext.replace(name, "");
+    let strip_tags =
+        Regex::new(r"(?i)[-_](setup|installer|offline|x64|ia32|arm64|win|mac|linux)\b").ok()?;
+    let mut cleaned = stripped_ext.into_owned();
+    for _ in 0..4 {
+        let next = strip_tags.replace_all(&cleaned, "").into_owned();
+        if next == cleaned {
+            break;
+        }
+        cleaned = next;
+    }
+    let re = Regex::new(r"(?i)v?(\d+\.\d+\.\d+(?:-[a-z0-9.]+)?)").ok()?;
+    re.captures(&cleaned)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
-pub fn inspect_offline_file(file_path: &Path, current_version: &str) -> Option<OfflineUpdateCandidate> {
+pub fn inspect_offline_file(
+    file_path: &Path,
+    current_version: &str,
+) -> Option<OfflineUpdateCandidate> {
     let meta = fs::metadata(file_path).ok()?;
     if !meta.is_file() {
         return None;
@@ -656,7 +720,10 @@ pub fn inspect_offline_file(file_path: &Path, current_version: &str) -> Option<O
     let is_current = version.is_some() && cmp == 0;
 
     let status_description_hebrew = if is_newer {
-        Some(format!("גרסה חדשה זמינה ({})", version.as_deref().unwrap_or("")))
+        Some(format!(
+            "גרסה חדשה זמינה ({})",
+            version.as_deref().unwrap_or("")
+        ))
     } else if is_current {
         Some("זהה לגרסה המותקנת".to_string())
     } else if version.is_some() {
@@ -733,6 +800,11 @@ fn removable_drive_roots() -> Vec<PathBuf> {
 }
 
 pub fn scan_usb_drives(current_version: &str) -> Vec<OfflineUpdateCandidate> {
+    let roots = removable_drive_roots();
+    scan_usb_roots(&roots, current_version)
+}
+
+pub fn scan_usb_roots(roots: &[PathBuf], current_version: &str) -> Vec<OfflineUpdateCandidate> {
     let keywords = [
         "typesetok",
         "תוכנות",
@@ -750,8 +822,8 @@ pub fn scan_usb_drives(current_version: &str) -> Vec<OfflineUpdateCandidate> {
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
 
-    for root in removable_drive_roots() {
-        let Ok(entries) = fs::read_dir(&root) else {
+    for root in roots {
+        let Ok(entries) = fs::read_dir(root) else {
             continue;
         };
         for entry in entries.flatten() {
@@ -808,7 +880,9 @@ pub fn apply_installer(file_path: &Path, silent: bool) -> ApplyUpdateResult {
 
     let mut cmd = Command::new(file_path);
     if silent {
-        cmd.arg("/VERYSILENT").arg("/SUPPRESSMSGBOXES").arg("/NORESTART");
+        cmd.arg("/VERYSILENT")
+            .arg("/SUPPRESSMSGBOXES")
+            .arg("/NORESTART");
     }
     match cmd.spawn() {
         Ok(_) => ApplyUpdateResult {
@@ -867,18 +941,156 @@ mod tests {
         let sig = signing_key.sign(payload);
         let hex_sig: String = sig.to_bytes().iter().map(|b| format!("{b:02x}")).collect();
 
-        assert!(
-            verify_ed25519_file_signature(&file_path, hex_sig.as_bytes(), &verifying_key.to_bytes())
-                .unwrap()
-        );
+        assert!(verify_ed25519_file_signature(
+            &file_path,
+            hex_sig.as_bytes(),
+            &verifying_key.to_bytes()
+        )
+        .unwrap());
 
         let mut bad_hex = hex_sig.clone();
         bad_hex.replace_range(0..2, if &bad_hex[0..2] == "00" { "ff" } else { "00" });
-        assert!(
-            !verify_ed25519_file_signature(&file_path, bad_hex.as_bytes(), &verifying_key.to_bytes())
-                .unwrap()
-        );
+        assert!(!verify_ed25519_file_signature(
+            &file_path,
+            bad_hex.as_bytes(),
+            &verifying_key.to_bytes()
+        )
+        .unwrap());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extract_version_from_filename_handles_standard_and_offline_names() {
+        assert_eq!(
+            extract_version_from_filename("TypesetOK-v0.36.6-Setup-x64.exe").as_deref(),
+            Some("0.36.6")
+        );
+        assert_eq!(
+            extract_version_from_filename("TypesetOK-v0.37.0-Setup-Offline-x64.exe").as_deref(),
+            Some("0.37.0")
+        );
+        assert_eq!(
+            extract_version_from_filename("TypesetOK-1.0.0-beta.1.exe").as_deref(),
+            Some("1.0.0-beta.1")
+        );
+        assert_eq!(
+            extract_version_from_filename("TypesetOK-Installer.exe"),
+            None
+        );
+    }
+
+    #[test]
+    fn is_valid_pe_installer_checks_magic_bytes_and_min_size() {
+        let dir = env::temp_dir().join(format!("tok_updater_pe_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let valid_path = dir.join("valid.exe");
+        let mut valid_buf = vec![0u8; 150 * 1024];
+        valid_buf[0] = b'M';
+        valid_buf[1] = b'Z';
+        fs::write(&valid_path, &valid_buf).unwrap();
+        assert!(is_valid_pe_installer(&valid_path));
+
+        let small_path = dir.join("small.exe");
+        let mut small_buf = vec![0u8; 50 * 1024];
+        small_buf[0] = b'M';
+        small_buf[1] = b'Z';
+        fs::write(&small_path, &small_buf).unwrap();
+        assert!(!is_valid_pe_installer(&small_path));
+
+        let corrupt_path = dir.join("corrupt.exe");
+        let corrupt_buf = vec![0u8; 120 * 1024];
+        fs::write(&corrupt_path, &corrupt_buf).unwrap();
+        assert!(!is_valid_pe_installer(&corrupt_path));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compute_file_sha256_matches_known_digest() {
+        let dir = env::temp_dir().join(format!("tok_updater_sha_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file_path = dir.join("payload.bin");
+        let payload = b"TypesetOK-Smart-Updater-Integrity-Payload";
+        fs::write(&file_path, payload).unwrap();
+
+        let hex = compute_file_sha256(&file_path).unwrap();
+        assert_eq!(hex.len(), 64);
+        let expected: String = Sha256::digest(payload)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(hex, expected);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn calculate_speed_and_eta_computes_expected_values() {
+        let (speed, eta) = calculate_speed_and_eta(25 * 1024 * 1024, 50 * 1024 * 1024, 5.0);
+        assert_eq!(speed, 5 * 1024 * 1024);
+        assert_eq!(eta, 5);
+        assert_eq!(calculate_speed_and_eta(0, 100, 0.0), (0, 0));
+    }
+
+    #[test]
+    fn scan_usb_roots_discovers_hebrew_and_english_folders_and_ranks_newest() {
+        let dir = env::temp_dir().join(format!("tok_updater_usb_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("עדכונים 2026")).unwrap();
+        fs::create_dir_all(dir.join("ספרי קודש")).unwrap();
+        fs::create_dir_all(dir.join("Windows-System32")).unwrap();
+
+        fs::write(
+            dir.join("עדכונים 2026")
+                .join("TypesetOK-v0.37.0-Setup-Offline-x64.exe"),
+            b"MZ",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("עדכונים 2026")
+                .join("TypesetOK-v0.37.0-Setup-Offline-x64.exe.sig"),
+            b"sig",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("ספרי קודש")
+                .join("TypesetOK-v0.36.6-Setup-x64.exe"),
+            b"MZ",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("Windows-System32")
+                .join("TypesetOK-v9.9.9-Setup-x64.exe"),
+            b"MZ",
+        )
+        .unwrap();
+        fs::write(dir.join("unrelated-document.pdf"), b"%PDF").unwrap();
+
+        let found = scan_usb_roots(std::slice::from_ref(&dir), "0.36.6");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].version.as_deref(), Some("0.37.0"));
+        assert!(found[0].is_newer);
+        assert!(found[0].is_recommended);
+        assert_eq!(found[0].signature_present, Some(true));
+        assert_eq!(found[1].version.as_deref(), Some("0.36.6"));
+        assert!(found[1].is_current);
+        assert!(!found[1].is_recommended);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_safe_external_url_allows_only_http_and_https() {
+        assert!(is_safe_external_url(
+            "https://github.com/TypesetOK/typesetok"
+        ));
+        assert!(is_safe_external_url("http://localhost:8080"));
+        assert!(!is_safe_external_url("file:///C:/Windows/System32/cmd.exe"));
+        assert!(!is_safe_external_url("javascript:alert(1)"));
     }
 }

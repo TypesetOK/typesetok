@@ -137,16 +137,14 @@ pub fn resolve_projects_dir(reg_dir: Option<&str>, documents_dir: Option<PathBuf
         }
     }
     let default_dir = documents_dir
-        .unwrap_or_else(|| env::temp_dir())
+        .unwrap_or_else(env::temp_dir)
         .join("TypesetOK");
     let _ = fs::create_dir_all(&default_dir);
     default_dir
 }
 
 pub fn is_valid_setting_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= MAX_SETTING_KEY_LEN
-        && !FORBIDDEN_SETTING_KEYS.contains(&key)
+    !key.is_empty() && key.len() <= MAX_SETTING_KEY_LEN && !FORBIDDEN_SETTING_KEYS.contains(&key)
 }
 
 pub fn is_valid_setting_value(val: &str) -> bool {
@@ -396,15 +394,16 @@ mod tests {
         let path = dir.join("settings.json");
 
         let mut store = SettingsStore::load(path.clone());
-        store
-            .set("tok_lang".to_string(), "he".to_string())
-            .unwrap();
+        store.set("tok_lang".to_string(), "he".to_string()).unwrap();
         assert!(store
             .set("__proto__".to_string(), "bad".to_string())
             .is_err());
 
         let reloaded = SettingsStore::load(path);
-        assert_eq!(reloaded.snapshot().get("tok_lang").map(String::as_str), Some("he"));
+        assert_eq!(
+            reloaded.snapshot().get("tok_lang").map(String::as_str),
+            Some("he")
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
