@@ -1,14 +1,26 @@
+use crate::fonts;
+use crate::plugins::{LoadedPlugin, PluginSystemStatus};
 use crate::state::{trace_milestone, AppState};
+use crate::updater::{
+    self, ApplyUpdateResult, DownloadUpdateResult, OfflineUpdateCandidate, UpdateCheckResult,
+};
+use base64::Engine;
+use flate2::read::DeflateDecoder;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tok_engine_service::{write_atomic, PdfRenderRequest, PreflightRequest};
+use zip::ZipArchive;
+
+const MAX_DECOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,15 +54,6 @@ pub struct AppInfoResponse {
     pub version: &'static str,
     pub name: &'static str,
     pub repo_url: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PluginSystemStatusResponse {
-    pub is_safe_mode: bool,
-    pub is_safer_active: bool,
-    pub user_plugins_dir: String,
-    pub builtin_plugins_dir: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -704,37 +707,373 @@ pub async fn tok_clear_draft_recovery(
 }
 
 #[tauri::command]
-pub fn tok_get_plugins() -> Vec<Value> {
-    Vec::new()
+pub fn tok_set_dirty(state: State<'_, AppState>, dirty: bool) -> SuccessResponse {
+    state.is_dirty.store(dirty, Ordering::SeqCst);
+    SuccessResponse { success: true }
 }
 
 #[tauri::command]
-pub fn tok_get_plugin_system_status(state: State<'_, AppState>) -> PluginSystemStatusResponse {
-    PluginSystemStatusResponse {
-        is_safe_mode: true,
-        is_safer_active: false,
-        user_plugins_dir: state
-            .user_data_dir
-            .join("plugins")
-            .to_string_lossy()
-            .into_owned(),
-        builtin_plugins_dir: String::new(),
+pub async fn tok_rename_document_file(
+    state: State<'_, AppState>,
+    payload: Value,
+) -> Result<Value, String> {
+    let old_raw = payload
+        .get("oldPath")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing oldPath".to_string())?;
+    let new_raw = payload
+        .get("newPath")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing newPath".to_string())?;
+    let resolved_old = authorize_read_path(&state, old_raw)?;
+    let resolved_new = authorize_read_path(&state, new_raw)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if !resolved_old.exists() {
+            return Ok(json!({ "success": false, "error": "Source file does not exist" }));
+        }
+        if resolved_new.exists() && resolved_old != resolved_new {
+            return Ok(json!({ "success": false, "error": "TARGET_EXISTS" }));
+        }
+        fs::rename(&resolved_old, &resolved_new).map_err(|e| e.to_string())?;
+        Ok(json!({
+            "success": true,
+            "filePath": resolved_new.to_string_lossy().into_owned()
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn read_zip_entry_limited(archive: &mut ZipArchive<fs::File>, name: &str) -> Option<String> {
+    let entry = archive.by_name(name).ok()?;
+    let mut limited = entry.take(MAX_DECOMPRESSED_BYTES);
+    let mut text = String::new();
+    limited.read_to_string(&mut text).ok()?;
+    Some(text)
+}
+
+#[tauri::command]
+pub async fn tok_read_import_file(
+    state: State<'_, AppState>,
+    file_path: String,
+) -> Result<Value, String> {
+    let resolved = authorize_read_path(&state, &file_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        if !resolved.is_file() {
+            return Err(format!("Import file does not exist: {}", resolved.display()));
+        }
+        let meta = fs::metadata(&resolved).map_err(|e| e.to_string())?;
+        let bytes = fs::read(&resolved).map_err(|e| e.to_string())?;
+        let ext = resolved
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        let is_binary = ext == "docx";
+
+        let mut docx_xml: Option<String> = None;
+        let mut footnotes_xml: Option<String> = None;
+        let mut endnotes_xml: Option<String> = None;
+        let mut numbering_xml: Option<String> = None;
+        let mut styles_xml: Option<String> = None;
+
+        if is_binary {
+            if let Ok(file) = fs::File::open(&resolved) {
+                if let Ok(mut archive) = ZipArchive::new(file) {
+                    docx_xml = read_zip_entry_limited(&mut archive, "word/document.xml");
+                    footnotes_xml = read_zip_entry_limited(&mut archive, "word/footnotes.xml");
+                    endnotes_xml = read_zip_entry_limited(&mut archive, "word/endnotes.xml");
+                    numbering_xml = read_zip_entry_limited(&mut archive, "word/numbering.xml");
+                    styles_xml = read_zip_entry_limited(&mut archive, "word/styles.xml");
+                }
+            }
+        }
+
+        let data_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let text = docx_xml
+            .clone()
+            .or_else(|| if is_binary { None } else { Some(String::from_utf8_lossy(&bytes).into_owned()) });
+
+        Ok(json!({
+            "fileName": resolved.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+            "filePath": resolved.to_string_lossy().into_owned(),
+            "size": meta.len(),
+            "isBinary": is_binary,
+            "docxXml": docx_xml,
+            "footnotesXml": footnotes_xml,
+            "endnotesXml": endnotes_xml,
+            "numberingXml": numbering_xml,
+            "stylesXml": styles_xml,
+            "dataBase64": data_base64,
+            "text": text,
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn tok_decompress_raw(data_base64: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let compressed = base64::engine::general_purpose::STANDARD
+            .decode(data_base64.trim())
+            .map_err(|e| e.to_string())?;
+        let decoder = DeflateDecoder::new(&compressed[..]);
+        let mut out = Vec::new();
+        decoder
+            .take(MAX_DECOMPRESSED_BYTES)
+            .read_to_end(&mut out)
+            .map_err(|e| e.to_string())?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(&out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn tok_inspect_font(
+    state: State<'_, AppState>,
+    font_path: String,
+) -> Result<Value, String> {
+    let resolved = authorize_read_path(&state, &font_path)?;
+    tauri::async_runtime::spawn_blocking(move || fonts::inspect_font(&resolved))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn tok_install_font(
+    state: State<'_, AppState>,
+    font_path: String,
+) -> Result<Value, String> {
+    let resolved = authorize_read_path(&state, &font_path)?;
+    let fonts_dir = state.fonts_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || fonts::install_font(&resolved, &fonts_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn tok_list_user_fonts(
+    state: State<'_, AppState>,
+) -> Result<Vec<fonts::UserFontEntry>, String> {
+    let fonts_dir = state.fonts_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || fonts::list_user_fonts(&fonts_dir))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn tok_list_system_fonts() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(fonts::list_system_fonts)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn tok_get_recent_logs(state: State<'_, AppState>) -> Vec<String> {
+    state.logger.get_recent_logs(100)
+}
+
+#[tauri::command]
+pub fn tok_open_logs_folder(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+    let dir = state.logger.logs_dir();
+    let _ = fs::create_dir_all(dir);
+    app.opener()
+        .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn tok_clean_old_logs(state: State<'_, AppState>, days: Option<u64>) -> usize {
+    state.logger.clean_old_logs(days)
+}
+
+#[tauri::command]
+pub fn tok_set_log_retention(state: State<'_, AppState>, days: u64) {
+    state.logger.set_retention_days(days);
+}
+
+#[tauri::command]
+pub fn tok_get_plugins(state: State<'_, AppState>) -> Result<Vec<LoadedPlugin>, String> {
+    let guard = state
+        .plugins
+        .lock()
+        .map_err(|_| "PluginSystem lock poisoned".to_string())?;
+    Ok(guard.discover_plugins())
+}
+
+#[tauri::command]
+pub fn tok_reload_plugins(state: State<'_, AppState>) -> Result<Vec<LoadedPlugin>, String> {
+    let guard = state
+        .plugins
+        .lock()
+        .map_err(|_| "PluginSystem lock poisoned".to_string())?;
+    Ok(guard.discover_plugins())
+}
+
+#[tauri::command]
+pub fn tok_toggle_plugin(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    enabled: bool,
+) -> Result<bool, String> {
+    let mut guard = state
+        .plugins
+        .lock()
+        .map_err(|_| "PluginSystem lock poisoned".to_string())?;
+    guard.toggle_plugin(&plugin_id, enabled)
+}
+
+#[tauri::command]
+pub fn tok_open_plugins_folder(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+    let dir = {
+        let guard = state
+            .plugins
+            .lock()
+            .map_err(|_| "PluginSystem lock poisoned".to_string())?;
+        guard.user_plugins_dir().to_path_buf()
+    };
+    let _ = fs::create_dir_all(&dir);
+    app.opener()
+        .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn tok_get_plugin_system_status(
+    state: State<'_, AppState>,
+) -> Result<PluginSystemStatus, String> {
+    let guard = state
+        .plugins
+        .lock()
+        .map_err(|_| "PluginSystem lock poisoned".to_string())?;
+    Ok(guard.get_status())
+}
+
+#[tauri::command]
+pub fn tok_set_plugin_safe_mode(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    let mut guard = state
+        .plugins
+        .lock()
+        .map_err(|_| "PluginSystem lock poisoned".to_string())?;
+    guard.set_safe_mode(enabled)
+}
+
+#[tauri::command]
+pub async fn tok_check_for_updates() -> UpdateCheckResult {
+    updater::check_for_updates(env!("CARGO_PKG_VERSION")).await
+}
+
+#[tauri::command]
+pub fn tok_open_release_url(app: AppHandle, url: Option<String>) -> Result<(), String> {
+    let target = url
+        .filter(|u| updater::is_safe_external_url(u))
+        .unwrap_or_else(updater::releases_page);
+    app.opener().open_url(target, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn tok_download_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    download_url: String,
+) -> Result<DownloadUpdateResult, String> {
+    let updates_dir = state.user_data_dir.join("updates");
+    let res = updater::download_update(&app, &download_url, &updates_dir).await;
+    if res.success {
+        if let Some(ref fp) = res.file_path {
+            if let Ok(mut paths) = state.paths.lock() {
+                paths.authorize_update_path(&PathBuf::from(fp));
+            }
+        }
     }
+    Ok(res)
 }
 
 #[tauri::command]
-pub fn tok_list_user_fonts() -> Vec<Value> {
-    Vec::new()
+pub fn tok_apply_update(
+    state: State<'_, AppState>,
+    file_path: String,
+    silent: Option<bool>,
+) -> Result<ApplyUpdateResult, String> {
+    let resolved = {
+        let paths = state
+            .paths
+            .lock()
+            .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+        paths.assert_authorized_update(&PathBuf::from(&file_path))?
+    };
+    Ok(updater::apply_installer(&resolved, silent.unwrap_or(false)))
 }
 
 #[tauri::command]
-pub fn tok_list_system_fonts() -> Vec<String> {
-    Vec::new()
+pub fn tok_inspect_offline_update(
+    state: State<'_, AppState>,
+    file_path: String,
+) -> Result<Option<OfflineUpdateCandidate>, String> {
+    let resolved = {
+        let paths = state
+            .paths
+            .lock()
+            .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+        paths.assert_authorized_update(&PathBuf::from(&file_path))?
+    };
+    Ok(updater::inspect_offline_file(&resolved, env!("CARGO_PKG_VERSION")))
 }
 
 #[tauri::command]
-pub fn tok_get_recent_logs() -> Vec<String> {
-    Vec::new()
+pub async fn tok_scan_usb_updates(
+    state: State<'_, AppState>,
+) -> Result<Vec<OfflineUpdateCandidate>, String> {
+    let candidates = tauri::async_runtime::spawn_blocking(|| {
+        updater::scan_usb_drives(env!("CARGO_PKG_VERSION"))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Ok(mut paths) = state.paths.lock() {
+        for cand in &candidates {
+            paths.authorize_update_path(&PathBuf::from(&cand.file_path));
+        }
+    }
+    Ok(candidates)
+}
+
+#[tauri::command]
+pub fn tok_configure_heading_numbering(config: Value) -> Value {
+    json!({ "success": true, "config": config })
+}
+
+#[tauri::command]
+pub fn tok_reorder_heading(payload: Value) -> Value {
+    json!({ "success": true, "payload": payload })
+}
+
+#[tauri::command]
+pub fn tok_insert_heading(payload: Value) -> Value {
+    json!({ "success": true, "payload": payload })
+}
+
+#[tauri::command]
+pub fn tok_delete_heading(payload: Value) -> Value {
+    json!({ "success": true, "payload": payload })
+}
+
+#[tauri::command]
+pub fn tok_recalculate_heading_numbers(payload: Option<Value>) -> Value {
+    json!({ "success": true, "payload": payload })
+}
+
+#[tauri::command]
+pub fn tok_send_command(cmd: Value) -> Value {
+    json!({ "success": true, "cmd": cmd })
 }
 
 #[tauri::command]

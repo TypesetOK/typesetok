@@ -1,9 +1,12 @@
+use crate::logger::TokLogger;
+use crate::plugins::PluginSystem;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tok_engine_service::{write_atomic, WorkspaceSession};
@@ -222,6 +225,7 @@ pub struct PathPolicy {
     projects_dir: PathBuf,
     authorized_paths: HashSet<PathBuf>,
     authorized_dirs: HashSet<PathBuf>,
+    authorized_update_paths: HashSet<PathBuf>,
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -243,6 +247,7 @@ impl PathPolicy {
             projects_dir: normalize_path(&projects_dir),
             authorized_paths: HashSet::new(),
             authorized_dirs: HashSet::new(),
+            authorized_update_paths: HashSet::new(),
         }
     }
 
@@ -258,6 +263,11 @@ impl PathPolicy {
         self.authorized_paths.insert(norm);
     }
 
+    pub fn authorize_update_path(&mut self, path: &Path) {
+        let norm = normalize_path(path);
+        self.authorized_update_paths.insert(norm);
+    }
+
     pub fn assert_authorized(&self, path: &Path) -> Result<PathBuf, String> {
         let norm = normalize_path(path);
         if norm.starts_with(&self.projects_dir) || self.authorized_paths.contains(&norm) {
@@ -269,6 +279,14 @@ impl PathPolicy {
             }
         }
         Err(format!("Access denied for path: {}", path.display()))
+    }
+
+    pub fn assert_authorized_update(&self, path: &Path) -> Result<PathBuf, String> {
+        let norm = normalize_path(path);
+        if self.authorized_update_paths.contains(&norm) || self.authorized_paths.contains(&norm) {
+            return Ok(norm);
+        }
+        Err(format!("Access denied for update path: {}", path.display()))
     }
 }
 
@@ -283,32 +301,59 @@ pub struct BootstrapPayload {
 }
 
 pub const SUPPORTED_CAPABILITIES: &[&str] = &[
+    "sendCommand",
+    "onEvent",
     "renderPdf",
     "renderHtml",
     "getRecentLogs",
+    "openLogsFolder",
+    "cleanOldLogs",
+    "setLogRetention",
+    "checkForUpdates",
+    "openReleaseUrl",
+    "downloadUpdate",
+    "onUpdateDownloadProgress",
+    "applyUpdate",
+    "inspectOfflineUpdate",
+    "scanUsbUpdates",
     "getPlugins",
+    "togglePlugin",
+    "openPluginsFolder",
+    "reloadPlugins",
     "getPluginSystemStatus",
+    "setPluginSafeMode",
     "saveDocument",
     "openDocument",
+    "renameDocumentFile",
     "getProjectsDir",
     "saveDraftRecovery",
     "loadDraftRecovery",
     "clearDraftRecovery",
     "typesetDocument",
     "runPreflight",
+    "inspectFont",
+    "installFont",
     "listUserFonts",
     "listSystemFonts",
+    "configureHeadingNumbering",
+    "reorderHeading",
+    "insertHeading",
+    "deleteHeading",
+    "recalculateHeadingNumbers",
     "openExternal",
     "getAppInfo",
     "showSaveDialog",
     "showOpenDialog",
     "showImportDialog",
     "getStartupFile",
+    "readImportFile",
+    "decompressRaw",
     "closeWindow",
     "minimizeWindow",
     "maximizeWindow",
     "isMaximized",
     "quitApp",
+    "onOpenFile",
     "readSettings",
     "setSetting",
     "setSettings",
@@ -319,6 +364,9 @@ pub struct AppState {
     pub session: Arc<Mutex<WorkspaceSession>>,
     pub settings: Mutex<SettingsStore>,
     pub paths: Mutex<PathPolicy>,
+    pub plugins: Mutex<PluginSystem>,
+    pub logger: Arc<TokLogger>,
+    pub is_dirty: AtomicBool,
     pub startup_file: Option<String>,
     pub user_data_dir: PathBuf,
     pub fonts_dir: PathBuf,

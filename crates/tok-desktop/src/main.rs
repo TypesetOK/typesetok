@@ -1,8 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod assets;
 mod commands;
+mod fonts;
+mod logger;
+mod plugins;
 mod state;
+mod updater;
 
+use logger::TokLogger;
+use plugins::PluginSystem;
 use state::{
     read_install_registry, resolve_projects_dir, resolve_user_data_dir, trace_memory,
     trace_milestone, AppState, BootstrapPayload, PathPolicy, SettingsStore,
@@ -10,9 +17,11 @@ use state::{
 };
 use std::env;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::webview::PageLoadEvent;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tok_engine_service::WorkspaceSession;
 
 fn find_startup_file_arg() -> Option<String> {
@@ -87,8 +96,33 @@ fn main() {
     let shown_once_page = Arc::clone(&shown_once);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(file_arg) = args.iter().skip(1).find(|arg| {
+                if arg.starts_with('-') {
+                    return false;
+                }
+                let p = PathBuf::from(arg);
+                p.extension()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("tok"))
+                    || p.is_file()
+            }) {
+                if let Some(state) = app.try_state::<AppState>() {
+                    if let Ok(mut paths) = state.paths.lock() {
+                        paths.authorize_path(&PathBuf::from(file_arg));
+                    }
+                }
+                let _ = app.emit_to("main", "tok:open-file", file_arg.clone());
+            }
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.unminimize();
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .register_asynchronous_uri_scheme_protocol("tok-asset", assets::handle_tok_asset_protocol)
         .setup(move |app| {
             trace_milestone(trace_enabled, "app-ready", None);
 
@@ -120,10 +154,17 @@ fn main() {
             };
             let init_script = build_init_script(&bootstrap, trace_enabled);
 
+            let logger = Arc::new(TokLogger::new(&user_data_dir));
+            logger.info("TypesetOK Tauri shell starting");
+            let plugin_system = PluginSystem::load(&user_data_dir);
+
             let state = AppState {
                 session: Arc::new(Mutex::new(WorkspaceSession::new())),
                 settings: Mutex::new(settings_store),
                 paths: Mutex::new(path_policy),
+                plugins: Mutex::new(plugin_system),
+                logger,
+                is_dirty: AtomicBool::new(false),
                 startup_file,
                 user_data_dir: user_data_dir.clone(),
                 fonts_dir: user_data_dir.join("fonts"),
@@ -171,6 +212,38 @@ fn main() {
                 }
             }
         })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let is_dirty = app
+                    .try_state::<AppState>()
+                    .is_some_and(|s| s.is_dirty.load(Ordering::SeqCst));
+                if !is_dirty {
+                    return;
+                }
+                api.prevent_close();
+                let app_handle = app.clone();
+                let win_clone = window.clone();
+                std::thread::spawn(move || {
+                    let save_yes = app_handle
+                        .dialog()
+                        .message("במסמך קיימים שינויים שלא נשמרו.\nהאם לצאת ללא שמירה? (בחר 'כן' ליציאה ללא שמירה, 'לא' לחזרה למסמך)")
+                        .title("TypesetOK")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::YesNo)
+                        .blocking_show();
+                    if save_yes {
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            state.is_dirty.store(false, Ordering::SeqCst);
+                        }
+                        let _ = win_clone.close();
+                    }
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::tok_read_settings,
             commands::tok_set_setting,
@@ -185,11 +258,15 @@ fn main() {
             commands::tok_maximize_window,
             commands::tok_is_maximized,
             commands::tok_quit_app,
+            commands::tok_set_dirty,
             commands::tok_show_open_dialog,
             commands::tok_show_import_dialog,
             commands::tok_show_save_dialog,
             commands::tok_open_document,
             commands::tok_save_document,
+            commands::tok_rename_document_file,
+            commands::tok_read_import_file,
+            commands::tok_decompress_raw,
             commands::tok_typeset_document,
             commands::tok_render_pdf,
             commands::tok_render_html,
@@ -198,10 +275,31 @@ fn main() {
             commands::tok_load_draft_recovery,
             commands::tok_clear_draft_recovery,
             commands::tok_get_plugins,
+            commands::tok_reload_plugins,
+            commands::tok_toggle_plugin,
+            commands::tok_open_plugins_folder,
             commands::tok_get_plugin_system_status,
+            commands::tok_set_plugin_safe_mode,
+            commands::tok_inspect_font,
+            commands::tok_install_font,
             commands::tok_list_user_fonts,
             commands::tok_list_system_fonts,
             commands::tok_get_recent_logs,
+            commands::tok_open_logs_folder,
+            commands::tok_clean_old_logs,
+            commands::tok_set_log_retention,
+            commands::tok_check_for_updates,
+            commands::tok_open_release_url,
+            commands::tok_download_update,
+            commands::tok_apply_update,
+            commands::tok_inspect_offline_update,
+            commands::tok_scan_usb_updates,
+            commands::tok_configure_heading_numbering,
+            commands::tok_reorder_heading,
+            commands::tok_insert_heading,
+            commands::tok_delete_heading,
+            commands::tok_recalculate_heading_numbers,
+            commands::tok_send_command,
             commands::tok_report_startup_trace,
         ])
         .run(tauri::generate_context!())

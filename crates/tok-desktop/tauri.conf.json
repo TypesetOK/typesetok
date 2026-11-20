@@ -13,6 +13,7 @@
       "csp": {
         "default-src": "'self'",
         "script-src": "'self'",
+        "worker-src": "'self' blob:",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
         "font-src": "'self' data: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
