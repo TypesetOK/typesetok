@@ -10,7 +10,8 @@ const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), '
 const version = rootPkg.version || '0.35.0';
 const distDir = path.join(rootDir, 'dist');
 const bundleDir = path.join(distDir, `TypesetOK-v${version}-windows-x64`);
-const useTauri = process.argv.includes('--tauri') || process.env.TOK_RUNTIME === 'tauri';
+const useElectron = process.argv.includes('--electron') || process.env.TOK_RUNTIME === 'electron';
+const useTauri = !useElectron;
 const buildOffline = process.argv.includes('--offline');
 const buildDual = process.argv.includes('--dual');
 const rebuildBundle = process.argv.includes('--rebuild');
@@ -22,7 +23,7 @@ console.log('====================================================');
 // 1. Build or reuse desktop bundle
 if (rebuildBundle || useTauri || !fs.existsSync(bundleDir)) {
   console.log('[BUILD-INSTALLER] Building desktop bundle...');
-  execSync(`node scripts/build-desktop-bundle.mjs${useTauri ? ' --tauri' : ''}`, {
+  execSync(`node scripts/build-desktop-bundle.mjs${useTauri ? ' --tauri' : ' --electron'}`, {
     cwd: rootDir,
     stdio: 'inherit'
   });

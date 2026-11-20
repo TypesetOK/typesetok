@@ -6,6 +6,80 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.37.0",
+    "releaseDate": "2026-11-20",
+    "importance": "major",
+    "title": {
+      "he": "מעבר מלא למעטפת Tauri v2, מנוע עימוד בתהליך יחיד ומתקין קל משקל (0.37.0)",
+      "en": "Tauri v2 Desktop Cutover, In-Process Rust Engine & Lightweight Installer (0.37.0)"
+    },
+    "summary": {
+      "he": "מעבר רשמי מ-Electron למעטפת Tauri v2 ילידית ב-Rust: עימוד אינקרמנטלי בתהליך יחיד בפחות מ-6ms ל-300 עמודים, צריכת זיכרון מופחתת, בידוד תוספים ב-WebWorker, הזרמת נכסים ב-tok-asset://, מנגנון עדכונים חתום Ed25519 עם תמיכה בסינונים כשרים ועדכוני USB אופליין, ומתקין Windows קל משקל (~7.4 MB).",
+      "en": "Production cutover from Electron to the native Tauri v2 Rust desktop shell: in-process incremental typesetting (<6ms for 300 pages), lower memory footprint, WebWorker plugin isolation, tok-asset:// font/asset streaming, Ed25519-signed online and USB offline updates with native TLS, and a lightweight Windows installer (~7.4 MB)."
+    },
+    "changes": [
+      {
+        "category": "performance",
+        "text": {
+          "he": "מעבר ברירת המחדל בצינור הבנייה, ההפצה והמתקין למעטפת Tauri v2 (`crates/tok-desktop`) במקום Electron",
+          "en": "Switch default desktop bundle, Windows installer, and CI/Release pipelines to the native Tauri v2 shell (`crates/tok-desktop`)"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "פרוטוקול `tok-asset://` לטעינת גופני משתמש ישירות מהזיכרון, מניית גופני מערכת באמצעות `fontdb` וגישת Windows Registry ישירה ב-Rust",
+          "en": "Stream user fonts via `tok-asset://`, enumerate system fonts via `fontdb`, and read Windows Registry settings directly from Rust"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "זיהוי כונני USB נשלפים באמצעות `GetDriveTypeW`, אבחון תעודות סינון אינטרנט כשר (`native-tls`) ושומר סגירה אטומי מבוסס `is_dirty`",
+          "en": "Detect removable USB drives via `GetDriveTypeW`, diagnose content-filter TLS certificates (`native-tls`), and enforce an atomic Rust `is_dirty` close guard"
+        }
+      }
+    ],
+    "highlights": [
+      {
+        "id": "tauri-v2-core",
+        "icon": "zap",
+        "title": {
+          "he": "ליבת עימוד בתהליך יחיד ועימוד אינקרמנטלי בפחות מ-6ms",
+          "en": "In-Process Rust Engine & Sub-6ms Incremental Layout"
+        },
+        "description": {
+          "he": "ביטול תהליך המשנה וה-IPC הכפול — ממשק המשתמש מתקשר ישירות עם WorkspaceSession מתמיד בזיכרון ב-Rust.",
+          "en": "Eliminates subprocess and JSON pipe overhead — the UI communicates directly with a persistent in-memory Rust WorkspaceSession."
+        },
+        "badge": {
+          "he": "מעטפת Tauri v2",
+          "en": "Tauri v2 Shell"
+        }
+      },
+      {
+        "id": "security-plugins",
+        "icon": "shield",
+        "title": {
+          "he": "בידוד תוספים ב-WebWorker, הרשאות Capabilities וחתימות Ed25519",
+          "en": "WebWorker Plugin Isolation, Tauri Capabilities & Ed25519 Updates"
+        },
+        "description": {
+          "he": "הרצת תוספי צד-ג' ב-WebWorker מבודד ללא גישה ל-IPC, הסרת unsafe-eval, ואימות קריפטוגרפי Ed25519 לעדכונים מקוונים ומ-USB.",
+          "en": "Sandboxes third-party plugins in an isolated WebWorker without IPC access, removes unsafe-eval from CSP, and verifies online/USB updates with Ed25519."
+        },
+        "badge": {
+          "he": "אבטחה ותוספים",
+          "en": "Security & Isolation"
+        }
+      }
+    ],
+    "badge": {
+      "he": "מעבר ל-Tauri v2",
+      "en": "Tauri v2 Cutover"
+    }
+  },
+  {
     "version": "0.36.6",
     "releaseDate": "2026-11-18",
     "importance": "minor",

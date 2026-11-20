@@ -2,10 +2,11 @@
 //   dist/TypesetOK-v<version>-windows-x64/TypesetOK.exe
 //
 // Flags / Env:
-//   --tauri / TOK_RUNTIME=tauri  package the Tauri v2 native binary (tok-desktop.exe)
-//   TOK_DESKTOP_PATH=<path>      tok-desktop binary to bundle (with --tauri)
-//   TOK_CLI_PATH=<path>          tok-cli binary to bundle (Electron mode)
-//   TOK_KEEP_ALL_LOCALES=1       keep every Chromium locale (Electron mode)
+//   --tauri / TOK_RUNTIME=tauri       package the Tauri v2 native binary (default)
+//   --electron / TOK_RUNTIME=electron package the legacy Electron runtime (rollback fallback)
+//   TOK_DESKTOP_PATH=<path>           tok-desktop binary to bundle (Tauri mode)
+//   TOK_CLI_PATH=<path>               tok-cli binary to bundle (Electron mode)
+//   TOK_KEEP_ALL_LOCALES=1            keep every Chromium locale (Electron mode)
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -17,7 +18,8 @@ const rootDir = path.resolve(__dirname, '..');
 const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8'));
 const version = rootPkg.version || '0.0.0';
 
-const useTauri = process.argv.includes('--tauri') || process.env.TOK_RUNTIME === 'tauri';
+const useElectron = process.argv.includes('--electron') || process.env.TOK_RUNTIME === 'electron';
+const useTauri = !useElectron;
 const electronDist = path.join(rootDir, 'node_modules/electron/dist');
 const outDir = path.join(rootDir, `dist/TypesetOK-v${version}-windows-x64`);
 const isWin = process.platform === 'win32';

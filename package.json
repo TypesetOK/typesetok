@@ -1,6 +1,6 @@
 {
   "name": "typesetok-monorepo",
-  "version": "0.36.6",
+  "version": "0.37.0",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
   "description": "TypesetOK (TOK) - Professional Hebrew Desktop Publishing System",
@@ -14,14 +14,18 @@
     "bundle:ui:tauri": "node scripts/bundle-ui.mjs --tauri",
     "contributors": "node scripts/update-contributors.mjs",
     "lint": "tsc --build",
-    "build": "npm run contributors && npm run build:ts && npm run bundle:ui",
+    "build": "npm run contributors && npm run build:ts && npm run bundle:ui && npm run bundle:ui:tauri",
     "package:desktop": "node scripts/build-desktop-bundle.mjs",
     "package:desktop:tauri": "node scripts/build-desktop-bundle.mjs --tauri",
+    "package:desktop:electron": "node scripts/build-desktop-bundle.mjs --electron",
     "package:installer": "node scripts/build-installer.mjs",
     "package:installer:tauri": "node scripts/build-installer.mjs --tauri --dual",
+    "package:installer:electron": "node scripts/build-installer.mjs --electron",
     "test:desktop": "cargo test -p tok-desktop",
     "test": "node --test test/frontend.test.mjs test/host_bridge.test.mjs test/milestone_features.test.mjs test/story_editor.test.mjs test/outcome_validation.test.mjs test/importer.test.mjs test/lifecycle_flow.test.mjs test/geometric_fidelity.test.mjs test/phase3_integration.test.mjs test/issue20_regression.test.mjs test/whats_new_system.test.mjs test/release_notes.test.mjs",
-    "start": "electron packages/tok-electron/dist/main.js",
+    "start": "cargo run --release -p tok-desktop",
+    "start:tauri": "cargo run --release -p tok-desktop",
+    "start:electron": "electron packages/tok-electron/dist/main.js",
     "perf:startup": "node scripts/measure-startup.mjs"
   },
   "devDependencies": {

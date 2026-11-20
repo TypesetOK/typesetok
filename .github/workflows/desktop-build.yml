@@ -20,18 +20,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build tok-cli release binary
-        run: cargo build --release -p tok-cli
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Install Node dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build TypeScript & bundle UI
         run: npm run build
+
+      - name: Build tok-cli & tok-desktop release binaries
+        run: cargo build --release -p tok-cli -p tok-desktop
 
       - name: Run frontend tests
         run: npm test
@@ -39,12 +39,11 @@ jobs:
           # Integration tests spawn the engine; use the release binary built above.
           TOK_CLI_PATH: target/release/tok-cli.exe
 
+      - name: Package Tauri v2 Desktop bundle
+        run: node scripts/build-desktop-bundle.mjs
+
       - name: Upload Desktop bundle artifact (Windows)
         uses: actions/upload-artifact@v4
         with:
           name: typesetok-desktop-windows-x64
-          path: |
-            packages/tok-ui/dist
-            packages/tok-electron/dist
-            assets/fonts
-            target/release/tok-cli.exe
+          path: dist/TypesetOK-v*-windows-x64

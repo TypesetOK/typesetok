@@ -84,8 +84,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build tok-cli (Release)
-        run: cargo build --release -p tok-cli
+      - name: Setup Node.js (Windows Desktop App)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Node dependencies & Build UI
+        run: npm ci && npm run build
+
+      - name: Build tok-cli & tok-desktop (Release)
+        run: cargo build --release -p tok-cli -p tok-desktop
 
       - name: Package binary (Windows)
         shell: pwsh
@@ -93,18 +101,11 @@ jobs:
           $tag = "${{ needs.check-release.outputs.tag_name }}"
           Compress-Archive -Path target/release/tok-cli.exe -DestinationPath "tok-cli-${tag}-windows-x64.zip"
 
-      - name: Setup Node.js (Windows Desktop App)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Package Standalone Desktop App (Windows)
+      - name: Package Standalone Desktop App (Windows Tauri v2)
         shell: pwsh
         run: |
           $tag = "${{ needs.check-release.outputs.tag_name }}"
           $ver = $tag.TrimStart('v')
-          npm install
-          npm run build
           node scripts/build-desktop-bundle.mjs
           $bundlePath = "dist/TypesetOK-${tag}-windows-x64"
           if (-not (Test-Path $bundlePath)) {
@@ -166,7 +167,8 @@ jobs:
       - name: Package UI distribution bundle
         run: |
           mkdir -p dist-package
-          cp -r packages/tok-ui/dist dist-package/ui
+          cp -r packages/tok-ui/dist-tauri dist-package/ui
+          cp -r packages/tok-ui/dist dist-package/ui-legacy
           cp -r packages/tok-electron/dist dist-package/electron
           cp -r assets dist-package/assets
           cp README.md LICENSE.md dist-package/
