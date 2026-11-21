@@ -64,7 +64,8 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────
-  # 1. Build tok-cli native binaries for all platforms
+  # 1. Build tok-cli native binaries
+  #    and Windows desktop installers
   # ──────────────────────────────────────────────
   build-binaries:
     name: Build Binary (${{ matrix.os }})
@@ -113,23 +114,44 @@ jobs:
           }
           Compress-Archive -Path $bundlePath -DestinationPath "TypesetOK-${tag}-windows-desktop-app.zip"
 
-      - name: Compile Official Windows Installer (Inno Setup)
+      # Download the full offline WebView2 Runtime installer
+      - name: Download WebView2 Offline Installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/redist" | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://go.microsoft.com/fwlink/?linkid=2124701" `
+            -OutFile "dist/redist/MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+
+      # Build both the regular and offline installers
+      - name: Compile Official Windows Installers (Inno Setup)
         shell: pwsh
         run: |
           $tag = "${{ needs.check-release.outputs.tag_name }}"
           $ver = $tag.TrimStart('v')
-          node scripts/build-installer.mjs
-          $setupSrc = "dist/TypesetOK-${tag}-Setup-x64.exe"
-          if (-not (Test-Path $setupSrc)) {
-            $setupSrc = "dist/TypesetOK-v${ver}-Setup-x64.exe"
-          }
-          Copy-Item $setupSrc "TypesetOK-${tag}-Setup.exe"
 
-      - name: Upload Windows Installer artifact
+          node scripts/build-installer.mjs --dual
+
+          $setupSrc = "dist/TypesetOK-v${ver}-Setup-x64.exe"
+          $offlineSrc = "dist/TypesetOK-v${ver}-Setup-Offline-x64.exe"
+
+          if (-not (Test-Path $setupSrc)) {
+            throw "Standard installer not found: $setupSrc"
+          }
+
+          if (-not (Test-Path $offlineSrc)) {
+            throw "Offline installer not found: $offlineSrc"
+          }
+
+          Copy-Item $setupSrc "TypesetOK-${tag}-Setup.exe"
+          Copy-Item $offlineSrc "TypesetOK-${tag}-Setup-Offline.exe"
+
+      # Upload both installers
+      - name: Upload Windows Installer artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: TypesetOK-*-Setup.exe
+          path: TypesetOK-*-Setup*.exe
 
       - name: Upload Desktop App artifact
         uses: actions/upload-artifact@v4
