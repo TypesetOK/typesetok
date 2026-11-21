@@ -338,6 +338,30 @@ pub async fn tok_show_import_dialog(
     state: State<'_, AppState>,
     options: Option<DialogOptions>,
 ) -> Result<Option<String>, String> {
+    let has_filters = options
+        .as_ref()
+        .and_then(|o| o.filters.as_ref())
+        .is_some_and(|f| !f.is_empty());
+    let options = if has_filters {
+        options
+    } else {
+        let filter = |name: &str, exts: &[&str]| DialogFilter {
+            name: name.to_string(),
+            extensions: exts.iter().map(|e| e.to_string()).collect(),
+        };
+        Some(DialogOptions {
+            filters: Some(vec![
+                filter(
+                    "כל המסמכים הנתמכים (*.docx, *.md, *.txt)",
+                    &["docx", "md", "txt"],
+                ),
+                filter("מסמכי Microsoft Word (*.docx)", &["docx"]),
+                filter("מסמכי Markdown (*.md)", &["md"]),
+                filter("קובצי טקסט פשוט (*.txt)", &["txt"]),
+            ]),
+            ..options.unwrap_or_default()
+        })
+    };
     tok_show_open_dialog(app, state, options).await
 }
 
@@ -774,6 +798,12 @@ pub async fn tok_read_import_file(
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_default();
         let is_binary = ext == "docx";
+        if !is_binary && bytes.starts_with(b"PK\x03\x04") {
+            return Err(
+                "הקובץ הוא ארכיון zip ולא מסמך טקסט. אם זו חבילת פרויקט (.tok), השתמש בפתיחת פרויקט."
+                    .to_string(),
+            );
+        }
 
         let mut docx_xml: Option<String> = None;
         let mut footnotes_xml: Option<String> = None;
