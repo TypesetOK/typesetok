@@ -2761,6 +2761,12 @@ export class TypesetOkApp {
     const host = getHostBridge();
     let targetPath = explicitPath;
 
+    // A .tok project package is a zip, not an importable text document: open it as a project.
+    if (targetPath && /\.tok$/i.test(targetPath)) {
+      this.openProjectFile(targetPath);
+      return;
+    }
+
     if (!targetPath) {
       if (host.has('showImportDialog')) {
         targetPath = (await host.showImportDialog()) || undefined;
