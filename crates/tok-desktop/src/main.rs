@@ -269,6 +269,7 @@ fn main() {
             commands::tok_decompress_raw,
             commands::tok_typeset_document,
             commands::tok_render_pdf,
+            commands::tok_render_pdf_preview,
             commands::tok_render_html,
             commands::tok_run_preflight,
             commands::tok_save_draft_recovery,

@@ -589,6 +589,55 @@ pub async fn tok_render_pdf(
     .map_err(|e| e.to_string())?
 }
 
+/// Renders the document to PDF in memory and returns it as base64, for the pre-export preview.
+/// Nothing is written to disk, so no output path is needed.
+#[tauri::command]
+pub async fn tok_render_pdf_preview(
+    state: State<'_, AppState>,
+    payload: RenderPayload,
+) -> Result<String, String> {
+    let input_path = match payload.input_path.as_deref().filter(|s| !s.is_empty()) {
+        Some(raw) => Some(authorize_read_path(&state, raw)?),
+        None => None,
+    };
+    let assets_from = match payload.assets_from.as_deref().filter(|s| !s.is_empty()) {
+        Some(raw) => Some(authorize_read_path(&state, raw)?),
+        None => None,
+    };
+    let doc_json = match payload.document.as_ref() {
+        Some(v) => Some(json_value_to_string(v)?),
+        None => None,
+    };
+    let opts = payload.options.unwrap_or_default();
+    let req = PdfRenderRequest::from_ui_options(
+        opts.format.as_deref(),
+        opts.color_profile.as_deref(),
+        opts.bleed,
+        opts.crop_marks,
+        opts.registration_marks,
+    );
+    let session = Arc::clone(&state.session);
+    let fonts_dir = optional_fonts_dir(&state.fonts_dir);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut guard = session
+            .lock()
+            .map_err(|_| "WorkspaceSession lock poisoned".to_string())?;
+        let bytes = guard
+            .render_pdf_bytes_from_json_or_path(
+                doc_json.as_deref(),
+                input_path.as_deref(),
+                fonts_dir.as_deref(),
+                assets_from.as_deref(),
+                &req,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn tok_render_html(
     state: State<'_, AppState>,

@@ -40,6 +40,10 @@ export interface TokHostMethods {
     input: string | { inputPath?: string; document?: unknown; outputPath?: string; options?: unknown; assetsFrom?: string },
     outputPath?: string
   ) => Promise<string>;
+  /** Renders the PDF in memory and resolves to its bytes as base64 (pre-export preview). */
+  renderPdfPreview: (
+    input: { inputPath?: string; document?: unknown; options?: unknown; assetsFrom?: string }
+  ) => Promise<string>;
 
   // Logger
   getRecentLogs: () => Promise<string[]>;
@@ -238,6 +242,10 @@ export class ElectronHostAdapter implements TokHostBridge {
   public onEvent(callback: (event: unknown) => void): () => void {
     return typeof this.raw.onEvent === 'function' ? this.raw.onEvent(callback) : NOOP_UNSUB;
   }
+  public renderPdfPreview(input: any): Promise<string> {
+    return this.call('renderPdfPreview', input);
+  }
+
   public renderPdf(input: any, outputPath?: string): Promise<string> {
     return this.call('renderPdf', input, outputPath);
   }
@@ -437,6 +445,10 @@ export class WebPreviewAdapter implements TokHostBridge {
   public onEvent(): () => void {
     return NOOP_UNSUB;
   }
+  public renderPdfPreview(): Promise<string> {
+    return this.unavailable('renderPdfPreview');
+  }
+
   public renderPdf(): Promise<string> {
     return this.unavailable('renderPdf');
   }

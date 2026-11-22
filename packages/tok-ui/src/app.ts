@@ -19,6 +19,7 @@ import { UpdatesStateManager } from './updates/updatesManager';
 import { UserGuideModal } from './components/UserGuideModal';
 import { TextStatsModal } from './components/TextStatsModal';
 import { PreflightModal } from './components/PreflightModal';
+import { PdfPreviewModal } from './components/PdfPreviewModal';
 import { ImportTemplateModal } from './components/ImportTemplateModal';
 import { MissingFontsModal } from './components/MissingFontsModal';
 import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
@@ -157,6 +158,9 @@ export class TypesetOkApp {
   private userGuideModalInstance?: UserGuideModal;
   private textStatsModalInstance?: TextStatsModal;
   private preflightModalInstance?: PreflightModal;
+  private pdfPreviewModalInstance?: PdfPreviewModal;
+  private pdfPreviewRequestId = 0;
+  private lastPreviewOptions: ExportOptions | null = null;
   private importTemplateModalInstance?: ImportTemplateModal;
   private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
@@ -1426,7 +1430,10 @@ export class TypesetOkApp {
 
   private get exportDialog(): ExportDialog {
     if (!this.exportDialogInstance) {
-      this.exportDialogInstance = new ExportDialog({ onExport: (options) => this.runExport(options) });
+      this.exportDialogInstance = new ExportDialog({
+        onExport: (options) => this.runExport(options),
+        onPreviewPdf: (options) => this.runPdfPreview(options)
+      });
       this.root.appendChild(this.exportDialogInstance.element);
     }
     return this.exportDialogInstance;
@@ -1445,6 +1452,53 @@ export class TypesetOkApp {
       preflightStatus: this.statusBar.getPreflightStatus(),
       preflightReport: this.latestPreflightReport
     });
+  }
+
+  private get pdfPreviewModal(): PdfPreviewModal {
+    if (!this.pdfPreviewModalInstance) {
+      this.pdfPreviewModalInstance = new PdfPreviewModal({
+        onBack: () => {
+          // Invalidate a render still in flight, then return to the (remembered) export settings.
+          this.pdfPreviewRequestId++;
+          this.openExportDialog();
+        },
+        onExport: () => {
+          if (this.lastPreviewOptions) this.runExport(this.lastPreviewOptions);
+        }
+      });
+      this.root.appendChild(this.pdfPreviewModalInstance.element);
+    }
+    return this.pdfPreviewModalInstance;
+  }
+
+  /** Renders the real PDF with the chosen export options and shows it before exporting. */
+  private runPdfPreview(options: ExportOptions): void {
+    const host = getHostBridge();
+    if (!host.has('renderPdfPreview')) {
+      this.showToast(t('pdfPreviewError') + ' ' + t('toastExportSimulated'), true);
+      this.openExportDialog();
+      return;
+    }
+    // Sync active story editor changes so the preview matches what would be exported.
+    if (this.storyEditor && this.activeFlowId) {
+      this.documentState.flows[this.activeFlowId] = this.storyEditor.getStory(true);
+    }
+    this.documentState.title = this.documentTitle || this.documentState.title;
+    const docRoot = documentStateToDocumentRoot(this.documentState);
+
+    this.lastPreviewOptions = options;
+    const requestId = ++this.pdfPreviewRequestId;
+    this.pdfPreviewModal.showLoading(options.fileName);
+    host
+      .renderPdfPreview({ document: docRoot, options, assetsFrom: this.currentFilePath || undefined })
+      .then((base64) => {
+        if (requestId !== this.pdfPreviewRequestId) return;
+        this.pdfPreviewModal.setPdf(base64);
+      })
+      .catch((err: any) => {
+        if (requestId !== this.pdfPreviewRequestId) return;
+        this.pdfPreviewModal.setError(err?.message ?? String(err));
+      });
   }
 
   /** Runs the export with the options chosen in the dialog. */

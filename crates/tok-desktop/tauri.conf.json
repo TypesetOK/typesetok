@@ -21,7 +21,7 @@
         "connect-src": "'self' ipc: http://ipc.localhost https://ipc.localhost",
         "object-src": "'none'",
         "base-uri": "'none'",
-        "frame-src": "'none'"
+        "frame-src": "blob:"
       }
     }
   },
