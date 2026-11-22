@@ -18,6 +18,7 @@ import { MajorUpdateModal } from './components/MajorUpdateModal';
 import { UpdatesStateManager } from './updates/updatesManager';
 import { UserGuideModal } from './components/UserGuideModal';
 import { TextStatsModal } from './components/TextStatsModal';
+import { PreflightModal } from './components/PreflightModal';
 import { ImportTemplateModal } from './components/ImportTemplateModal';
 import { MissingFontsModal } from './components/MissingFontsModal';
 import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
@@ -155,6 +156,7 @@ export class TypesetOkApp {
   private exportDialogInstance?: ExportDialog;
   private userGuideModalInstance?: UserGuideModal;
   private textStatsModalInstance?: TextStatsModal;
+  private preflightModalInstance?: PreflightModal;
   private importTemplateModalInstance?: ImportTemplateModal;
   private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
@@ -625,10 +627,7 @@ export class TypesetOkApp {
     // 4. Status Bar (26px)
     this.statusBar = new StatusBar({
       onZoomChange: (z) => this.canvas.setZoom(z),
-      onPreflightClick: () => {
-        this.inspector.setMode('zero');
-        this.showToast(t('toastPreflightOk'));
-      },
+      onPreflightClick: () => this.openPreflightDialog(),
       onWordCountClick: () => this.openTextStatsDialog(),
       onPageClick: () => {
         if (this.currentViewMode === 'canvas') return;
@@ -1128,6 +1127,18 @@ export class TypesetOkApp {
       this.root.appendChild(this.userGuideModalInstance.element);
     }
     return this.userGuideModalInstance;
+  }
+
+  private get preflightModal(): PreflightModal {
+    if (!this.preflightModalInstance) {
+      this.preflightModalInstance = new PreflightModal({ onClose: () => {} });
+      this.root.appendChild(this.preflightModalInstance.element);
+    }
+    return this.preflightModalInstance;
+  }
+
+  private openPreflightDialog(): void {
+    this.preflightModal.show(this.latestPreflightReport);
   }
 
   private get textStatsModal(): TextStatsModal {
@@ -2406,6 +2417,7 @@ export class TypesetOkApp {
             const pfReport = layout.preflight;
             this.latestPreflightReport = pfReport;
             this.inspector?.setPreflightReport(pfReport);
+            this.preflightModalInstance?.update(pfReport);
             if (pfReport) {
               const uiPfStatus: 'clean' | 'warning' | 'error' =
                 pfReport.overall_status === 'Fail'
