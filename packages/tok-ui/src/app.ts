@@ -629,11 +629,7 @@ export class TypesetOkApp {
       onZoomChange: (z) => this.canvas.setZoom(z),
       onPreflightClick: () => this.openPreflightDialog(),
       onWordCountClick: () => this.openTextStatsDialog(),
-      onPageClick: () => {
-        if (this.currentViewMode === 'canvas') return;
-        this.setViewMode('canvas');
-        this.topBar?.setViewMode('canvas');
-      },
+      onPageClick: () => this.showPagesViewer(),
       onExportPdf: () => this.handleSystemAction('export-pdf')
     });
     this.root.appendChild(this.statusBar.element);
@@ -1135,6 +1131,20 @@ export class TypesetOkApp {
       this.root.appendChild(this.preflightModalInstance.element);
     }
     return this.preflightModalInstance;
+  }
+
+  /**
+   * Page indicator in the status bar: always lands on the page viewer, whatever is on screen
+   * (story editor, split view, a side panel closed or showing flows/styles/layers).
+   */
+  private showPagesViewer(): void {
+    if (this.currentViewMode !== 'canvas') {
+      this.setViewMode('canvas');
+      this.topBar?.setViewMode('canvas');
+    }
+    // Leaving split view restores the panel it folded away; open the pages list explicitly either way.
+    this.structureBar.showTab('pages');
+    this.canvas.scrollToPage(this.activePageIndex);
   }
 
   private openPreflightDialog(): void {
