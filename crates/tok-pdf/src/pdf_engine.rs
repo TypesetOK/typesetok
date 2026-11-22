@@ -1215,7 +1215,20 @@ impl PdfPrePressEngine {
                         .get(usize::from(cid))
                         .copied()
                         .unwrap_or(0.0);
-                    writer.push(gx, cid, advance_1000, size);
+                    if g.stretch > 0.0 && g.stretch.is_finite() {
+                        // Justification Tier 2: draw the Ahalterm letter horizontally widened.
+                        // The widening is the text matrix's x scale, applied from the glyph
+                        // origin, so the layout advance (already in `g.width`) is untouched;
+                        // the next glyph starts a fresh, unscaled matrix.
+                        writer.flush(&mut content);
+                        content.set_text_matrix([1.0 + g.stretch, 0.0, 0.0, 1.0, gx, base_y]);
+                        writer.pen = Some(gx);
+                        writer.push(gx, cid, advance_1000, size);
+                        writer.flush(&mut content);
+                        writer.pen = None;
+                    } else {
+                        writer.push(gx, cid, advance_1000, size);
+                    }
                 }
                 writer.flush(&mut content);
                 if writer.rise != 0.0 {
@@ -2003,6 +2016,7 @@ mod tests {
             color_index: 1,
             underline: true,
             italic: false,
+            stretch: 0.0,
         };
         let line = LineBox {
             line_index: 0,

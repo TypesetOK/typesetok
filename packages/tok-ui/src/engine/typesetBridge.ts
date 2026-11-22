@@ -32,6 +32,8 @@ export interface GlyphBox {
   height: number;
   character?: string;
   font_index?: number;
+  /** Horizontal widening of an Ahalterm letter's shape (0.12 = 12% wider), set by justification Tier 2. */
+  stretch?: number;
 }
 
 export interface VisualLineRun {
@@ -335,6 +337,20 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
           (line.width || 0) > 0 &&
           (line.width >= frameMaxLineW - 0.5 || line.width >= lineMeasure * 0.985) &&
           /\S\s+\S/.test(line.text || '');
+        // Engine-exact widths for the page view: justified spaces and widened Ahalterm letters,
+        // both in logical (cluster) order. See engine/lineFit.ts.
+        let fitAttrs = '';
+        if (isJustifiedLine && line.glyphs && line.glyphs.length > 0) {
+          const round = (n: number, d: number) => String(Math.round(n * 10 ** d) / 10 ** d);
+          const byCluster = (a: GlyphBox, b: GlyphBox) => a.cluster - b.cluster;
+          const sp = line.glyphs.filter((g) => g.character === ' ').sort(byCluster).map((g) => round(g.width, 3));
+          const ah = line.glyphs
+            .filter((g) => (g.stretch || 0) > 0)
+            .sort(byCluster)
+            .map((g) => `${round(g.width, 3)},${round(g.stretch || 0, 4)}`);
+          if (sp.length > 0) fitAttrs += ` data-sp="${sp.join(';')}"`;
+          if (ah.length > 0) fitAttrs += ` data-ah="${ah.join(';')}"`;
+        }
         // Exact physical top offset from Rust layout engine: baseline_y - height
         const topOffsetPt = Math.max(0, line.baseline_y - line.height);
         const lineHPt = Math.max(1, line.height);
@@ -356,7 +372,7 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
         const paraColor = line.visual_runs?.length ? undefined : safeCssColor(located?.source.color);
         const colorStyle = paraColor ? ` color: ${paraColor};` : '';
 
-        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}"${isJustifiedLine ? ' data-justify="1"' : ''} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${colorStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
+        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}"${isJustifiedLine ? ' data-justify="1"' : ''}${fitAttrs} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${colorStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
       }).join('\n');
 
       const emptyNotice = (!frame.lines || frame.lines.length === 0)

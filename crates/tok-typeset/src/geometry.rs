@@ -4,6 +4,10 @@ fn is_zero_u16(v: &u16) -> bool {
     *v == 0
 }
 
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PhysicalPoint {
     pub x: f32, // in DTP points (pt)
@@ -71,6 +75,12 @@ pub struct GlyphBox {
     pub underline: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub italic: bool,
+    /// Horizontal widening of the glyph shape as a fraction of its natural width
+    /// (`0.12` = drawn 12% wider). Set only for Ahalterm letters widened by
+    /// justification Tier 2; `width` already holds the whole advance, so the
+    /// glyph is drawn scaled from its origin and any remainder stays as a gap.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub stretch: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
