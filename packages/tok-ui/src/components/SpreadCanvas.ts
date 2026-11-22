@@ -5,6 +5,7 @@ import { t, tf, i18n } from '../i18n';
 import { el, icon, iconButton, button } from '../ui';
 import { alignFrames, FrameAlignType, FrameRect } from '../utils/frameAlignment';
 import { hostSettings } from '../platform/hostSettings.js';
+import { fitJustifiedLines } from '../engine/lineFit';
 
 /**
  * Spread geometry for a right-to-left bound book.
@@ -719,6 +720,11 @@ export class SpreadCanvas {
       });
       content.innerHTML = page.htmlContent;
       sheet.appendChild(content);
+      if (isEngineLayout) {
+        // Measuring needs the page in the document, and the final font metrics.
+        requestAnimationFrame(() => fitJustifiedLines(content));
+        void document.fonts?.ready.then(() => fitJustifiedLines(content));
+      }
 
       // Bind interactive clicks on all frames inside the rendered multi-flow content
       const frames = content.querySelectorAll<HTMLElement>('.tok-interactive-frame');
