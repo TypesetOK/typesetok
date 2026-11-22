@@ -6,6 +6,68 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.37.2",
+    "releaseDate": "2026-11-22",
+    "importance": "patch",
+    "title": {
+      "he": "שחזור העיצוב אחרי המעבר ל-Tauri, תצוגת PDF מקדימה, חלון בדיקת דפוס ומתיחת שורות בתצוגה (0.37.2)",
+      "en": "Tauri Display Restore, PDF Preview, Print Check Dialog & Justified Lines in Page View (0.37.2)"
+    },
+    "summary": {
+      "he": "תיקון שבירת העיצוב שנגרמה מחסימת סגנונות מוטבעים ב-CSP של Tauri, תצוגת PDF אמיתית לפני הייצוא, חלון בדיקת דפוס עם הסבר מובן בעברית ובאנגלית, הצגת שורות מוצדקות (כולל מתיחת אותיות אהלתר״ם) בתצוגת העמודים, ולחיצה על מד העמודים שפותחת תמיד את מציג העמודים.",
+      "en": "Fixes the broken layout caused by Tauri's CSP blocking inline styles, adds a real PDF preview before export, a print-check dialog with plain-language Hebrew/English explanations, justified lines (including Ahalterm letter stretching) in the page view, and a status-bar page indicator that always opens the page viewer."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "תצוגת PDF מקדימה בחלון הייצוא: הקובץ המלא מופק בזיכרון על ידי מנוע ה-Rust (פקודת `tok_render_pdf_preview`) ומוצג לפני השמירה, עם חזרה להגדרות הייצוא או ייצוא ישיר",
+          "en": "PDF preview in the export dialog: the full file is rendered in memory by the Rust engine (`tok_render_pdf_preview` command) and shown before saving, with a way back to the export settings or direct export"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "חלון בדיקת דפוס חדש בלחיצה על הכפתור בסרגל התחתון: סיכום, הסבר מובן לכל בדיקה בעברית או באנגלית לפי שפת הממשק, והמלצה מה לעשות, במקום הודעת \"הכול תקין\" קבועה",
+          "en": "New print-check dialog from the status-bar button: a summary, a plain-language explanation per check in Hebrew or English by UI language, and what to do about it, instead of a fixed \"all good\" toast"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "שחזור העיצוב אחרי המעבר ל-Tauri: מאפייני `style` מוטבעים נחסמו כי Tauri מוסיף nonce ל-`style-src`; הושבתה ההוספה האוטומטית ל-`style-src` בלבד (למשל בועת הזום הצפה חזרה לצוף מעל המסמך, #45)",
+          "en": "Restore the layout after the Tauri move: inline `style` attributes were blocked because Tauri adds a nonce to `style-src`; automatic modification is now disabled for `style-src` only (e.g. the floating zoom bubble floats over the document again, #45)"
+        }
+      },
+      {
+        "category": "typography",
+        "text": {
+          "he": "תצוגת העמודים מציגה שורות מוצדקות לפי רוחב המנוע, באותו מדרג של שלושה שלבים (רווחי מילים, מתיחת אותיות אהלתר״ם, מיקרו-טרקינג), ושורה רחבה מדי נדחסת במקום להיחתך באמצע מילה",
+          "en": "The page view now fits justified lines to the engine width using the same 3 tiers (word spacing, Ahalterm letter stretching, micro-tracking), and an overfull line is squeezed instead of being clipped mid-word"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "לחיצה על מד העמודים בסרגל התחתון פותחת תמיד את מציג העמודים (גם מתצוגה משולבת, מעורך טקסט או כשהחלונית סגורה או על לשונית אחרת) וגוללת לעמוד הפעיל",
+          "en": "Clicking the status-bar page indicator always opens the page viewer (from split view, the text editor, or with the panel closed or on another tab) and scrolls to the active page"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "קובץ פרויקט `.tok` כבר לא נטען כטקסט גולמי בייבוא מסמך: לדיאלוג הייבוא נוספו מסנני ברירת מחדל, נתיב `.tok` מופנה לפתיחת פרויקט, וארכיון zip שאינו docx נדחה בהודעה ברורה",
+          "en": "A `.tok` project file is no longer imported as raw text: the import dialog has default filters, `.tok` paths are routed to project open, and a non-docx zip archive is rejected with a clear message"
+        }
+      }
+    ],
+    "highlights": [],
+    "badge": {
+      "he": "תיקוני תצוגה ויציבות",
+      "en": "Display & Stability Fixes"
+    }
+  },
+  {
     "version": "0.37.0",
     "releaseDate": "2026-11-20",
     "importance": "major",
