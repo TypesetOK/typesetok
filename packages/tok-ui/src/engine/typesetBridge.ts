@@ -327,7 +327,14 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
 
       const isPrimary = baseFlowId === 'gemara' || baseFlowId === 'main' || baseFlowId === 'primary';
 
+      // Lines that reach the column measure are justified; the page view stretches them to match.
+      const frameMaxLineW = Math.max(0, ...(frame.lines || []).map((l) => l.width || 0));
       const linesHtml = (frame.lines || []).map((line) => {
+        const lineMeasure = widthPt - (line.x_offset || 0);
+        const isJustifiedLine =
+          (line.width || 0) > 0 &&
+          (line.width >= frameMaxLineW - 0.5 || line.width >= lineMeasure * 0.985) &&
+          /\S\s+\S/.test(line.text || '');
         // Exact physical top offset from Rust layout engine: baseline_y - height
         const topOffsetPt = Math.max(0, line.baseline_y - line.height);
         const lineHPt = Math.max(1, line.height);
@@ -349,7 +356,7 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
         const paraColor = line.visual_runs?.length ? undefined : safeCssColor(located?.source.color);
         const colorStyle = paraColor ? ` color: ${paraColor};` : '';
 
-        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${colorStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
+        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}"${isJustifiedLine ? ' data-justify="1"' : ''} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${colorStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
       }).join('\n');
 
       const emptyNotice = (!frame.lines || frame.lines.length === 0)

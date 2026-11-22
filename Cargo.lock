@@ -4506,7 +4506,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tok-cli"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4521,7 +4521,7 @@ dependencies = [
 
 [[package]]
 name = "tok-core"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "log",
  "regex",
@@ -4534,7 +4534,7 @@ dependencies = [
 
 [[package]]
 name = "tok-desktop"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -4562,7 +4562,7 @@ dependencies = [
 
 [[package]]
 name = "tok-engine-service"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4576,7 +4576,7 @@ dependencies = [
 
 [[package]]
 name = "tok-ipc"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4585,7 +4585,7 @@ dependencies = [
 
 [[package]]
 name = "tok-pdf"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "miniz_oxide 0.9.1",
  "pdf-writer",
@@ -4599,7 +4599,7 @@ dependencies = [
 
 [[package]]
 name = "tok-plugin-host"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "log",
  "serde",
@@ -4609,7 +4609,7 @@ dependencies = [
 
 [[package]]
 name = "tok-storage"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "log",
  "redb",
@@ -4623,7 +4623,7 @@ dependencies = [
 
 [[package]]
 name = "tok-typeset"
-version = "0.37.0"
+version = "0.37.2"
 dependencies = [
  "cassowary",
  "log",

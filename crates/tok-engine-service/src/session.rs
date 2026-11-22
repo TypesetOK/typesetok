@@ -482,6 +482,26 @@ impl WorkspaceSession {
         Ok(pdf_bytes.len())
     }
 
+    /// Same as [`Self::render_pdf_from_json_or_path`], but returns the PDF bytes instead of
+    /// writing a file (used for the pre-export preview).
+    pub fn render_pdf_bytes_from_json_or_path(
+        &mut self,
+        document_json: Option<&str>,
+        input_path: Option<&Path>,
+        fonts_dir: Option<&Path>,
+        assets_from: Option<&Path>,
+        req: &PdfRenderRequest,
+    ) -> Result<Vec<u8>, EngineServiceError> {
+        if document_json.is_some() || input_path.is_some() {
+            let doc =
+                self.prepare_session_target(document_json, input_path, fonts_dir, assets_from, 30)?;
+            self.typeset_document(doc.root(), false);
+        } else if fonts_dir.is_some() || assets_from.is_some() {
+            self.sync_fonts_and_assets(fonts_dir, assets_from, None);
+        }
+        self.render_active_pdf(req)
+    }
+
     /// Typesets (if target provided) and atomically writes pre-paginated HTML to `output_path`.
     pub fn render_html_from_json_or_path(
         &mut self,

@@ -7,8 +7,8 @@
 <p align="center">
   <strong>Professional Desktop Publishing Software for Hebrew, Multi-Text (Mikraot Gedolot &amp; Talmud / Shas), Live Tzurat HaDaf &amp; Pre-Press</strong><br>
   <strong>תוכנת עימוד שולחנית מקצועית לעברית, רב-טקסט (מקראות גדולות וש"ס), צורת הדף חיה וקדם-דפוס</strong><br>
-  <em>Version 0.37.0 • Native Rust Core • Tauri v2 Desktop Shell • Full Determinism</em><br>
-  <em>גרסה 0.37.0 • ליבת Native Rust • מעטפת Tauri v2 • דטרמיניזם מלא</em>
+  <em>Version 0.37.2 • Native Rust Core • Tauri v2 Desktop Shell • Full Determinism</em><br>
+  <em>גרסה 0.37.2 • ליבת Native Rust • מעטפת Tauri v2 • דטרמיניזם מלא</em>
 </p>
 
 <p align="center">

@@ -39,6 +39,7 @@ const ALL_TAURI_HOST_METHODS: ReadonlySet<keyof TokHostMethods> = new Set<keyof 
   'sendCommand',
   'onEvent',
   'renderPdf',
+  'renderPdfPreview',
   'renderHtml',
   'getRecentLogs',
   'openLogsFolder',
@@ -204,6 +205,12 @@ export class TauriHostAdapter implements TokHostBridge {
   public renderPdf(input: RenderInputPayload, outputPath?: string): Promise<string> {
     return this.invokeCmd('tok_render_pdf', {
       payload: normalizeRenderPayload(input, outputPath),
+    });
+  }
+
+  public renderPdfPreview(input: RenderInputPayload): Promise<string> {
+    return this.invokeCmd('tok_render_pdf_preview', {
+      payload: normalizeRenderPayload(input),
     });
   }
 

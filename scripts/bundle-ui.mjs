@@ -70,6 +70,8 @@ export function buildTauriFrontendDist(
     'connect-src',
     "'self' ipc: http://ipc.localhost https://ipc.localhost"
   );
+  // The pre-export PDF preview shows a blob: URL inside an iframe.
+  nextCsp = replaceCspDirective(nextCsp, 'frame-src', 'blob:');
   html = html.replace(CSP_META_RE, `$1${nextCsp}$5`);
   html = html.replaceAll('../../../assets/', './assets/');
 

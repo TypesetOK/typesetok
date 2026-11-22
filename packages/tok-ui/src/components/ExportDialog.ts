@@ -30,6 +30,8 @@ export interface ExportDialogContext {
 
 export interface ExportDialogCallbacks {
   onExport: (options: ExportOptions) => void;
+  /** Renders the real PDF with these options and shows it before anything is saved. */
+  onPreviewPdf?: (options: ExportOptions) => void;
 }
 
 /** "פרויקט.tok" -> "פרויקט.pdf" */
@@ -306,6 +308,21 @@ export class ExportDialog {
     foot.appendChild(nameWrap);
     foot.appendChild(el('span', 'tok-grow'));
     foot.appendChild(button(t('exportCancel'), { attrs: { 'data-focus-key': 'cancel' }, onClick: () => this.hide() }));
+    if (this.callbacks.onPreviewPdf) {
+      foot.appendChild(button(t('exportPdfPreviewBtn'), {
+        icon: 'eye',
+        attrs: { 'data-focus-key': 'preview-pdf' },
+        onClick: () => {
+          let name = o.fileName.trim() || defaultExportFileName(this.context.documentTitle);
+          if (!/\.pdf$/i.test(name)) name += '.pdf';
+          o.fileName = name;
+          o.fromPage = Math.min(o.fromPage, o.toPage);
+          o.toPage = Math.max(o.fromPage, o.toPage);
+          this.hide();
+          this.callbacks.onPreviewPdf?.({ ...o });
+        }
+      }));
+    }
     foot.appendChild(button(t('exportGo'), {
       className: 'tok-btn tok-btn-primary',
       icon: 'export',
