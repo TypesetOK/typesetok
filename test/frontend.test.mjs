@@ -4457,7 +4457,7 @@ describe('Clean-Room Architecture Stages 1-5: Color, Columns, Fonts, Media & Rea
     }
   });
 
-  test('Stage 5: ContextualInspector & ExportDialog render real Rust PreflightReport status without hardcoded ok:true', async () => {
+  test('Stage 5: ExportDialog renders the real Rust PreflightReport; the inspector no longer lists the print check', async () => {
     const prevAddEvt = globalThis.document.addEventListener;
     const prevCss = globalThis.CSS;
     const prevHtmlEl = globalThis.HTMLElement;
@@ -4505,11 +4505,9 @@ describe('Clean-Room Architecture Stages 1-5: Color, Columns, Fonts, Media & Rea
       });
       inspector.setPreflightReport(report);
       const inspText = collectTreeText(inspector.element);
-      assert.ok(inspText.includes('חסר גופן KeterYG'));
-      assert.ok(inspText.includes('תמונה אחת מתחת ל-300 DPI'));
-      const inspNodes = collectTreeNodes(inspector.element);
-      assert.ok(inspNodes.some((n) => (n.className || '').includes('tok-err')));
-      assert.ok(inspNodes.some((n) => (n.className || '').includes('tok-warn')));
+      // The full print check lives in its own dialog now: the properties panel does not list it.
+      assert.ok(!inspText.includes('חסר גופן KeterYG'));
+      assert.ok(!inspText.includes('תמונה אחת מתחת ל-300 DPI'));
 
       const exportDialog = new ExportDialog({ onExport: () => {} });
       exportDialog.show({
