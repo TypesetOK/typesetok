@@ -160,6 +160,7 @@ export class TypesetOkApp {
   private preflightModalInstance?: PreflightModal;
   private pdfPreviewModalInstance?: PdfPreviewModal;
   private pdfPreviewRequestId = 0;
+  private preflightReturnToExport = false;
   private lastPreviewOptions: ExportOptions | null = null;
   private importTemplateModalInstance?: ImportTemplateModal;
   private customFlowModalInstance?: CustomFlowModal;
@@ -1131,7 +1132,15 @@ export class TypesetOkApp {
 
   private get preflightModal(): PreflightModal {
     if (!this.preflightModalInstance) {
-      this.preflightModalInstance = new PreflightModal({ onClose: () => {} });
+      this.preflightModalInstance = new PreflightModal({
+        onClose: () => {
+          // Opened from the export dialog: go back to it.
+          if (this.preflightReturnToExport) {
+            this.preflightReturnToExport = false;
+            this.openExportDialog();
+          }
+        }
+      });
       this.root.appendChild(this.preflightModalInstance.element);
     }
     return this.preflightModalInstance;
@@ -1151,7 +1160,8 @@ export class TypesetOkApp {
     this.canvas.scrollToPage(this.activePageIndex);
   }
 
-  private openPreflightDialog(): void {
+  private openPreflightDialog(fromExportDialog = false): void {
+    this.preflightReturnToExport = fromExportDialog;
     this.preflightModal.show(this.latestPreflightReport);
   }
 
@@ -1432,7 +1442,8 @@ export class TypesetOkApp {
     if (!this.exportDialogInstance) {
       this.exportDialogInstance = new ExportDialog({
         onExport: (options) => this.runExport(options),
-        onPreviewPdf: (options) => this.runPdfPreview(options)
+        onPreviewPdf: (options) => this.runPdfPreview(options),
+        onShowPreflight: () => this.openPreflightDialog(true)
       });
       this.root.appendChild(this.exportDialogInstance.element);
     }
@@ -1450,8 +1461,15 @@ export class TypesetOkApp {
         return `${p ? p.gematriaNumber : toHebrewGematria(pos + 1)} ${isRectoPage(pos) ? 'ע״א' : 'ע״ב'}`;
       }),
       preflightStatus: this.statusBar.getPreflightStatus(),
-      preflightReport: this.latestPreflightReport
+      preflightReport: this.latestPreflightReport,
+      previewSheets: this.spreadPreviewSheets(spread)
     });
+  }
+
+  /** Copies of the spread's pages as the page viewer draws them; empty unless every page is drawn. */
+  private spreadPreviewSheets(spread: number[]): HTMLElement[] {
+    const sheets = spread.map((pos) => this.canvas.cloneRenderedSheet(this.pages[pos]?.pageIndex ?? pos));
+    return sheets.every((s): s is HTMLElement => s !== null) ? sheets : [];
   }
 
   private get pdfPreviewModal(): PdfPreviewModal {

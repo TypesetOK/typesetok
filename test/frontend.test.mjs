@@ -4457,7 +4457,7 @@ describe('Clean-Room Architecture Stages 1-5: Color, Columns, Fonts, Media & Rea
     }
   });
 
-  test('Stage 5: ExportDialog renders the real Rust PreflightReport; the inspector no longer lists the print check', async () => {
+  test('Stage 5: ExportDialog summarises the real Rust PreflightReport; the inspector no longer duplicates the print check', async () => {
     const prevAddEvt = globalThis.document.addEventListener;
     const prevCss = globalThis.CSS;
     const prevHtmlEl = globalThis.HTMLElement;
@@ -4504,12 +4504,12 @@ describe('Clean-Room Architecture Stages 1-5: Color, Columns, Fonts, Media & Rea
         onAlignFrames: () => {}
       });
       inspector.setPreflightReport(report);
-      const inspText = collectTreeText(inspector.element);
       // The full print check lives in its own dialog now: the properties panel does not list it.
+      const inspText = collectTreeText(inspector.element);
       assert.ok(!inspText.includes('חסר גופן KeterYG'));
       assert.ok(!inspText.includes('תמונה אחת מתחת ל-300 DPI'));
 
-      const exportDialog = new ExportDialog({ onExport: () => {} });
+      const exportDialog = new ExportDialog({ onExport: () => {}, onShowPreflight: () => {} });
       exportDialog.show({
         documentTitle: 'ספר בדיקה',
         pageCount: 4,
@@ -4518,11 +4518,12 @@ describe('Clean-Room Architecture Stages 1-5: Color, Columns, Fonts, Media & Rea
         preflightReport: report
       });
       const expText = collectTreeText(exportDialog.element);
-      assert.ok(expText.includes('חסר גופן KeterYG'));
-      assert.ok(expText.includes('תמונה אחת מתחת ל-300 DPI'));
+      // A short summary (status badge, counts, link to the details) instead of the whole list.
+      assert.ok(expText.includes('1 שגיאות · 1 אזהרות') || expText.includes('1 errors · 1 warnings'));
+      assert.ok(expText.includes('פרטי הבדיקה') || expText.includes('Check details'));
+      assert.ok(!expText.includes('חסר גופן KeterYG'));
       const expNodes = collectTreeNodes(exportDialog.element);
       assert.ok(expNodes.some((n) => (n.className || '').includes('tok-badge-error')));
-      assert.ok(expNodes.some((n) => (n.className || '').includes('tok-err')));
     } finally {
       globalThis.document.addEventListener = prevAddEvt;
       globalThis.CSS = prevCss;

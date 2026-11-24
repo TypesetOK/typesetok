@@ -1,6 +1,6 @@
 import { t, tf, i18n } from '../i18n';
-import type { PreflightReport, PreflightStatus } from '../engine/typesetBridge';
-import { el, icon, iconButton, button, kbd, switchRow, segmented, group, selectField } from '../ui';
+import type { PreflightReport } from '../engine/typesetBridge';
+import { el, iconButton, button, kbd, switchRow, segmented, group, selectField } from '../ui';
 import { ModalController } from './ModalController';
 import { getHostBridge } from '../platform/hostBridge.js';
 
@@ -26,12 +26,35 @@ export interface ExportDialogContext {
   spreadLabels: string[];
   preflightStatus: 'clean' | 'warning' | 'error';
   preflightReport?: PreflightReport | null;
+  /**
+   * The pages of the current spread exactly as the page viewer draws them (detached copies),
+   * right-hand page first. Missing when the viewer cannot provide them.
+   */
+  previewSheets?: HTMLElement[];
 }
 
 export interface ExportDialogCallbacks {
   onExport: (options: ExportOptions) => void;
   /** Renders the real PDF with these options and shows it before anything is saved. */
   onPreviewPdf?: (options: ExportOptions) => void;
+  /** Opens the full print-check dialog (the export dialog is closed first and reopened after). */
+  onShowPreflight?: () => void;
+}
+
+/** Folder part of a path, or '' when it has none. */
+function dirName(path: string): string {
+  const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return i > 0 ? path.slice(0, i) : '';
+}
+
+function baseName(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+}
+
+function joinPath(dir: string, name: string): string {
+  if (!dir) return name;
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+  return dir.endsWith('/') || dir.endsWith('\\') ? `${dir}${name}` : `${dir}${sep}${name}`;
 }
 
 /** "פרויקט.tok" -> "פרויקט.pdf" */
@@ -46,25 +69,16 @@ const FORMATS: { id: ExportFormat; code: string; titleKey: string; descKey: stri
   { id: 'pdf', code: 'PDF', titleKey: 'exportScreenTitle', descKey: 'exportScreenDesc' }
 ];
 
-/** Document page drawing for the preview (same proportions as the start screen). */
-function previewPage(rightHand: boolean): HTMLElement {
-  const page = el('div', 'tok-page-art', { 'aria-hidden': 'true' });
-  page.style.width = '96px';
-  page.style.height = '136px';
-  page.style.boxShadow = 'none';
-  const outer = rightHand ? 'right' : 'left';
-  page.innerHTML = `
-    <i class="tr" style="top:8%;right:10%;width:80%"></i>
-    <i class="tg2" style="top:18%;right:10%;width:80%;height:68%"></i>
-    <i class="tr" style="top:90%;${outer}:10%;width:25%"></i>`;
-  return page;
-}
+/** Pixel width the real page preview is fitted to. */
+const PREVIEW_WIDTH_PX = 252;
 
 export class ExportDialog {
   public element: HTMLElement;
   private callbacks: ExportDialogCallbacks;
   private modal: ModalController;
   private isVisible = false;
+  /** Folder the PDF is written to unless the user picks another one (the projects folder). */
+  private saveDir = '';
   private context: ExportDialogContext = { documentTitle: '', pageCount: 0, spreadLabels: [], preflightStatus: 'clean', preflightReport: null };
   private options: ExportOptions = {
     format: 'pdfx1a',
@@ -97,6 +111,33 @@ export class ExportDialog {
     this.element.classList.add('tok-open');
     this.render();
     this.modal.opened();
+    if (!this.saveDir) void this.loadDefaultSaveDir();
+  }
+
+  /** The PDF is saved in the TypesetOK projects folder by default. */
+  private async loadDefaultSaveDir(): Promise<void> {
+    try {
+      const host = getHostBridge();
+      if (!host.has('getProjectsDir')) return;
+      const dir = await host.getProjectsDir();
+      if (dir && !this.saveDir) {
+        this.saveDir = dir;
+        if (this.isVisible) this.render();
+      }
+    } catch {
+      /* without a known folder the host decides where a bare file name goes */
+    }
+  }
+
+  /** Final output path: the chosen folder (projects folder by default) plus the file name. */
+  private outputPath(): string {
+    const o = this.options;
+    let name = o.fileName.trim() || defaultExportFileName(this.context.documentTitle);
+    if (!/\.pdf$/i.test(name)) name += '.pdf';
+    o.fileName = name;
+    o.fromPage = Math.min(o.fromPage, o.toPage);
+    o.toPage = Math.max(o.fromPage, o.toPage);
+    return joinPath(this.saveDir, name);
   }
 
   public hide(): void {
@@ -118,8 +159,9 @@ export class ExportDialog {
     const o = this.options;
 
     const card = el('div', 'tok-dialog');
-    card.style.width = '920px';
-    card.style.height = '700px';
+    card.style.width = '820px';
+    card.style.maxWidth = '96vw';
+    card.style.maxHeight = '92vh';
 
     // Header
     const head = el('div', 'tok-dialog-head');
@@ -133,29 +175,19 @@ export class ExportDialog {
 
     const body = el('div', 'tok-dialog-body');
 
-    // ---- Options ----
+    // ---- Options (short and in one column) ----
     const form = el('div', 'tok-export-form');
+    form.style.gap = '14px';
 
-    const formats = el('div', undefined, { role: 'radiogroup', 'aria-label': t('exportFormat'), style: 'display:flex;flex-direction:column;gap:8px' });
-    for (const f of FORMATS) {
-      const on = o.format === f.id;
-      const b = el('button', 'tok-radio-card', { type: 'button', role: 'radio', 'aria-checked': String(on), 'data-focus-key': `format-${f.id}` });
-      b.appendChild(el('span', 'tok-radio-dot', { 'aria-hidden': 'true' }));
-      const text = el('span', undefined, { style: 'flex:1;display:flex;flex-direction:column;gap:3px' });
-      const title = el('span', 'tok-format-title');
-      title.appendChild(el('b', undefined, undefined, f.code));
-      title.appendChild(el('span', undefined, undefined, `· ${t(f.titleKey)}`));
-      if (f.recommended) title.appendChild(el('span', 'tok-badge tok-badge-success', { style: 'font-size:11px;font-weight:600' }, t('exportRecommended')));
-      text.appendChild(title);
-      text.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary)' }, t(f.descKey)));
-      b.appendChild(text);
-      b.addEventListener('click', () => {
-        o.format = f.id;
-        this.render();
-      });
-      formats.appendChild(b);
-    }
-    form.appendChild(group(t('exportFormat'), formats));
+    // Format: one segmented control and a one-line description of the chosen format.
+    const fmtBox = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:6px' });
+    fmtBox.appendChild(segmented(t('exportFormat'), FORMATS.map((f) => ({ id: f.id, label: f.recommended ? `${f.code} ★` : f.code })), o.format, (id) => {
+      o.format = id;
+      this.render();
+    }, { fill: true, focusPrefix: 'format' }));
+    const chosen = FORMATS.find((f) => f.id === o.format) ?? FORMATS[0];
+    fmtBox.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary)' }, `${t(chosen.titleKey)} — ${t(chosen.descKey)}`));
+    form.appendChild(group(t('exportFormat'), fmtBox));
 
     // Page range
     const rangeRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:12px;flex-wrap:wrap' });
@@ -200,8 +232,8 @@ export class ExportDialog {
     }
     form.appendChild(group(t('exportPages'), rangeRow));
 
-    // Marks & color profile
-    const two = el('div', undefined, { style: 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px' });
+    // Print marks and colour profile, side by side.
+    const two = el('div', undefined, { style: 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start' });
     const marks = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px' });
     marks.appendChild(switchRow(t('exportBleed'), o.bleed, (v) => (o.bleed = v), { focusKey: 'bleed' }));
     marks.appendChild(switchRow(t('exportCropMarks'), o.cropMarks, (v) => (o.cropMarks = v), { focusKey: 'crop' }));
@@ -215,76 +247,14 @@ export class ExportDialog {
       { value: 'swop', label: t('exportProfileSwop') }
     ], o.colorProfile, (v) => (o.colorProfile = v as ExportOptions['colorProfile']), { 'data-focus-key': 'profile', disabled: o.format === 'pdf' })));
     form.appendChild(two);
-    body.appendChild(form);
 
-    // ---- Preview & print check ----
-    const side = el('aside', 'tok-export-side', { 'aria-label': t('exportCheckAria') });
-    const preview = el('div', 'tok-export-preview', { role: 'img', 'aria-label': `${t('exportPreview')}: ${this.context.spreadLabels.join(' – ')}` });
-    const spread = el('div');
-    // Right-hand page first (the preview is laid out right to left like the book).
-    spread.dir = 'rtl';
-    if (this.context.spreadLabels.length > 1) spread.appendChild(previewPage(true));
-    spread.appendChild(previewPage(false));
-    preview.appendChild(spread);
-    side.appendChild(preview);
-    side.appendChild(el('span', undefined, { style: 'text-align:center;font-size:12px;color:var(--tok-text-secondary)' }, this.context.spreadLabels.join(' – ')));
-
-    const report = this.context.preflightReport;
-    const status: 'clean' | 'warning' | 'error' = report
-      ? report.overall_status === 'Fail'
-        ? 'error'
-        : report.overall_status === 'Warning'
-        ? 'warning'
-        : 'clean'
-      : this.context.preflightStatus;
-    const check = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:10px' });
-    const checkHead = el('div', 'tok-check-head');
-    checkHead.appendChild(el('span', undefined, undefined, t('exportCheckTitle')));
-    const badgeClass = status === 'clean' ? 'tok-badge-success' : status === 'warning' ? 'tok-badge-warning' : 'tok-badge-error';
-    const badge = el('span', `tok-badge ${badgeClass}`);
-    badge.appendChild(el('span', 'tok-dot', { 'aria-hidden': 'true' }));
-    badge.appendChild(el('span', undefined, undefined, status === 'clean' ? t('inspReadyForPrint') : status === 'warning' ? t('exportCheckWarnings') : t('exportCheckErrors')));
-    checkHead.appendChild(badge);
-    check.appendChild(checkHead);
-    const list = el('ul', 'tok-check-list');
-    if (report && Array.isArray(report.checks) && report.checks.length > 0) {
-      for (const item of report.checks) {
-        const st: PreflightStatus = item.status;
-        const li = el('li', undefined, { style: 'align-items:flex-start' });
-        const markCls = st === 'Fail' ? 'tok-err' : st === 'Warning' ? 'tok-warn' : 'tok-ok';
-        const iconName = st === 'Fail' ? 'close' : st === 'Warning' ? 'warning' : 'check';
-        const mark = el('span', markCls);
-        mark.appendChild(icon(iconName, 15));
-        li.appendChild(mark);
-        const text = el('span', undefined, { style: 'flex:1;display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere' });
-        text.appendChild(el('span', undefined, { dir: 'auto', style: 'color:var(--tok-text-primary)' }, item.title));
-        text.appendChild(el('span', undefined, { dir: 'auto' }, item.summary));
-        li.appendChild(text);
-        list.appendChild(li);
-      }
-    } else {
-      for (const key of ['exportCheckK', 'exportCheckFonts', 'exportCheckOverset', 'exportCheckImages']) {
-        const ok = status === 'clean';
-        const li = el('li');
-        const mark = el('span', status === 'error' ? 'tok-err' : ok ? 'tok-ok' : 'tok-warn');
-        mark.appendChild(icon(status === 'error' ? 'close' : ok ? 'check' : 'warning', 15));
-        li.appendChild(mark);
-        li.appendChild(el('span', undefined, undefined, t(key)));
-        list.appendChild(li);
-      }
-    }
-    check.appendChild(list);
-    side.appendChild(check);
-    body.appendChild(side);
-    card.appendChild(body);
-
-    // ---- Footer ----
-    const foot = el('div', 'tok-dialog-foot');
-    const nameLabel = el('label', undefined, { for: 'tok-export-name', style: 'font-size:12px;color:var(--tok-text-secondary)' }, t('exportFileName'));
+    // File name and folder (the projects folder unless another one is chosen).
+    const fileBox = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:6px' });
     const nameWrap = el('div', undefined, { style: 'display:flex;align-items:center;gap:6px' });
-    const nameInput = el('input', 'tok-input', { id: 'tok-export-name', type: 'text', 'data-focus-key': 'file-name', spellcheck: 'false' });
+    const nameInput = el('input', 'tok-input', { id: 'tok-export-name', type: 'text', 'data-focus-key': 'file-name', spellcheck: 'false', 'aria-label': t('exportFileName') });
     nameInput.value = o.fileName;
-    nameInput.style.width = '240px';
+    nameInput.style.flex = '1';
+    nameInput.style.minWidth = '0';
     nameInput.addEventListener('input', () => (o.fileName = nameInput.value));
     nameWrap.appendChild(nameInput);
     nameWrap.appendChild(button(t('exportBrowse'), {
@@ -293,19 +263,42 @@ export class ExportDialog {
       attrs: { 'data-focus-key': 'browse-export-file', title: t('exportChooseLocation') },
       onClick: async () => {
         const host = getHostBridge();
-        if (host.has('showSaveDialog')) {
-          const path = await host.showSaveDialog({
-            defaultPath: o.fileName || defaultExportFileName(this.context.documentTitle),
-            filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
-          });
-          if (path) {
-            o.fileName = path;
-            nameInput.value = path;
-          }
+        if (!host.has('showSaveDialog')) return;
+        const path = await host.showSaveDialog({
+          defaultPath: joinPath(this.saveDir, o.fileName.trim() || defaultExportFileName(this.context.documentTitle)),
+          filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
+        });
+        if (path) {
+          this.saveDir = dirName(path) || this.saveDir;
+          o.fileName = baseName(path);
+          this.render();
         }
       }
     }));
-    foot.appendChild(nameWrap);
+    fileBox.appendChild(nameWrap);
+    if (this.saveDir) {
+      fileBox.appendChild(el('span', undefined, {
+        dir: 'ltr',
+        title: this.saveDir,
+        style: 'font-size:12px;color:var(--tok-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:start'
+      }, `${t('exportSaveIn')}: ${this.saveDir}`));
+    }
+    form.appendChild(group(t('exportFileName'), fileBox));
+    body.appendChild(form);
+
+    // ---- Real page preview and a short print check ----
+    const side = el('aside', 'tok-export-side', { 'aria-label': t('exportCheckAria') });
+    side.style.width = '290px';
+    const preview = el('div', 'tok-export-preview', { role: 'img', 'aria-label': `${t('exportPreview')}: ${this.context.spreadLabels.join(' – ')}` });
+    preview.appendChild(this.buildPagePreview());
+    side.appendChild(preview);
+    side.appendChild(el('span', undefined, { style: 'text-align:center;font-size:12px;color:var(--tok-text-secondary)' }, this.context.spreadLabels.join(' – ')));
+    side.appendChild(this.buildCheckSummary());
+    body.appendChild(side);
+    card.appendChild(body);
+
+    // ---- Footer: actions only ----
+    const foot = el('div', 'tok-dialog-foot');
     foot.appendChild(el('span', 'tok-grow'));
     foot.appendChild(button(t('exportCancel'), { attrs: { 'data-focus-key': 'cancel' }, onClick: () => this.hide() }));
     if (this.callbacks.onPreviewPdf) {
@@ -313,13 +306,9 @@ export class ExportDialog {
         icon: 'eye',
         attrs: { 'data-focus-key': 'preview-pdf' },
         onClick: () => {
-          let name = o.fileName.trim() || defaultExportFileName(this.context.documentTitle);
-          if (!/\.pdf$/i.test(name)) name += '.pdf';
-          o.fileName = name;
-          o.fromPage = Math.min(o.fromPage, o.toPage);
-          o.toPage = Math.max(o.fromPage, o.toPage);
+          const path = this.outputPath();
           this.hide();
-          this.callbacks.onPreviewPdf?.({ ...o });
+          this.callbacks.onPreviewPdf?.({ ...o, fileName: path });
         }
       }));
     }
@@ -328,17 +317,82 @@ export class ExportDialog {
       icon: 'export',
       attrs: { 'data-focus-key': 'export' },
       onClick: () => {
-        let name = o.fileName.trim() || defaultExportFileName(this.context.documentTitle);
-        if (!/\.pdf$/i.test(name)) name += '.pdf';
-        o.fileName = name;
-        o.fromPage = Math.min(o.fromPage, o.toPage);
-        o.toPage = Math.max(o.fromPage, o.toPage);
+        const path = this.outputPath();
         this.hide();
-        this.callbacks.onExport({ ...o });
+        this.callbacks.onExport({ ...o, fileName: path });
       }
     }));
     card.appendChild(foot);
 
     this.element.appendChild(card);
+  }
+
+  /** The current spread as the page viewer draws it, scaled to the side column. */
+  private buildPagePreview(): HTMLElement {
+    const sheets = this.context.previewSheets ?? [];
+    const sizes = sheets.map((s) => ({
+      w: Number(s.dataset.widthPt) || s.offsetWidth || 1,
+      h: Number(s.dataset.heightPt) || s.offsetHeight || 1
+    }));
+    if (sheets.length === 0) {
+      return el('div', undefined, { style: 'color:var(--tok-text-secondary);font-size:12px;padding:24px 0' }, t('exportPreview'));
+    }
+    const PT_TO_PX = 96 / 72;
+    const totalWidthPx = sizes.reduce((n, s) => n + s.w * PT_TO_PX, 0);
+    const scale = Math.min(1, PREVIEW_WIDTH_PX / totalWidthPx);
+    const spread = el('div');
+    // Right-hand page first: the book reads right to left.
+    spread.dir = 'rtl';
+    sheets.forEach((sheet, i) => {
+      const holder = el('div', undefined, {
+        style: `position:relative;flex:none;overflow:hidden;width:${(sizes[i].w * PT_TO_PX * scale).toFixed(2)}px;height:${(sizes[i].h * PT_TO_PX * scale).toFixed(2)}px;`
+      });
+      sheet.style.position = 'absolute';
+      sheet.style.top = '0';
+      sheet.style.left = '0';
+      sheet.style.margin = '0';
+      sheet.style.transformOrigin = '0 0';
+      sheet.style.transform = `scale(${scale})`;
+      holder.appendChild(sheet);
+      spread.appendChild(holder);
+    });
+    return spread;
+  }
+
+  /** One badge, the error/warning counts and a link to the full print-check dialog. */
+  private buildCheckSummary(): HTMLElement {
+    const report = this.context.preflightReport;
+    const status: 'clean' | 'warning' | 'error' = report
+      ? report.overall_status === 'Fail'
+        ? 'error'
+        : report.overall_status === 'Warning'
+        ? 'warning'
+        : 'clean'
+      : this.context.preflightStatus;
+    const card = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:8px' });
+    const head = el('div', 'tok-check-head');
+    head.appendChild(el('span', undefined, undefined, t('exportCheckTitle')));
+    const badgeClass = status === 'clean' ? 'tok-badge-success' : status === 'warning' ? 'tok-badge-warning' : 'tok-badge-error';
+    const badge = el('span', `tok-badge ${badgeClass}`);
+    badge.appendChild(el('span', 'tok-dot', { 'aria-hidden': 'true' }));
+    badge.appendChild(el('span', undefined, undefined, status === 'clean' ? t('inspReadyForPrint') : status === 'warning' ? t('exportCheckWarnings') : t('exportCheckErrors')));
+    head.appendChild(badge);
+    card.appendChild(head);
+    if (report && Array.isArray(report.checks) && status !== 'clean') {
+      const e = report.checks.filter((c) => c.status === 'Fail').length;
+      const w = report.checks.filter((c) => c.status === 'Warning').length;
+      card.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary)' }, tf('exportCheckCounts', { e, w })));
+    }
+    if (this.callbacks.onShowPreflight) {
+      card.appendChild(button(t('exportCheckDetails'), {
+        className: 'tok-btn tok-btn-sm',
+        attrs: { 'data-focus-key': 'show-preflight' },
+        onClick: () => {
+          this.hide();
+          this.callbacks.onShowPreflight?.();
+        }
+      }));
+    }
+    return card;
   }
 }
