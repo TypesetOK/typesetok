@@ -113,6 +113,9 @@ pub struct RenderPdfOptions {
     pub bleed: Option<bool>,
     pub crop_marks: Option<bool>,
     pub registration_marks: Option<bool>,
+    /// First and last page to export (1-based, inclusive); both missing exports every page.
+    pub page_from: Option<usize>,
+    pub page_to: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -565,7 +568,8 @@ pub async fn tok_render_pdf(
         opts.bleed,
         opts.crop_marks,
         opts.registration_marks,
-    );
+    )
+    .with_page_range(opts.page_from, opts.page_to);
     let session = Arc::clone(&state.session);
     let fonts_dir = optional_fonts_dir(&state.fonts_dir);
 
@@ -615,7 +619,8 @@ pub async fn tok_render_pdf_preview(
         opts.bleed,
         opts.crop_marks,
         opts.registration_marks,
-    );
+    )
+    .with_page_range(opts.page_from, opts.page_to);
     let session = Arc::clone(&state.session);
     let fonts_dir = optional_fonts_dir(&state.fonts_dir);
 

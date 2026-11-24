@@ -17,6 +17,8 @@ pub struct PdfRenderRequest {
     pub bleed_pt: f32,
     pub draw_crop_marks: bool,
     pub draw_registration_marks: bool,
+    /// Pages to export, 1-based and inclusive. `None` exports every page.
+    pub page_range: Option<(usize, usize)>,
 }
 
 impl Default for PdfRenderRequest {
@@ -27,11 +29,23 @@ impl Default for PdfRenderRequest {
             bleed_pt: 8.504,
             draw_crop_marks: true,
             draw_registration_marks: false,
+            page_range: None,
         }
     }
 }
 
 impl PdfRenderRequest {
+    /// Limits the export to pages `from..=to` (1-based, inclusive).
+    /// Missing or invalid bounds leave the export at every page.
+    pub fn with_page_range(mut self, from: Option<usize>, to: Option<usize>) -> Self {
+        if let (Some(from), Some(to)) = (from, to) {
+            if from >= 1 && to >= from {
+                self.page_range = Some((from, to));
+            }
+        }
+        self
+    }
+
     /// Parses UI/host export dialog options into a typed [`PdfRenderRequest`].
     pub fn from_ui_options(
         format: Option<&str>,
@@ -124,6 +138,18 @@ pub fn render_pdf_bytes(
     req: &PdfRenderRequest,
 ) -> Result<Vec<u8>, EngineServiceError> {
     let (image_assets, ornament_assets) = collect_package_media(assets_pkg);
+    let selected: Vec<PageLayoutBox>;
+    let pages = match req.page_range {
+        Some((from, to)) => {
+            selected = pages.iter().skip(from - 1).take(to - from + 1).cloned().collect();
+            if selected.is_empty() {
+                pages
+            } else {
+                selected.as_slice()
+            }
+        }
+        None => pages,
+    };
     let options = PdfExportOptions {
         standard: req.standard,
         color_profile: req.color_profile,
@@ -183,4 +209,19 @@ pub fn evaluate_preflight(
         ..PdfExportOptions::default()
     };
     PreflightEngine::evaluate(doc, pages, font_manager, &opts)
+}
+
+#[cfg(test)]
+mod page_range_tests {
+    use super::*;
+
+    #[test]
+    fn page_range_needs_valid_one_based_bounds() {
+        let req = PdfRenderRequest::default().with_page_range(Some(3), Some(5));
+        assert_eq!(req.page_range, Some((3, 5)));
+        for (from, to) in [(Some(0), Some(2)), (Some(4), Some(2)), (Some(1), None), (None, None)] {
+            let req = PdfRenderRequest::default().with_page_range(from, to);
+            assert_eq!(req.page_range, None, "{from:?}..{to:?}");
+        }
+    }
 }

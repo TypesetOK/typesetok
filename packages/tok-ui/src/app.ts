@@ -1471,6 +1471,18 @@ export class TypesetOkApp {
     return this.pdfPreviewModalInstance;
   }
 
+  /** First/last page (1-based) chosen in the export dialog; no bounds means every page. */
+  private exportPageWindow(options: ExportOptions): { pageFrom?: number; pageTo?: number } {
+    const total = this.pages.length;
+    if (total === 0 || options.range === 'all') return {};
+    if (options.range === 'spread') {
+      const spread = groupIntoSpreads(total).find((sp) => sp.includes(this.activePageIndex)) ?? [];
+      if (spread.length === 0) return {};
+      return { pageFrom: Math.min(...spread) + 1, pageTo: Math.max(...spread) + 1 };
+    }
+    return { pageFrom: options.fromPage, pageTo: options.toPage };
+  }
+
   /** Renders the real PDF with the chosen export options and shows it before exporting. */
   private runPdfPreview(options: ExportOptions): void {
     const host = getHostBridge();
@@ -1490,7 +1502,11 @@ export class TypesetOkApp {
     const requestId = ++this.pdfPreviewRequestId;
     this.pdfPreviewModal.showLoading(options.fileName);
     host
-      .renderPdfPreview({ document: docRoot, options, assetsFrom: this.currentFilePath || undefined })
+      .renderPdfPreview({
+        document: docRoot,
+        options: { ...options, ...this.exportPageWindow(options) },
+        assetsFrom: this.currentFilePath || undefined
+      })
       .then((base64) => {
         if (requestId !== this.pdfPreviewRequestId) return;
         this.pdfPreviewModal.setPdf(base64);
@@ -1517,7 +1533,12 @@ export class TypesetOkApp {
       console.log('[TOK] Exporting real document to PDF:', { title: docRoot.metadata.title, options });
 
       this.statusBar?.setBusy(true, 'מייצא ל-PDF...');
-      host.renderPdf({ document: docRoot, outputPath: options.fileName, options, assetsFrom: this.currentFilePath || undefined })
+      host.renderPdf({
+        document: docRoot,
+        outputPath: options.fileName,
+        options: { ...options, ...this.exportPageWindow(options) },
+        assetsFrom: this.currentFilePath || undefined
+      })
         .then(() => {
           this.statusBar?.setBusy(false);
           this.showToast(t('toastExportDone'));
