@@ -71,7 +71,9 @@ export function buildTauriFrontendDist(
     "'self' ipc: http://ipc.localhost https://ipc.localhost"
   );
   // The pre-export PDF preview shows a blob: URL inside an iframe.
+  // The system PDF viewer is embedded as a plugin inside the frame, so object-src must allow blob: too.
   nextCsp = replaceCspDirective(nextCsp, 'frame-src', 'blob:');
+  nextCsp = replaceCspDirective(nextCsp, 'object-src', 'blob:');
   html = html.replace(CSP_META_RE, `$1${nextCsp}$5`);
   html = html.replaceAll('../../../assets/', './assets/');
 
