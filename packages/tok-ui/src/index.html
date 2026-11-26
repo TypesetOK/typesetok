@@ -508,6 +508,9 @@
     }
     .tok-interactive-frame:hover { box-shadow: 0 0 0 1px var(--tok-accent-soft); }
     .tok-interactive-frame.tok-selected { outline: 1.5px solid var(--tok-selection-frame); outline-offset: 3px; overflow: visible; }
+    .tok-heatmap-active .tok-line-box[data-hj-tier="good"] { background: rgba(34, 197, 94, 0.16); border-radius: 2px; }
+    .tok-heatmap-active .tok-line-box[data-hj-tier="warn"] { background: rgba(245, 158, 11, 0.24); border-radius: 2px; }
+    .tok-heatmap-active .tok-line-box[data-hj-tier="bad"]  { background: rgba(239, 68, 68, 0.30); border-radius: 2px; }
     .tok-frame-text { height: 100%; overflow: hidden; }
     .tok-frame-gemara { font-family: var(--tok-font-hebrew-body); font-size: 13.5px; line-height: 1.5; color: var(--tok-ink); }
     .tok-frame-gemara b { font-weight: 700; }

@@ -521,6 +521,7 @@ impl TypesettingEngine {
                         } else {
                             tok_core::styles::TextAlignment::Left
                         },
+                        adjustment_ratio: None,
                     });
 
                     for (i, mut bl) in body_lines.into_iter().enumerate() {
@@ -1238,6 +1239,7 @@ impl TypesettingEngine {
                 alignment: align,
                 colors: colors.clone(),
                 visual_runs,
+                adjustment_ratio: Some(span.adjustment_ratio),
             });
         }
 
@@ -1381,6 +1383,7 @@ impl TypesettingEngine {
             self.typeset_document_internal(doc)
         };
         Self::apply_page_numbering_settings(doc, &mut pages);
+        crate::sidenotes::attach_sidenotes_to_pages(self, doc, &mut pages);
         pages
     }
 
@@ -1561,9 +1564,22 @@ impl TypesettingEngine {
                         .iter()
                         .find(|s| s.id == p.style_id)
                         .unwrap_or(&default_style);
-                    let key = if has_spans_to_resolve {
+                    let key = if has_spans_to_resolve || !p.inline_notes.is_empty() {
                         let mut p_eff = p.clone();
-                        p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
+                        if has_spans_to_resolve {
+                            p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
+                        }
+                        if !p_eff.inline_notes.is_empty() {
+                            let (expanded_text, expanded_spans) =
+                                tok_core::expand_paragraph_with_inline_notes(
+                                    &p_eff.text,
+                                    &p_eff.spans,
+                                    &p_eff.inline_notes,
+                                    style.font_size_pt,
+                                );
+                            p_eff.text = expanded_text;
+                            p_eff.spans = expanded_spans;
+                        }
                         crate::layout_cache::ParagraphLayoutCache::make_key(&p_eff, style, width_pt)
                     } else {
                         crate::layout_cache::ParagraphLayoutCache::make_key(p, style, width_pt)
@@ -1599,9 +1615,25 @@ impl TypesettingEngine {
                 HashMap::<String, ShapingSession<'_>>::new,
                 |sessions, &(idx, p, width_pt, flow_id, ref key)| {
                     let mut p_eff;
-                    let p_ref = if has_spans_to_resolve {
+                    let p_ref = if has_spans_to_resolve || !p.inline_notes.is_empty() {
                         p_eff = p.clone();
-                        p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
+                        if has_spans_to_resolve {
+                            p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
+                        }
+                        if !p_eff.inline_notes.is_empty() {
+                            let base_sz = p
+                                .effective_style(&doc.paragraph_styles)
+                                .font_size_pt;
+                            let (expanded_text, expanded_spans) =
+                                tok_core::expand_paragraph_with_inline_notes(
+                                    &p_eff.text,
+                                    &p_eff.spans,
+                                    &p_eff.inline_notes,
+                                    base_sz,
+                                );
+                            p_eff.text = expanded_text;
+                            p_eff.spans = expanded_spans;
+                        }
                         &p_eff
                     } else {
                         p

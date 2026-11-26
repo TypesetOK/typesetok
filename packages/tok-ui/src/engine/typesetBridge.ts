@@ -60,6 +60,7 @@ export interface LineBox {
   x_offset?: number;
   alignment?: 'Justified' | 'Right' | 'Left' | 'Center';
   visual_runs?: VisualLineRun[];
+  adjustment_ratio?: number | null;
 }
 
 export interface TextFrameBox {
@@ -386,8 +387,14 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
             : null) ?? renderLineText(line.text, line.is_drop_cap));
         const paraColor = line.visual_runs?.length ? undefined : safeCssColor(located?.source.color);
         const colorStyle = paraColor ? ` color: ${paraColor};` : '';
+        let hjAttrs = '';
+        if (typeof line.adjustment_ratio === 'number' && Number.isFinite(line.adjustment_ratio)) {
+          const absR = Math.abs(line.adjustment_ratio);
+          const tier = absR <= 0.5 ? 'good' : absR <= 1.2 ? 'warn' : 'bad';
+          hjAttrs = ` data-adj-ratio="${line.adjustment_ratio.toFixed(3)}" data-hj-tier="${tier}"`;
+        }
 
-        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" data-align="${lineAlign}"${isJustifiedLine ? ' data-justify="1"' : ''}${fitAttrs} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; ${boxBoundsStyle} height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; text-align: ${textAlignCss}; ${fontStyle}${colorStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
+        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" data-align="${lineAlign}"${isJustifiedLine ? ' data-justify="1"' : ''}${hjAttrs}${fitAttrs} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; ${boxBoundsStyle} height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; text-align: ${textAlignCss}; ${fontStyle}${colorStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
       }).join('\n');
 
       const emptyNotice = (!frame.lines || frame.lines.length === 0)

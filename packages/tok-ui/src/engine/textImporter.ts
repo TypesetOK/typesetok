@@ -8,10 +8,11 @@
 import { ParagraphStylePatch, StoryParagraph, TextSpan, CharacterFormat, isFormatEmpty } from 'tok-story-editor';
 import { MultiFlowAnchorLink } from '../types';
 import { generateCrockfordUlid } from './documentBridge.js';
+import { isLegacyTagFormat, parseLegacyTagDocument } from './tagImporter.js';
 
-export { generateCrockfordUlid };
+export { generateCrockfordUlid, isLegacyTagFormat, parseLegacyTagDocument };
 
-export type SupportedImportFormat = 'txt' | 'md' | 'markdown' | 'docx';
+export type SupportedImportFormat = 'txt' | 'md' | 'markdown' | 'docx' | 'tag';
 
 export type ImportErrorCode =
   | 'UNSUPPORTED_FORMAT'
@@ -2532,6 +2533,11 @@ export function importDocument(
     return importMarkdown(content, options);
   }
 
+  if (options?.format === 'tag' || ext === 'tag') {
+    const decoded = typeof content === 'string' ? content : decodeTextBuffer(content);
+    return parseLegacyTagDocument(decoded, options);
+  }
+
   if (options?.format === 'txt' || ext === 'txt') {
     return importPlainText(content, options);
   }
@@ -2544,14 +2550,170 @@ export function importDocument(
     }
   }
 
-  // 3. Auto-detect Markdown vs Plain Text
+  // 3. Auto-detect Tag / Markdown / Plain Text
   const decoded = typeof content === 'string' ? content : decodeTextBuffer(content);
+  if (isLegacyTagFormat(decoded)) {
+    return parseLegacyTagDocument(decoded, options);
+  }
   const hasMarkdownTokens = /^#{1,3}\s+|\n#{1,3}\s+|\*\*|__|\n[-*+]\s+|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|^<center>|^\|.+\|/m.test(decoded);
   if (hasMarkdownTokens) {
     return importMarkdown(content, options);
   }
 
   return importPlainText(content, options);
+}
+
+export interface BatchDocxFileInput {
+  fileName: string;
+  content: Uint8Array | ArrayBuffer;
+  options?: ImportOptions;
+}
+
+export interface BatchDocxOptions {
+  /** `'stitch_continuous'` merges all paragraphs into one flow; `'split_sections'` preserves per-file sections. */
+  mode?: 'stitch_continuous' | 'split_sections';
+  title?: string;
+}
+
+export interface BatchImportedSection {
+  name: string;
+  fileName: string;
+  paragraphs: StoryParagraph[];
+}
+
+export interface BatchImportResult extends ImportResult {
+  sections: BatchImportedSection[];
+  importedFileCount: number;
+}
+
+/**
+ * Batch-imports and stitches multiple DOCX documents into a unified `BatchImportResult` (נושא 5.4),
+ * allocating collision-free paragraph IDs, remapping footnote anchors, and merging custom styles.
+ */
+export function importBatchDocx(
+  files: BatchDocxFileInput[],
+  options?: BatchDocxOptions
+): BatchImportResult {
+  if (!files || files.length === 0) {
+    throw new DocumentImportError(
+      'EMPTY_DOCUMENT',
+      'No DOCX files provided for batch import',
+      'לא נבחרו קובצי DOCX לייבוא אצווה'
+    );
+  }
+
+  const mode = options?.mode || 'split_sections';
+  const allParagraphs: StoryParagraph[] = [];
+  const allFootnotes: StoryParagraph[] = [];
+  const allTables: ImportedTableData[] = [];
+  const allAnchors: MultiFlowAnchorLink[] = [];
+  const allLinks: ImportedFieldLink[] = [];
+  const mergedStyles: Record<string, DocxStyleDefinition> = {};
+  const mergedFonts = new Set<string>();
+  const sections: BatchImportedSection[] = [];
+  let totalWordCount = 0;
+
+  for (let fileIdx = 0; fileIdx < files.length; fileIdx++) {
+    const file = files[fileIdx];
+    const res = importDocx(file.content, {
+      ...file.options,
+      fileName: file.fileName
+    });
+
+    const sectionName = cleanDocumentTitle(file.fileName);
+    const idRemap = new Map<string, string>();
+    const sectionParagraphs: StoryParagraph[] = [];
+
+    for (const p of res.paragraphs) {
+      const freshId = generateCrockfordUlid();
+      idRemap.set(p.id, freshId);
+      const cloned: StoryParagraph = { ...p, id: freshId };
+      allParagraphs.push(cloned);
+      sectionParagraphs.push(cloned);
+    }
+
+    if (res.footnotes) {
+      for (const fn of res.footnotes) {
+        const freshFnId = generateCrockfordUlid();
+        idRemap.set(fn.id, freshFnId);
+        allFootnotes.push({ ...fn, id: freshFnId });
+      }
+    }
+
+    if (res.multiFlowAnchors) {
+      for (const anchor of res.multiFlowAnchors) {
+        allAnchors.push({
+          ...anchor,
+          anchorId: `${anchor.anchorId}_f${fileIdx}`,
+          primaryNodeId: idRemap.get(anchor.primaryNodeId) || anchor.primaryNodeId,
+          commentaryNodeId: idRemap.get(anchor.commentaryNodeId) || anchor.commentaryNodeId
+        });
+      }
+    }
+
+    if (res.tables) {
+      for (const tbl of res.tables) {
+        allTables.push({ ...tbl, id: `${tbl.id}_f${fileIdx}` });
+      }
+    }
+
+    if (res.links) {
+      for (const link of res.links) {
+        allLinks.push({
+          ...link,
+          paragraphId: link.paragraphId ? (idRemap.get(link.paragraphId) || link.paragraphId) : undefined
+        });
+      }
+    }
+
+    if (res.styles) {
+      for (const [k, v] of Object.entries(res.styles)) {
+        if (!mergedStyles[k]) {
+          mergedStyles[k] = v;
+        }
+      }
+    }
+
+    if (res.referencedFonts) {
+      for (const f of res.referencedFonts) {
+        mergedFonts.add(f);
+      }
+    }
+
+    sections.push({
+      name: sectionName,
+      fileName: file.fileName,
+      paragraphs: sectionParagraphs
+    });
+    totalWordCount += res.wordCount;
+  }
+
+  const combinedText = allParagraphs.map((p) => p.text).join(' ');
+  const resolvedTitle =
+    options?.title ||
+    (files.length === 1 ? cleanDocumentTitle(files[0].fileName) : `${cleanDocumentTitle(files[0].fileName)} (+${files.length - 1})`);
+
+  return {
+    title: resolvedTitle,
+    paragraphs: allParagraphs,
+    footnotes: allFootnotes.length > 0 ? allFootnotes : undefined,
+    tables: allTables.length > 0 ? allTables : undefined,
+    multiFlowAnchors: allAnchors.length > 0 ? allAnchors : undefined,
+    styles: Object.keys(mergedStyles).length > 0 ? mergedStyles : undefined,
+    links: allLinks.length > 0 ? allLinks : undefined,
+    format: 'docx',
+    detectedLanguage: detectTextLanguage(combinedText),
+    detectedDirection: detectTextDirection(combinedText),
+    wordCount: totalWordCount,
+    paragraphCount: allParagraphs.length,
+    referencedFonts: mergedFonts.size > 0 ? Array.from(mergedFonts) : undefined,
+    sections: mode === 'stitch_continuous' ? [{ name: resolvedTitle, fileName: files[0].fileName, paragraphs: allParagraphs }] : sections,
+    importedFileCount: files.length,
+    metadata: {
+      batchMode: mode,
+      fileCount: files.length
+    }
+  };
 }
 
 

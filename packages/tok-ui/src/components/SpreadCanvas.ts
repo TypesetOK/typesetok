@@ -116,6 +116,7 @@ export class SpreadCanvas {
     marginOutsideMm: 15
   };
   private showBaseline = false;
+  private showJustificationHeatmap = false;
   private activePageIndex = 0;
   private pages: PageDescriptor[] = [];
   private selectedFrameId: string | null = null;
@@ -428,6 +429,20 @@ export class SpreadCanvas {
     this.showBaseline = !this.showBaseline;
     this.saveGuides();
     this.updateGuides();
+  }
+
+  public toggleJustificationHeatmap(): boolean {
+    this.setShowJustificationHeatmap(!this.showJustificationHeatmap);
+    return this.showJustificationHeatmap;
+  }
+
+  public setShowJustificationHeatmap(enabled: boolean): void {
+    this.showJustificationHeatmap = enabled;
+    this.innerContainer.classList.toggle('tok-heatmap-active', enabled);
+  }
+
+  public getShowJustificationHeatmap(): boolean {
+    return this.showJustificationHeatmap;
   }
 
   private saveGuides(): void {

@@ -129,6 +129,10 @@ pub struct LineBox {
     /// Explicit visual runs produced by Rust so the UI paints runs without text-matching heuristics.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub visual_runs: Vec<VisualLineRun>,
+    /// Knuth-Plass adjustment ratio `r` for this line (`< 0` shrink, `> 0` stretch), used by
+    /// the Justification Heatmap / H&J Violations diagnostic overlay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adjustment_ratio: Option<f32>,
 }
 
 impl LineBox {
