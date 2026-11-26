@@ -488,9 +488,10 @@ describe('Interaction Triad Architecture (Section 8 & 17)', () => {
 
   test('Contextual Inspector state machine handles zero, frame, and text-edit modes', () => {
     assert.equal(rendererJs.includes('ContextualInspector'), true);
-    assert.equal(rendererJs.includes('renderZeroSelection'), true);
-    assert.equal(rendererJs.includes('renderTextFrameMode'), true);
-    assert.equal(rendererJs.includes('renderTextEditMode'), true);
+    assert.equal(rendererJs.includes('setMode'), true);
+    assert.equal(rendererJs.includes('appendDocumentSection'), true);
+    assert.equal(rendererJs.includes('appendFrameSection'), true);
+    assert.equal(rendererJs.includes('appendTypographySection'), true);
   });
 
   test('Command Palette supports Cmd+K fuzzy searching and categories', () => {

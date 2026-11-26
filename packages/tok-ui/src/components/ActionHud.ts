@@ -18,8 +18,14 @@ export class ActionHud {
   private currentSize = 14;
   private isBold = false;
   private currentAlign: 'right' | 'center' | 'left' | 'justify' = 'right';
-  private currentStyle = 'gemara';
+  private currentStyle = 'style-gemara-main';
   private currentFont = '';
+  private availableStyles: Array<{ value: string; label: string }> = [
+    { value: 'style-gemara-main', label: 'גמרא ראשי' },
+    { value: 'style-rashi-body', label: 'רש"י' },
+    { value: 'style-tosafot-body', label: 'תוספות' },
+    { value: 'style-gemara-heading', label: 'כותרת פרק' }
+  ];
 
   // Drag state
   private isDragging = false;
@@ -61,6 +67,13 @@ export class ActionHud {
     window.addEventListener('pointercancel', () => this.onPointerUp());
   }
 
+  public setAvailableStyles(styles: Array<{ value: string; label: string }>): void {
+    if (styles && styles.length > 0) {
+      this.availableStyles = styles;
+      if (this.isVisible) this.render();
+    }
+  }
+
   public showAt(x: number, y: number, initialValues?: {
     font?: string;
     size?: number;
@@ -69,7 +82,11 @@ export class ActionHud {
     font_weight?: number;
     align?: 'right' | 'center' | 'left' | 'justify';
     style?: string;
+    availableStyles?: Array<{ value: string; label: string }>;
   }): void {
+    if (initialValues?.availableStyles && initialValues.availableStyles.length > 0) {
+      this.availableStyles = initialValues.availableStyles;
+    }
     if (initialValues?.size) this.currentSize = initialValues.size;
     if (initialValues?.bold !== undefined) {
       this.isBold = initialValues.bold;
@@ -215,8 +232,8 @@ export class ActionHud {
     this.element.appendChild(boldBtn);
 
     // 4. Alignment button (Icon only - prevents text overflow!)
-    const alignIcon = () => (this.currentAlign === 'justify' ? 'alignJustify' : this.currentAlign === 'center' ? 'alignCenter' : 'alignRight');
-    const alignLabel = () => t(this.currentAlign === 'justify' ? 'hudAlignJustify' : this.currentAlign === 'center' ? 'hudAlignCenter' : 'hudAlignRight');
+    const alignIcon = () => (this.currentAlign === 'justify' ? 'alignJustify' : this.currentAlign === 'center' ? 'alignCenter' : this.currentAlign === 'left' ? 'alignLeft' : 'alignRight');
+    const alignLabel = () => t(this.currentAlign === 'justify' ? 'hudAlignJustify' : this.currentAlign === 'center' ? 'hudAlignCenter' : this.currentAlign === 'left' ? 'inspAlignLeft' : 'hudAlignRight');
     const alignBtn = el('button', 'tok-hud-btn', { type: 'button' });
     const paintAlign = () => {
       alignBtn.replaceChildren(icon(alignIcon(), 15));
@@ -226,7 +243,7 @@ export class ActionHud {
     };
     paintAlign();
     alignBtn.addEventListener('click', () => {
-      this.currentAlign = this.currentAlign === 'right' ? 'justify' : this.currentAlign === 'justify' ? 'center' : 'right';
+      this.currentAlign = this.currentAlign === 'right' ? 'justify' : this.currentAlign === 'justify' ? 'center' : this.currentAlign === 'center' ? 'left' : 'right';
       paintAlign();
       this.callbacks.onAlignChange(this.currentAlign);
     });
@@ -234,14 +251,17 @@ export class ActionHud {
 
     this.element.appendChild(this.createDivider());
 
-    // 5. Quick style
-    const styles = [
-      { value: 'gemara', label: 'גמרא' },
-      { value: 'rashi', label: 'רש"י' },
-      { value: 'tosafot', label: 'תוספות' },
-      { value: 'heading', label: 'כותרת' }
-    ];
-    this.element.appendChild(selectField(t('hudQuickStyle'), styles, this.currentStyle, (value) => {
+    // 5. Quick style (synced to active document template styles)
+    const styles = this.availableStyles.length > 0
+      ? this.availableStyles
+      : [
+          { value: 'style-gemara-main', label: 'גמרא ראשי' },
+          { value: 'style-rashi-body', label: 'רש"י' },
+          { value: 'style-tosafot-body', label: 'תוספות' },
+          { value: 'style-gemara-heading', label: 'כותרת פרק' }
+        ];
+    const selectedStyle = styles.some((s) => s.value === this.currentStyle) ? this.currentStyle : styles[0].value;
+    this.element.appendChild(selectField(t('hudQuickStyle'), styles, selectedStyle, (value) => {
       this.currentStyle = value;
       this.callbacks.onStyleChange(value);
     }, { title: t('hudQuickStyle') }));

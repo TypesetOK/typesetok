@@ -8,10 +8,12 @@ export interface TextCleanupContext {
   activeFlowId: string;
   activeFlowDisplayName: string;
   getParagraphs: (scope: 'activeFlow' | 'allFlows') => StoryParagraph[];
+  initialOptions?: Partial<CleanupOptions>;
 }
 
 export interface TextCleanupModalCallbacks {
   onApply: (options: CleanupOptions) => void;
+  onOptionsChange?: (options: CleanupOptions) => void;
   onClose?: () => void;
 }
 
@@ -36,6 +38,10 @@ export class TextCleanupModal {
 
   public show(context: TextCleanupContext): void {
     this.context = context;
+    this.options = {
+      ...DEFAULT_CLEANUP_OPTIONS,
+      ...(context.initialOptions || {})
+    };
     this.isVisible = true;
     this.element.classList.add('tok-open');
     this.render();
@@ -47,6 +53,7 @@ export class TextCleanupModal {
     this.isVisible = false;
     this.element.classList.remove('tok-open');
     this.modal.closed();
+    this.callbacks.onOptionsChange?.({ ...this.options });
     this.callbacks.onClose?.();
   }
 

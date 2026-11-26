@@ -43,15 +43,21 @@ function thumbHeightPx(p: PageThumbnailItem): number | null {
 /** Replaces the generic drawing with the page itself, scaled down. Static: no ids, no frames, no pointer events. */
 function mountPageMiniature(thumb: HTMLElement, p: PageThumbnailItem): void {
   const html = p.htmlContent;
-  if (!html || !html.trim() || !p.widthPt || !p.heightPt) return;
+  const widthPt = p.widthPt || 482;
+  const heightPt = p.heightPt || 680;
+  if (!html || !html.trim()) {
+    // Blank or empty page: clear the generic wireframe so the thumbnail reflects an actual blank page.
+    thumb.textContent = '';
+    return;
+  }
   const engine = html.includes('tok-page-layout-rust');
   const mini = el('div', 'tok-thumb-mini', { 'aria-hidden': 'true' });
-  mini.style.width = `${p.widthPt}pt`;
-  mini.style.height = `${p.heightPt}pt`;
-  mini.style.transform = `scale(${THUMB_INNER_WIDTH_PX / (p.widthPt * THUMB_PT_TO_PX)})`;
+  mini.style.width = `${widthPt}pt`;
+  mini.style.height = `${heightPt}pt`;
+  mini.style.transform = `scale(${THUMB_INNER_WIDTH_PX / (widthPt * THUMB_PT_TO_PX)})`;
   const sheet = el('div', engine ? 'tok-page-sheet tok-page-engine-layout' : 'tok-page-sheet');
-  sheet.style.width = `${p.widthPt}pt`;
-  sheet.style.height = `${p.heightPt}pt`;
+  sheet.style.width = `${widthPt}pt`;
+  sheet.style.height = `${heightPt}pt`;
   if (engine) sheet.style.padding = '0';
   const content = el('div', 'tok-page-content', {
     style: engine ? 'position:absolute;inset:0;overflow:hidden;' : 'flex:1;min-height:0;overflow:hidden;'
@@ -349,15 +355,13 @@ export class StructureBar {
     this.panel.appendChild(body);
   }
 
-  /** Thumbnail label: "דף א׳" + position and amud (same helpers as the canvas). */
+  /** Thumbnail label: page label + spread side. */
   private pageDescription(p: PageThumbnailItem): string {
     const side = t(isRightHandPage(p.pageIndex) ? 'structureSpreadRight' : 'structureSpreadLeft');
-    const amud = isRectoPage(p.pageIndex) ? 'ע"א' : 'ע"ב';
-    return `${p.label || tf('structurePageLabel', { g: p.gematria })} · ${tf('structurePageNumber', { n: p.pageIndex + 1 })} · ${side} (${amud})`;
+    return `${p.label || tf('structurePageLabel', { g: p.gematria })} · ${tf('structurePageNumber', { n: p.pageIndex + 1 })} · ${side}`;
   }
 
   private observeMiniature(thumb: HTMLElement, p: PageThumbnailItem): void {
-    if (!p.htmlContent) return;
     const mount = () => mountPageMiniature(thumb, p);
     if (typeof IntersectionObserver === 'undefined') {
       mount();

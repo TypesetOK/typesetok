@@ -3,14 +3,15 @@ import { getHostBridge } from './platform/hostBridge.js';
 import { hostSettings } from './platform/hostSettings.js';
 import { TopSystemBar } from './components/TopSystemBar';
 import { StructureBar } from './components/StructureBar';
-import { ContextualInspector } from './components/ContextualInspector';
+import { ContextualInspector, ManualMarkType } from './components/ContextualInspector';
 import { ActionHud } from './components/ActionHud';
 import { CommandPalette, PaletteItem } from './components/CommandPalette';
 import { StatusBar } from './components/StatusBar';
 import { SpreadCanvas, isRightHandPage, isRectoPage, groupIntoSpreads } from './components/SpreadCanvas';
 import { ExportDialog, ExportOptions } from './components/ExportDialog';
 import { WelcomeModal } from './components/WelcomeModal';
-import { addRecentProject, getRecentProjects, updateProjectClosedTime, removeRecentProject, isDemoProject, purgeAllDemoProjects } from './services/recentProjectsStore';
+import { addRecentProject, getRecentProjects, updateProjectClosedTime, removeRecentProject, isDemoProject, purgeAllDemoProjects, resolveTemplateIndex } from './services/recentProjectsStore';
+import { CustomTemplate } from './services/customTemplatesStore';
 import { SettingsModal } from './components/SettingsModal';
 import { AboutModal } from './components/AboutModal';
 import { UpdatesDrawer } from './components/UpdatesDrawer';
@@ -26,7 +27,7 @@ import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
 import { TextCleanupModal } from './components/TextCleanupModal';
 import { CleanupOptions, cleanupParagraphs } from './engine/textCleanup';
 import { PluginEngine } from './plugins/PluginEngine';
-import { StoryEditor, StoryParagraph, CharacterFormat } from 'tok-story-editor';
+import { StoryEditor, StoryParagraph, CharacterFormat, ParagraphStylePatch, formatRangeInSpans, clearRangeInSpans } from 'tok-story-editor';
 import { PageDescriptor } from 'tok-viewer';
 import { ViewMode, MultiFlowItem } from './types';
 import { i18n, t, tf } from './i18n';
@@ -52,7 +53,7 @@ import type { LineRunLookup, LineRunSource } from './engine/lineRuns';
 import { importDocument, parseDocxXml, ImportResult } from './engine/textImporter';
 import { layoutToPageDescriptors, PreflightReport, readTypesetResponse } from './engine/typesetBridge';
 
-import { toHebrewGematria } from './gematria';
+import { toHebrewGematria, formatGemaraDafAmud, formatPageNumber } from './gematria';
 import { normalizeHebrew, normalizeQuotes, findHolyNames } from './plugins/hebrew-utils';
 export { toHebrewGematria };
 
@@ -138,6 +139,9 @@ export class TypesetOkApp {
   private storyItalicBtn?: HTMLButtonElement;
   private storyUnderlineBtn?: HTMLButtonElement;
   private storyFontFamilySelect?: HTMLSelectElement;
+  private storyTextSizeBadge?: HTMLSpanElement;
+  private storyTextColorInput?: HTMLInputElement;
+  private lastCanvasTarget: { flowId: string; paraId?: string; selectedText?: string } | null = null;
   private findBar?: HTMLElement;
   private findInput?: HTMLInputElement;
   private replaceInput?: HTMLInputElement;
@@ -412,7 +416,29 @@ export class TypesetOkApp {
         this.inspector.setMode(mode, frameData);
       },
       onRequestActionHud: (x, y, initialValues) => {
-        this.actionHud.showAt(x, y, initialValues);
+        const flowId = this.lastCanvasTarget?.flowId || this.activeFlowId || 'gemara';
+        const paraId = this.lastCanvasTarget?.paraId;
+        const flowParas = this.documentState?.flows?.[flowId] || [];
+        const para = paraId ? flowParas.find((p) => p.id === paraId) : flowParas[0];
+        const availableStyles = this.getTemplateStylesForHud();
+        const resolvedStyleId = para?.styleId || initialValues?.style || availableStyles[0]?.value || 'style-gemara-main';
+        const visibleStyle = this.structureBar?.getVisibleStyles().find((s) => s.id === resolvedStyleId);
+        const alignRaw = para?.patch?.alignment?.toLowerCase();
+        const resolvedAlign = (alignRaw === 'justified' ? 'justify' : alignRaw === 'center' || alignRaw === 'left' || alignRaw === 'right' ? alignRaw : initialValues?.align || 'justify') as 'right' | 'center' | 'left' | 'justify';
+        const resolvedSize = para?.patch?.fontSizePt ?? visibleStyle?.fontSizePt ?? initialValues?.size ?? (flowId === 'gemara' ? 15 : 11);
+        const resolvedWeight = para?.patch?.fontWeight ?? visibleStyle?.fontWeight;
+        const resolvedBold = resolvedWeight !== undefined ? resolvedWeight >= 600 : initialValues?.bold;
+        const resolvedFont = para?.patch?.fontFamily ?? visibleStyle?.fontFamily ?? initialValues?.font;
+
+        this.actionHud.showAt(x, y, {
+          ...initialValues,
+          font: resolvedFont,
+          size: resolvedSize,
+          bold: resolvedBold,
+          align: resolvedAlign,
+          style: resolvedStyleId,
+          availableStyles
+        });
       },
       onDismissActionHud: () => {
         this.actionHud.hide();
@@ -497,6 +523,9 @@ export class TypesetOkApp {
             marginOutsideMm: this.documentState.settings.marginOutsideMm
           });
         }
+        if (settings.pageNumbering !== undefined) {
+          this.canvas?.setPageNumbering(this.documentState.settings.pageNumbering);
+        }
         this.setDirty(true);
         this.scheduleRepaginate();
       },
@@ -529,6 +558,10 @@ export class TypesetOkApp {
           patch.alignment = typo.alignment === 'justify' ? 'Justified' : typo.alignment === 'center' ? 'Center' : typo.alignment === 'left' ? 'Left' : 'Right';
         }
         if (typo.columnSpan !== undefined) patch.columnSpan = typo.columnSpan;
+        if (typo.dropCap !== undefined) patch.dropCap = typo.dropCap;
+        if (typo.justification !== undefined) {
+          patch.ahaltermStretch = typo.justification.tier2OheltaremEnabled ? 'AutoVariable' : 'Off';
+        }
         if (Object.keys(patch).length > 0) {
           if (sel?.paraId) {
             this.storyEditor.setParagraphPatch(sel.paraId, patch);
@@ -540,6 +573,16 @@ export class TypesetOkApp {
               p.patch = { ...(p.patch || {}), ...patch };
             }
           }
+        }
+        if (typo.justification) {
+          if (!this.documentState.settings) {
+            this.documentState.settings = { ...this.inspector.getDocumentSettings() };
+          }
+          this.documentState.settings.justification = {
+            ...typo.justification,
+            tier2OheltaremLetters: [...typo.justification.tier2OheltaremLetters]
+          };
+          this.setDirty(true);
         }
         this.updateFormattingToolbarState();
         this.syncAndScheduleRepaginate();
@@ -563,6 +606,9 @@ export class TypesetOkApp {
       onOpenTextCleanup: () => {
         this.openTextCleanupWizard();
       },
+      onManualMark: (markType) => {
+        this.applyManualMark(markType);
+      },
       onAlignFrames: (alignType) => {
         if (this.canvas) {
           const { before, after } = this.canvas.alignSelectedFrames(alignType);
@@ -582,6 +628,11 @@ export class TypesetOkApp {
       },
       onOpenSettings: () => this.settingsModal.show(),
       onOpenWhatsNew: () => this.openWhatsNew(),
+      onMultiFlowAnchorsChange: (anchors) => {
+        this.documentState.multiFlowAnchors = anchors;
+        this.setDirty(true);
+        this.scheduleRepaginate();
+      },
       onGrepRulesChange: (rules) => {
         this.documentState.grepRules = rules;
         this.setDirty(true);
@@ -649,53 +700,23 @@ export class TypesetOkApp {
     // 5. Action HUD (Floating, anchored)
     this.actionHud = new ActionHud({
       onFontChange: (f) => {
-        const sel = this.storyEditor.getStorySelection();
-        if (sel && !sel.isCollapsed) {
-          this.storyEditor.formatSelection({ fontFamily: f });
-        } else if (sel?.paraId) {
-          this.storyEditor.setParagraphPatch(sel.paraId, { fontFamily: f });
-        }
-        this.updateFormattingToolbarState();
-        this.syncAndScheduleRepaginate();
+        this.applyQuickFormatting({ fontFamily: f }, { fontFamily: f });
       },
       onSizeChange: (s) => {
-        const sel = this.storyEditor.getStorySelection();
-        if (sel && !sel.isCollapsed) {
-          this.storyEditor.formatSelection({ fontSizePt: s });
-        } else if (sel?.paraId) {
-          this.storyEditor.setParagraphPatch(sel.paraId, { fontSizePt: s });
-        }
-        this.updateFormattingToolbarState();
-        this.syncAndScheduleRepaginate();
+        this.applyQuickFormatting({ fontSizePt: s }, { fontSizePt: s });
       },
       onWeightChange: (b) => {
         const wt = b ? FONT_WEIGHT_BOLD : FONT_WEIGHT_REGULAR;
-        const sel = this.storyEditor.getStorySelection();
-        if (sel && !sel.isCollapsed) {
-          this.storyEditor.formatSelection({ fontWeight: wt });
-        } else if (sel?.paraId) {
-          this.storyEditor.setParagraphPatch(sel.paraId, { fontWeight: wt });
-        }
-        this.updateFormattingToolbarState();
-        this.syncAndScheduleRepaginate();
+        this.applyQuickFormatting({ fontWeight: wt }, { fontWeight: wt });
       },
       onAlignChange: (a) => {
-        const sel = this.storyEditor.getStorySelection();
-        if (sel) {
-          const alignment = (a === 'justify' ? 'Justified' : a === 'center' ? 'Center' : a === 'left' ? 'Left' : 'Right') as any;
-          this.storyEditor.setParagraphPatch(sel.paraId, { alignment });
-          this.updateFormattingToolbarState();
-          this.syncAndScheduleRepaginate();
-        }
+        const alignment = (a === 'justify' ? 'Justified' : a === 'center' ? 'Center' : a === 'left' ? 'Left' : 'Right') as ParagraphStylePatch['alignment'];
+        this.applyQuickFormatting(null, { alignment });
       },
       onStyleChange: (st) => {
-        const sel = this.storyEditor.getStorySelection();
-        if (sel) {
-          this.storyEditor.setParagraphStyle(sel.paraId, st);
-          this.updateFormattingToolbarState();
-          this.syncAndScheduleRepaginate();
-        }
-        this.showToast(tf('toastQuickStyle', { name: st }));
+        this.applyQuickFormatting(null, null, st);
+        const label = this.getTemplateStylesForHud().find((s) => s.value === st)?.label || st;
+        this.showToast(tf('toastQuickStyle', { name: label }));
       },
       onDismiss: () => this.inspector.setMode('zero')
     });
@@ -1235,23 +1256,66 @@ export class TypesetOkApp {
     this.showToast(tf('toastFlowCreated', { name: data.name }));
   }
 
+  private applyCustomTemplateSettings(customTemplate?: CustomTemplate): void {
+    if (!customTemplate) return;
+    const baseSettings = this.documentState.settings || { ...this.inspector.getDocumentSettings() };
+    const pageDims: Record<CustomTemplate['pageSize'], { w: number; h: number }> = {
+      '17x24': { w: 170, h: 240 },
+      A4: { w: 210, h: 297 },
+      B5: { w: 176, h: 250 },
+      Crown: { w: 189, h: 246 },
+    };
+    const dims = pageDims[customTemplate.pageSize] || pageDims['17x24'];
+    this.documentState.settings = {
+      ...baseSettings,
+      pageSize: customTemplate.pageSize,
+      pageWidthMm: dims.w,
+      pageHeightMm: dims.h,
+      columns: customTemplate.columns,
+      customTemplateId: customTemplate.id,
+      customTemplateName: customTemplate.name,
+    };
+    this.inspector.setDocumentSettings(this.documentState.settings);
+    this.inspector.setTypographySettings({
+      fontFamily: customTemplate.fontFamily,
+      fontSizePt: customTemplate.fontSizePt,
+      lineHeightPt: customTemplate.lineHeightPt,
+    });
+    const activeParas = this.documentState.flows[this.activeFlowId || 'gemara'] || [];
+    for (const p of activeParas) {
+      p.patch = {
+        ...(p.patch || {}),
+        fontFamily: customTemplate.fontFamily,
+        fontSizePt: customTemplate.fontSizePt,
+        lineHeightPt: customTemplate.lineHeightPt,
+      };
+    }
+    if (this.storyEditor) {
+      this.storyEditor.loadStory(activeParas, false);
+    }
+    this.repaginateAndSync(true);
+  }
+
   private get importTemplateModal(): ImportTemplateModal {
     if (!this.importTemplateModalInstance) {
       this.importTemplateModalInstance = new ImportTemplateModal({
-        onSelect: (templateId) => {
+        onSelect: (templateId, customTemplate) => {
           if (this.isChangingActiveDocumentTemplate) {
             this.isChangingActiveDocumentTemplate = false;
             this.changeDocumentTemplate(templateId);
+            this.applyCustomTemplateSettings(customTemplate);
             return;
           }
           if (this.isCreatingNewDocument) {
             this.isCreatingNewDocument = false;
             this.handleTemplateSelect(templateId);
+            this.applyCustomTemplateSettings(customTemplate);
             return;
           }
           if (this.pendingImportResult) {
             rememberImportTemplate(this.pendingImportResult.filePath, templateId);
             this.applyImportedDocument(this.pendingImportResult.result, this.pendingImportResult.filePath, templateId);
+            this.applyCustomTemplateSettings(customTemplate);
             this.pendingImportResult = null;
           }
         },
@@ -1272,7 +1336,13 @@ export class TypesetOkApp {
   private get textCleanupModal(): TextCleanupModal {
     if (!this.textCleanupModalInstance) {
       this.textCleanupModalInstance = new TextCleanupModal({
-        onApply: (options) => this.applyTextCleanup(options)
+        onApply: (options) => this.applyTextCleanup(options),
+        onOptionsChange: (options) => {
+          if (!this.documentState.settings) {
+            this.documentState.settings = { ...this.inspector.getDocumentSettings() };
+          }
+          this.documentState.settings.cleanupOptions = { ...options };
+        }
       });
       this.root.appendChild(this.textCleanupModalInstance.element);
     }
@@ -1354,6 +1424,7 @@ export class TypesetOkApp {
     this.textCleanupModal.show({
       activeFlowId: activeKey,
       activeFlowDisplayName: this.flowDisplayName(activeKey),
+      initialOptions: this.documentState.settings?.cleanupOptions as Partial<CleanupOptions> | undefined,
       getParagraphs: (scope) => {
         if (scope === 'activeFlow') {
           return this.storyEditor ? this.storyEditor.getStory(true) : (this.documentState.flows[activeKey] || []);
@@ -1373,6 +1444,10 @@ export class TypesetOkApp {
   }
 
   private applyTextCleanup(options: CleanupOptions): void {
+    if (!this.documentState.settings) {
+      this.documentState.settings = { ...this.inspector.getDocumentSettings() };
+    }
+    this.documentState.settings.cleanupOptions = { ...options };
     const activeKey = this.activeFlowId || 'gemara';
     let totalChanges = 0;
 
@@ -1464,7 +1539,12 @@ export class TypesetOkApp {
       pageCount: this.pages.length,
       spreadLabels: spread.map((pos) => {
         const p = this.pages[pos];
-        return `${p ? p.gematriaNumber : toHebrewGematria(pos + 1)} ${isRectoPage(pos) ? 'ע״א' : 'ע״ב'}`;
+        const isGemara = this.documentState.templateType === 'gemara'
+          || this.documentState.settings?.pageNumbering?.method === 'gemara-daf-amud';
+        if (isGemara) {
+          return formatGemaraDafAmud(pos);
+        }
+        return p ? p.gematriaNumber : toHebrewGematria(pos + 1);
       }),
       preflightStatus: this.statusBar.getPreflightStatus(),
       preflightReport: this.latestPreflightReport,
@@ -1713,6 +1793,53 @@ export class TypesetOkApp {
       }
     });
     bar.appendChild(this.storyFontFamilySelect);
+
+    // Real text size controls (pt) for selected text or paragraph
+    const stepStoryTextSize = (deltaPt: number) => {
+      const sel = this.storyEditor?.getStorySelection();
+      const fmt = this.storyEditor?.getSelectionFormat() || {};
+      const p = sel ? this.storyEditor.getParagraph(sel.paraId) : null;
+      const curSize = fmt.fontSizePt ?? p?.patch?.fontSizePt ?? (this.activeFlowId === 'gemara' ? 15 : 11);
+      const nextSize = Math.max(6, Math.min(96, Math.round((curSize + deltaPt) * 10) / 10));
+      this.applyQuickFormatting({ fontSizePt: nextSize }, { fontSizePt: nextSize });
+    };
+    const textSmallerBtn = el('button', 'tok-btn tok-btn-ghost tok-btn-xs', {
+      type: 'button',
+      title: 'הקטנת גודל גופן בטקסט (pt)',
+      'aria-label': 'הקטנת גודל גופן בטקסט',
+      style: 'min-width:24px;height:24px;padding:0 4px;font-size:11px;font-weight:700;'
+    }, 'A⁻');
+    textSmallerBtn.addEventListener('click', () => stepStoryTextSize(-1));
+    bar.appendChild(textSmallerBtn);
+
+    this.storyTextSizeBadge = el('span', undefined, {
+      style: 'font-size:11px;font-variant-numeric:tabular-nums;color:var(--tok-text-secondary);min-width:30px;text-align:center;'
+    }, '15pt') as HTMLSpanElement;
+    bar.appendChild(this.storyTextSizeBadge);
+
+    const textLargerBtn = el('button', 'tok-btn tok-btn-ghost tok-btn-xs', {
+      type: 'button',
+      title: 'הגדלת גודל גופן בטקסט (pt)',
+      'aria-label': 'הגדלת גודל גופן בטקסט',
+      style: 'min-width:24px;height:24px;padding:0 4px;font-size:12px;font-weight:700;'
+    }, 'A⁺');
+    textLargerBtn.addEventListener('click', () => stepStoryTextSize(1));
+    bar.appendChild(textLargerBtn);
+
+    // Text color picker
+    this.storyTextColorInput = el('input', undefined, {
+      type: 'color',
+      value: '#1B1A17',
+      title: 'צבע טקסט',
+      'aria-label': 'צבע טקסט',
+      style: 'width:24px;height:24px;padding:1px;border:1px solid var(--tok-border-strong);border-radius:4px;background:transparent;cursor:pointer;'
+    }) as HTMLInputElement;
+    this.storyTextColorInput.addEventListener('input', () => {
+      const color = this.storyTextColorInput?.value;
+      if (!color) return;
+      this.applyQuickFormatting({ color }, { color });
+    });
+    bar.appendChild(this.storyTextColorInput);
 
     // Alignment controls
     const alignRightBtn = iconButton('alignRight', 'יישור לימין', () => {
@@ -2015,7 +2142,9 @@ export class TypesetOkApp {
   private updateFormattingToolbarState(): void {
     if (!this.storyBoldBtn || !this.storyItalicBtn || !this.storyUnderlineBtn || !this.storyEditor) return;
     const fmt = this.storyEditor.getSelectionFormat();
-    const isBold = (fmt.fontWeight || 400) >= 600;
+    const sel = this.storyEditor.getStorySelection();
+    const selPara = sel ? this.storyEditor.getParagraph(sel.paraId) : null;
+    const isBold = ((fmt.fontWeight ?? (sel?.isCollapsed ? selPara?.patch?.fontWeight : undefined) ?? 400) >= 600);
     const isItalic = Boolean(fmt.italic);
     const isUnderline = Boolean(fmt.underline);
 
@@ -2027,29 +2156,42 @@ export class TypesetOkApp {
     this.storyUnderlineBtn.setAttribute('aria-pressed', String(isUnderline));
 
     if (this.storyFontFamilySelect) {
-      const sel = this.storyEditor.getStorySelection();
-      const p = sel ? this.storyEditor.getParagraph(sel.paraId) : null;
-      const targetFamily = fmt.fontFamily || p?.patch?.fontFamily || (this.activeFlowId === 'gemara' ? 'Frank Ruhl Libre' : 'Noto Rashi Hebrew');
+      const targetFamily = fmt.fontFamily || selPara?.patch?.fontFamily || (this.activeFlowId === 'gemara' ? 'Frank Ruhl Libre' : 'Noto Rashi Hebrew');
       if (targetFamily) {
         this.storyFontFamilySelect.value = targetFamily;
       }
     }
 
+    if (this.storyTextSizeBadge) {
+      const sz = fmt.fontSizePt ?? selPara?.patch?.fontSizePt ?? (this.activeFlowId === 'gemara' ? 15 : 11);
+      this.storyTextSizeBadge.textContent = `${Math.round(sz * 10) / 10}pt`;
+    }
+
+    if (this.storyTextColorInput) {
+      const col = fmt.color || selPara?.patch?.color;
+      if (col && /^#[0-9a-f]{6}$/i.test(col)) {
+        this.storyTextColorInput.value = col;
+      }
+    }
+
     if (this.inspector && this.currentViewMode !== 'canvas') {
-      const sel = this.storyEditor.getStorySelection();
-      if (sel) {
-        const p = this.storyEditor.getParagraph(sel.paraId);
-        const patch = p?.patch || {};
+      if (sel && selPara) {
+        const patch = selPara.patch || {};
         const isBoldSel = isBold || ((patch.fontWeight || 400) >= 600);
+        const rawAlign = (patch.alignment || 'Justified').toLowerCase();
         const typoData: any = {
           fontFamily: fmt.fontFamily || patch.fontFamily || (this.activeFlowId === 'gemara' ? 'Frank Ruhl Libre' : 'Noto Rashi Hebrew'),
           fontSizePt: fmt.fontSizePt || patch.fontSizePt || (this.activeFlowId === 'gemara' ? 15 : 11),
           fontWeight: isBoldSel ? FONT_WEIGHT_BOLD : FONT_WEIGHT_REGULAR,
           lineHeightPt: patch.lineHeightPt || (this.activeFlowId === 'gemara' ? 20 : 15),
-          alignment: (patch.alignment?.toLowerCase() as any) || 'justify',
-          styleTokenId: p?.styleId || 'main-text',
-          styleTokenName: p?.styleId || 'טקסט ראשי',
-          isOverride: Boolean(p?.patch && Object.keys(p.patch).length > 0)
+          alignment: rawAlign === 'justified' ? 'justify' : rawAlign,
+          justification: {
+            tier2OheltaremEnabled: ((patch as any).ahaltermStretch ?? 'Off') !== 'Off'
+          },
+          styleTokenId: selPara.styleId || 'main-text',
+          styleTokenName: selPara.styleId || 'טקסט ראשי',
+          isOverride: Boolean(selPara.patch && Object.keys(selPara.patch).length > 0),
+          dropCap: patch.dropCap
         };
         this.inspector.setMode('text-edit', undefined, typoData);
       }
@@ -2435,8 +2577,136 @@ export class TypesetOkApp {
     }
   }
 
+  private getTemplateStylesForHud(): Array<{ value: string; label: string }> {
+    const visible = this.structureBar?.getVisibleStyles() || [];
+    if (visible.length > 0) {
+      return visible.map((s) => ({ value: s.id, label: s.name }));
+    }
+    return getFlowsForTemplate(this.documentState?.templateType || 'gemara').map((f) => ({
+      value: `style-${f.id}-main`,
+      label: f.name
+    }));
+  }
+
+  private applyQuickFormatting(
+    charFmt: Partial<CharacterFormat> | null,
+    paraPatch: Partial<ParagraphStylePatch> | null,
+    styleId?: string
+  ): void {
+    const sel = this.storyEditor?.getStorySelection();
+    if (sel && this.currentViewMode !== 'canvas') {
+      if (styleId) {
+        this.storyEditor.setParagraphStyle(sel.paraId, styleId);
+      }
+      if (charFmt && !sel.isCollapsed) {
+        this.storyEditor.formatSelection(charFmt);
+      } else if (paraPatch) {
+        this.storyEditor.setParagraphPatch(sel.paraId, paraPatch);
+      }
+      this.updateFormattingToolbarState();
+      this.syncAndScheduleRepaginate();
+      return;
+    }
+
+    const flowId = this.lastCanvasTarget?.flowId || this.activeFlowId || 'gemara';
+    const flowParas = this.documentState?.flows?.[flowId] || [];
+    const targetPara = (this.lastCanvasTarget?.paraId
+      ? flowParas.find((p) => p.id === this.lastCanvasTarget!.paraId)
+      : null) || flowParas[0];
+
+    if (targetPara) {
+      if (styleId) {
+        targetPara.styleId = styleId;
+      }
+      const selText = this.lastCanvasTarget?.selectedText;
+      if (charFmt && selText && targetPara.text) {
+        const idx = targetPara.text.indexOf(selText);
+        if (idx >= 0) {
+          targetPara.spans = formatRangeInSpans(
+            targetPara.spans || [],
+            idx,
+            idx + selText.length,
+            charFmt,
+            targetPara.text.length
+          );
+        } else if (paraPatch) {
+          targetPara.patch = { ...(targetPara.patch || {}), ...paraPatch };
+        }
+      } else if (paraPatch) {
+        targetPara.patch = { ...(targetPara.patch || {}), ...paraPatch };
+      }
+
+      if (flowId === this.activeFlowId && this.storyEditor) {
+        this.storyEditor.loadStory(flowParas);
+      }
+      this.setDirty(true);
+      this.scheduleRepaginate();
+    }
+  }
+
+  private applyManualMark(markType: ManualMarkType): void {
+    const formatMap: Record<Exclude<ManualMarkType, 'clear'>, CharacterFormat> = {
+      dibur: { characterStyleId: 'char-dibur-hamatchil', fontWeight: FONT_WEIGHT_BOLD },
+      citation: { characterStyleId: 'char-citation-parens', fontScale: 0.85, color: '#4B5563' },
+      rashi: { characterStyleId: 'char-rashi', fontFamily: 'Noto Rashi Hebrew', fontWeight: FONT_WEIGHT_BOLD },
+      bold: { fontWeight: FONT_WEIGHT_BOLD },
+      highlight: { italic: true, color: '#92400E' }
+    };
+
+    const sel = this.storyEditor?.getStorySelection();
+    if (sel && this.currentViewMode !== 'canvas') {
+      if (markType === 'clear') {
+        this.storyEditor.clearFormattingSelection();
+      } else if (!sel.isCollapsed) {
+        this.storyEditor.formatSelection(formatMap[markType]);
+      } else {
+        // If caret is collapsed on a paragraph, mark the first word(s) or notify user
+        const p = this.storyEditor.getParagraph(sel.paraId);
+        if (p && markType === 'dibur') {
+          const wordsMatch = p.text.match(/^\S+(?:\s+\S+){0,4}/);
+          if (wordsMatch) {
+            p.spans = formatRangeInSpans(p.spans || [], 0, wordsMatch[0].length, formatMap.dibur, p.text.length);
+            this.storyEditor.loadStory(this.storyEditor.getStory());
+          }
+        }
+      }
+      this.updateFormattingToolbarState();
+      this.syncAndScheduleRepaginate();
+      this.showToast(t(markType === 'clear' ? 'inspMarkClear' : `inspMark${markType[0].toUpperCase()}${markType.slice(1)}`));
+      return;
+    }
+
+    const flowId = this.lastCanvasTarget?.flowId || this.activeFlowId || 'gemara';
+    const flowParas = this.documentState?.flows?.[flowId] || [];
+    const targetPara = (this.lastCanvasTarget?.paraId
+      ? flowParas.find((p) => p.id === this.lastCanvasTarget!.paraId)
+      : null) || flowParas[0];
+
+    if (!targetPara || !targetPara.text) return;
+
+    const selText = this.lastCanvasTarget?.selectedText;
+    const startIdx = selText ? Math.max(0, targetPara.text.indexOf(selText)) : 0;
+    const endIdx = selText && targetPara.text.includes(selText)
+      ? startIdx + selText.length
+      : (targetPara.text.match(/^\S+(?:\s+\S+){0,4}/)?.[0].length ?? targetPara.text.length);
+
+    if (markType === 'clear') {
+      targetPara.spans = clearRangeInSpans(targetPara.spans || [], startIdx, endIdx);
+    } else {
+      targetPara.spans = formatRangeInSpans(targetPara.spans || [], startIdx, endIdx, formatMap[markType], targetPara.text.length);
+    }
+    if (flowId === this.activeFlowId && this.storyEditor) {
+      this.storyEditor.loadStory(flowParas);
+    }
+    this.setDirty(true);
+    this.scheduleRepaginate();
+    this.showToast(t(markType === 'clear' ? 'inspMarkClear' : `inspMark${markType[0].toUpperCase()}${markType.slice(1)}`));
+  }
+
   private handleCanvasFrameSelect(flowId: string, paraId?: string): void {
     const canonicalFlowId = (flowId === 'main' || flowId === 'primary') ? 'gemara' : flowId;
+    const selectedText = window.getSelection()?.toString().trim() || undefined;
+    this.lastCanvasTarget = { flowId: canonicalFlowId, paraId, selectedText };
     if (canonicalFlowId !== this.activeFlowId) {
       this.switchActiveFlow(canonicalFlowId, paraId);
       const name = this.flowDisplayName(canonicalFlowId);
@@ -2572,6 +2842,8 @@ export class TypesetOkApp {
       if (this.documentState?.settings?.baselineGridPt) {
         this.canvas.setBaselineGrid(this.documentState.settings.baselineGridPt, this.documentState.settings.baselineOffsetPt);
       }
+      this.canvas.setPageNumbering(this.documentState?.settings?.pageNumbering);
+      this.inspector?.setMultiFlowContext(this.documentState.flows, this.documentState.multiFlowAnchors || []);
       this.canvas.setPages(newPages, this.activePageIndex);
       this.refreshThumbnails();
       if (forceReset || this.activePageIndex >= newPages.length) {
@@ -2705,6 +2977,9 @@ export class TypesetOkApp {
             name: baseName,
             path: targetPath,
             pages: this.pages.length || 1,
+            template: resolveTemplateIndex(this.documentState.templateType),
+            templateId: this.documentState.templateType,
+            templateName: this.documentState.settings?.customTemplateName,
             lastSavedAt: new Date().toISOString()
           });
           this.clearDraftRecovery();
@@ -2743,6 +3018,9 @@ export class TypesetOkApp {
             name: baseName,
             path: targetPath,
             pages: this.pages.length || 1,
+            template: resolveTemplateIndex(this.documentState.templateType),
+            templateId: this.documentState.templateType,
+            templateName: this.documentState.settings?.customTemplateName,
             lastSavedAt: new Date().toISOString()
           });
           this.clearDraftRecovery();
@@ -2781,6 +3059,9 @@ export class TypesetOkApp {
 
     if (newState.settings) {
       this.inspector.setDocumentSettings({ ...newState.settings, title: displayTitle });
+      if (newState.settings.justification) {
+        this.inspector.setTypographySettings({ justification: newState.settings.justification });
+      }
       this.canvas?.setMargins({
         marginTopMm: newState.settings.marginTopMm,
         marginBottomMm: newState.settings.marginBottomMm,
@@ -2788,6 +3069,8 @@ export class TypesetOkApp {
         marginOutsideMm: newState.settings.marginOutsideMm
       });
     }
+    this.inspector.setGrepRules(newState.grepRules);
+    this.inspector.setFootnoteApparatuses(newState.footnoteApparatuses);
 
     const flowKeys = Object.keys(newState.flows);
     const activeKey = (this.activeFlowId && newState.flows[this.activeFlowId])
@@ -2813,6 +3096,9 @@ export class TypesetOkApp {
         name: displayTitle,
         path: filePath,
         pages: this.pages.length || 1,
+        template: resolveTemplateIndex(this.documentState.templateType),
+        templateId: this.documentState.templateType,
+        templateName: this.documentState.settings?.customTemplateName,
         lastSavedAt: new Date().toISOString()
       });
       this.showToast(tf('toastOpenFile', { path: displayTitle }));
@@ -2877,7 +3163,15 @@ export class TypesetOkApp {
       this.storyEditor.loadStory([]);
     }
     this.hasOpenDocument = true;
-    addRecentProject({ name: baseName, path: filePath, pages: this.pages.length || 1, lastSavedAt: new Date().toISOString() });
+    addRecentProject({
+      name: baseName,
+      path: filePath,
+      pages: this.pages.length || 1,
+      template: resolveTemplateIndex(this.documentState.templateType),
+      templateId: this.documentState.templateType,
+      templateName: this.documentState.settings?.customTemplateName,
+      lastSavedAt: new Date().toISOString()
+    });
     this.welcomeModal.setHasOpenDocument(true);
     this.welcomeModal.hide();
     this.showToast(tf('toastOpenFile', { path: baseName }));
@@ -3030,6 +3324,9 @@ export class TypesetOkApp {
       name: (this.documentTitle || 'imported') + '.tok',
       path: filePath,
       pages: this.pages.length || 1,
+      template: resolveTemplateIndex(activeTemplate),
+      templateId: activeTemplate,
+      templateName: this.documentState.settings?.customTemplateName,
       lastSavedAt: new Date().toISOString()
     });
 
@@ -3161,7 +3458,9 @@ export class TypesetOkApp {
     flowParas.push({
       id: `p-${Date.now()}`,
       text: '',
-      styleId: activeKey === 'gemara' ? 'style-gemara-main' : 'style-rashi-comm'
+      styleId: activeKey === 'gemara' ? 'style-gemara-main' : 'style-rashi-body',
+      pageBreakBefore: true,
+      isBlankPage: true
     });
     this.documentState.flows[activeKey] = flowParas;
     if (this.storyEditor) {
@@ -3172,7 +3471,10 @@ export class TypesetOkApp {
       const newIdx = Math.max(0, this.pages.length - 1);
       this.canvas.scrollToPage(newIdx);
       this.updatePageStats(newIdx);
-      const newGematria = this.pages[newIdx]?.gematriaNumber || toHebrewGematria(newIdx + 1);
+      const isGemara = this.documentState.templateType === 'gemara'
+        || this.documentState.settings?.pageNumbering?.method === 'gemara-daf-amud';
+      const newGematria = this.pages[newIdx]?.gematriaNumber
+        || (isGemara ? formatGemaraDafAmud(newIdx) : toHebrewGematria(newIdx + 1));
       this.showToast(tf('toastPageAdded', { page: newGematria, index: newIdx + 1 }));
     });
   }
@@ -3182,11 +3484,16 @@ export class TypesetOkApp {
     const validIdx = Math.min(Math.max(0, idx), maxIdx);
     this.activePageIndex = validIdx;
     const p = this.pages[validIdx];
-    const gematria = p ? p.gematriaNumber : toHebrewGematria(validIdx + 1);
+    const isGemara = this.documentState.templateType === 'gemara'
+      || this.documentState.settings?.pageNumbering?.method === 'gemara-daf-amud';
+    const pn = this.documentState.settings?.pageNumbering;
+    const gematria = p?.gematriaNumber
+      || (pn?.enabled ? formatPageNumber(validIdx, pn) : '')
+      || (isGemara ? formatGemaraDafAmud(validIdx) : toHebrewGematria(validIdx + 1));
     this.statusBar.updateStats({
       pageLabel: tf('appPageStatus', { page: gematria, index: validIdx + 1, total: this.pages.length })
     });
-    this.topBar.setPageLabel(`${tf('structurePageLabel', { g: gematria })} ${isRectoPage(validIdx) ? 'ע״א' : 'ע״ב'}`);
+    this.topBar.setPageLabel(isGemara ? formatGemaraDafAmud(validIdx) : tf('structurePageLabel', { g: gematria }));
     this.structureBar.setActivePage(validIdx);
   }
 

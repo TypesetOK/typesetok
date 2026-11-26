@@ -403,6 +403,35 @@ export const strings: Translations = {
   inspSyncStyle: { he: 'עדכן סגנון גלובלי מהשינוי הנוכחי', en: 'Update global style from this override' },
   inspNormalize: { he: 'נרמול סדר הניקוד (יוניקוד קנוני)', en: 'Normalize niqqud order (Canonical Unicode)' },
 
+  // Left sidebar fixed tool rail & sections
+  inspTabAll: { he: 'הכל', en: 'All' },
+  inspTabDoc: { he: 'מסמך', en: 'Doc' },
+  inspTabFrame: { he: 'מסגרת', en: 'Frame' },
+  inspTabTypo: { he: 'גופן', en: 'Type' },
+  inspTabMarking: { he: 'סימון', en: 'Mark' },
+  inspTabAdvanced: { he: 'GREP', en: 'GREP' },
+
+  // Drop Cap ("אות פתיח")
+  inspDropCapTitle: { he: 'אות פתיח / מילת פתיחה', en: 'Drop Cap / Opening Word' },
+  inspDropCapEnable: { he: 'הפעל חלון במילת פתיחה', en: 'Enable Drop Cap' },
+  inspDropCapLines: { he: 'גובה בשורות', en: 'Lines height' },
+  inspDropCapWholeWord: { he: 'מילה שלמה (חלון מסורתי)', en: 'Whole opening word' },
+  inspDropCapChars: { he: 'מספר אותיות', en: 'Characters' },
+  inspDropCapMargin: { he: 'מרווח מסביב (pt)', en: 'Clearance (pt)' },
+  inspDropCapFont: { he: 'גופן אות פתיח', en: 'Drop Cap font' },
+  inspDropCapInheritFont: { he: 'כמו גופן הפסקה', en: 'Inherit paragraph font' },
+  inspDropCapSize: { he: 'גודל ידני (0 = אוטומטי)', en: 'Manual size (0 = auto)' },
+
+  // Manual Word Marking
+  inspMarkingTitle: { he: 'סימון מילים ידני', en: 'Manual Word Marking' },
+  inspMarkingSub: { he: 'בחר מילים בעורך או בעמוד ולחץ לסימון מיידי', en: 'Select words in editor or page and click to mark' },
+  inspMarkDibur: { he: 'דיבור המתחיל', en: 'Dibur HaMatchil' },
+  inspMarkCitation: { he: 'מראי מקומות', en: 'References / Citations' },
+  inspMarkRashi: { he: 'ראשי תיבות / רש״י', en: 'Acronyms / Rashi' },
+  inspMarkBold: { he: 'הדגשה', en: 'Bold' },
+  inspMarkHighlight: { he: 'הערה / הטיה', en: 'Note / Italic' },
+  inspMarkClear: { he: 'נקה סימון', en: 'Clear marking' },
+
   // About Modal
   aboutTitle: { he: 'אודות TypesetOK', en: 'About TypesetOK' },
   aboutVersionLabel: { he: 'גרסה', en: 'Version' },

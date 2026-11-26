@@ -1,6 +1,8 @@
 import { drawLineGuides } from './baselineGuides';
 import { PageDescriptor, PageDomVirtualizer, computeActiveWindow } from 'tok-viewer';
 import { SelectionMode, TextFrameData } from '../types';
+import type { PageNumberingSettings } from '../types';
+import { formatPageNumber } from '../gematria';
 import { t, tf, i18n } from '../i18n';
 import { el, icon, iconButton, button } from '../ui';
 import { alignFrames, FrameAlignType, FrameRect } from '../utils/frameAlignment';
@@ -142,6 +144,7 @@ export class SpreadCanvas {
   private scrollSettleTimer = 0;
   private baselineGridPt = 13;
   private baselineOffsetPt = 48;
+  private pageNumbering: PageNumberingSettings | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private onWindowPointerMove: ((e: PointerEvent) => void) | null = null;
   private onWindowPointerUp: (() => void) | null = null;
@@ -469,6 +472,10 @@ export class SpreadCanvas {
     contentEl.innerHTML = html;
   }
 
+  public setPageNumbering(settings?: PageNumberingSettings | null): void {
+    this.pageNumbering = settings ? { ...settings } : null;
+  }
+
   private renderContainer(): void {
     this.scroller.innerHTML = '';
     this.scroller.setAttribute('aria-label', t('canvasAria'));
@@ -708,13 +715,76 @@ export class SpreadCanvas {
     spine.style.background = `linear-gradient(to ${isRightPage ? 'left' : 'right'}, rgba(40,30,10,.10), rgba(40,30,10,0))`;
     sheet.appendChild(spine);
 
-    // 1. Running head: page number on the outer corner.
-    const head = el('div', 'tok-page-head', { 'data-layer-id': 'decorations' });
-    // Hebrew numerals read right to left whatever the interface language is.
-    const pageNo = el('span', undefined, { dir: 'rtl', style: 'unicode-bidi: isolate;' }, `דף ${page.gematriaNumber} ${amud}`);
-    if (isRightPage) head.append(pageNo);
-    else head.append(pageNo);
-    sheet.appendChild(head);
+    // 1. Page number / folio rendering (only when enabled in PageNumberingSettings; matches PDF export).
+    const isBlankPage = Boolean(page.htmlContent && page.htmlContent.includes('tok-page-blank'));
+    const pn = this.pageNumbering;
+    if (pn && pn.enabled && pn.method !== 'none' && !(pn.suppressOnBlankPages !== false && isBlankPage)) {
+      const formattedNo = formatPageNumber(page.pageIndex ?? position, pn) || page.gematriaNumber;
+      if (formattedNo) {
+        const isTop = pn.placement === 'top-center' || pn.placement === 'top-outer';
+        const isOuter = pn.placement === 'top-outer' || pn.placement === 'bottom-outer';
+        const folioWrap = el('div', 'tok-page-folio-overlay', {
+          'aria-hidden': 'true',
+          'data-layer-id': 'decorations',
+          dir: 'rtl',
+          style: [
+            'position: absolute',
+            isTop ? 'top: 12pt' : 'bottom: 12pt',
+            isOuter ? (isRightPage ? 'right: 22pt' : 'left: 22pt') : 'left: 0; right: 0; display: flex; justify-content: center',
+            'pointer-events: none',
+            'z-index: 6',
+            `font-family: '${pn.fontFamily || 'Frank Ruhl Libre'}', serif`,
+            `font-size: ${pn.fontSizePt || 10}pt`,
+            pn.color ? `color: ${pn.color}` : 'color: #1C1B18',
+            'unicode-bidi: isolate'
+          ].join('; ')
+        });
+
+        const ornId = pn.ornamentId || 'none';
+        const ORNAMENT_SVGS: Record<string, string> = {
+          folio_cartouche: `<svg viewBox="0 0 120 36" width="100%" height="100%" aria-hidden="true"><path d="M12 18 Q20 4 36 6 L84 6 Q100 4 108 18 Q100 32 84 30 L36 30 Q20 32 12 18 Z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="18" r="2.2" fill="currentColor"/><circle cx="112" cy="18" r="2.2" fill="currentColor"/></svg>`,
+          crown_torah: `<svg viewBox="0 0 120 40" width="100%" height="100%" aria-hidden="true"><path d="M18 32 L10 14 L34 22 L60 6 L86 22 L110 14 L102 32 Z" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="20" y="34" width="80" height="2.5" rx="1.2" fill="currentColor"/></svg>`,
+          menorah_divider: `<svg viewBox="0 0 120 32" width="100%" height="100%" aria-hidden="true"><line x1="6" y1="16" x2="40" y2="16" stroke="currentColor" stroke-width="1.3"/><line x1="80" y1="16" x2="114" y2="16" stroke="currentColor" stroke-width="1.3"/><ellipse cx="60" cy="16" rx="16" ry="11" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
+          floral_parasha: `<svg viewBox="0 0 100 32" width="100%" height="100%" aria-hidden="true"><path d="M12 16 Q24 9 34 16 Q24 23 12 16 Z M88 16 Q76 9 66 16 Q76 23 88 16 Z" fill="none" stroke="currentColor" stroke-width="1.4"/><ellipse cx="50" cy="16" rx="14" ry="11" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
+          star_tailpiece: `<svg viewBox="0 0 60 60" width="100%" height="100%" aria-hidden="true"><polygon points="30,6 51,42 9,42" fill="none" stroke="currentColor" stroke-width="1.6"/><polygon points="30,54 9,18 51,18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`
+        };
+
+        if (ornId !== 'none' && ORNAMENT_SVGS[ornId]) {
+          const w = pn.ornamentWidthPt || 72;
+          const h = pn.ornamentHeightPt || 22;
+          const badge = el('div', 'tok-folio-ornament-wrap', {
+            style: `position: relative; width: ${w}pt; height: ${h}pt; display: inline-flex; align-items: center; justify-content: center;`
+          });
+          badge.innerHTML = ORNAMENT_SVGS[ornId];
+          if (pn.ornamentEmbedNumber) {
+            const numSpan = el('span', 'tok-folio-ornament-num', {
+              style: 'position: relative; z-index: 1; line-height: 1; font-weight: 600;'
+            }, formattedNo);
+            badge.style.position = 'relative';
+            const svgEl = badge.querySelector('svg');
+            if (svgEl) {
+              svgEl.style.position = 'absolute';
+              svgEl.style.inset = '0';
+            }
+            badge.appendChild(numSpan);
+          } else {
+            const numSpan = el('span', undefined, { style: 'margin-inline-start: 6pt;' }, formattedNo);
+            folioWrap.appendChild(badge);
+            folioWrap.appendChild(numSpan);
+            sheet.appendChild(folioWrap);
+            // skip default append below
+            badge.dataset.appended = '1';
+          }
+          if (!badge.dataset.appended) {
+            folioWrap.appendChild(badge);
+            sheet.appendChild(folioWrap);
+          }
+        } else {
+          folioWrap.appendChild(el('span', undefined, undefined, formattedNo));
+          sheet.appendChild(folioWrap);
+        }
+      }
+    }
 
     // 2. Page body: rendered document content or clean interactive editable text frame.
     if (page.htmlContent && page.htmlContent.trim().length > 0) {
@@ -722,12 +792,6 @@ export class SpreadCanvas {
       if (isEngineLayout) {
         sheet.style.padding = '0';
         sheet.classList.add('tok-page-engine-layout');
-        head.style.position = 'absolute';
-        head.style.top = '14pt';
-        head.style.left = isRightPage ? 'auto' : '24pt';
-        head.style.right = isRightPage ? '24pt' : 'auto';
-        head.style.borderBottom = 'none';
-        head.style.zIndex = '5';
       }
       const content = el('div', 'tok-page-content', {
         style: isEngineLayout
@@ -833,8 +897,7 @@ export class SpreadCanvas {
       sheet.appendChild(bodyFrame);
     }
 
-    // 3. Running foot.
-    sheet.appendChild(el('div', 'tok-page-foot', { 'aria-hidden': 'true', 'data-layer-id': 'decorations', dir: 'rtl', style: 'unicode-bidi: isolate;' }, `- ${page.gematriaNumber} -`));
+    // 3. Running foot is now handled by the unified page numbering overlay above.
 
     // Guides (margin rectangle, baseline grid).
     const guides = el('div', 'tok-guides-layer', { 'aria-hidden': 'true', 'data-layer-id': 'guides' });

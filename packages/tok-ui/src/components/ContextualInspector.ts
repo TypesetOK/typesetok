@@ -4,7 +4,12 @@ import {
   TextFrameData,
   TypographySettings,
   FootnoteApparatusConfigData,
-  GrepRuleData
+  GrepRuleData,
+  MultiFlowAnchorLink,
+  PageNumberingSettings,
+  PageNumberingMethod,
+  PageNumberingPlacement,
+  PageNumberOrnamentId
 } from '../types';
 import { getBuiltinGrepRules, getDefaultMultiApparatusConfigs } from '../engine/documentBridge';
 import type { PreflightReport } from '../engine/typesetBridge';
@@ -34,6 +39,9 @@ export function formatScrubberValue(v: number, unit: string): string {
   return `${Math.round(v * 10) / 10} ${unit}`;
 }
 
+export type ManualMarkType = 'dibur' | 'citation' | 'rashi' | 'bold' | 'highlight' | 'clear';
+export type InspectorTab = 'all' | 'document' | 'frame' | 'typography' | 'marking' | 'advanced';
+
 export interface InspectorCallbacks {
   onDocumentChange: (settings: Partial<DocumentSettings>) => void;
   onFrameChange: (geometry: Partial<TextFrameData>) => void;
@@ -41,12 +49,14 @@ export interface InspectorCallbacks {
   onSyncStyleToken: () => void;
   onNormalizeNiqqud: () => void;
   onOpenTextCleanup?: () => void;
+  onManualMark?: (markType: ManualMarkType) => void;
   onAlignFrames: (alignType: string) => void;
   onOpenSettings?: () => void;
   onOpenWhatsNew?: () => void;
   onToggleCollapse?: (collapsed: boolean) => void;
   onGrepRulesChange?: (rules: GrepRuleData[]) => void;
   onFootnoteApparatusesChange?: (apparatuses: FootnoteApparatusConfigData[]) => void;
+  onMultiFlowAnchorsChange?: (anchors: MultiFlowAnchorLink[]) => void;
 }
 
 const FLOW_COLORS: Record<string, string> = { gemara: '#1E4A9E', rashi: '#B45309', tosafot: '#15803D', notes: '#7C3AED' };
@@ -55,10 +65,14 @@ export class ContextualInspector {
   public element: HTMLElement;
   private availableFlows: Array<{ id: string; name: string; color?: string }> = [];
   private mode: SelectionMode = 'zero';
+  private activeTab: InspectorTab = 'all';
+  private savedScrollTop = 0;
   private callbacks: InspectorCallbacks;
   private isCollapsed = false;
   private grepRules: GrepRuleData[] = getBuiltinGrepRules();
   private footnoteApparatuses: FootnoteApparatusConfigData[] = [];
+  private multiFlowAnchors: MultiFlowAnchorLink[] = [];
+  private flowParagraphSummaries: Record<string, Array<{ id: string; preview: string }>> = {};
 
   private documentSettings: DocumentSettings = {
     title: 'מסמך ללא שם',
@@ -112,7 +126,7 @@ export class ContextualInspector {
     justification: {
       tier1WordSpacingMin: 85,
       tier1WordSpacingMax: 125,
-      tier2OheltaremEnabled: true,
+      tier2OheltaremEnabled: false,
       tier2OheltaremMaxStretch: 120,
       tier2OheltaremLetters: ['א', 'ה', 'ל', 'ת', 'ר', 'ם'],
       tier3MicroTrackingRange: 2
@@ -176,7 +190,61 @@ export class ContextualInspector {
 
   public setDocumentSettings(settings: Partial<DocumentSettings>): void {
     Object.assign(this.documentSettings, settings);
+    if (settings.justification) {
+      this.typographySettings.justification = {
+        ...this.typographySettings.justification,
+        ...settings.justification,
+        tier2OheltaremLetters: settings.justification.tier2OheltaremLetters
+          ? [...settings.justification.tier2OheltaremLetters]
+          : [...this.typographySettings.justification.tier2OheltaremLetters]
+      };
+    }
+    if (this.mode === 'zero' || this.mode === 'text-edit') {
+      this.render();
+    }
+  }
+
+  public setMultiFlowContext(
+    flows: Record<string, Array<{ id: string; text?: string }>>,
+    anchors: MultiFlowAnchorLink[]
+  ): void {
+    const summaries: Record<string, Array<{ id: string; preview: string }>> = {};
+    for (const [fid, paras] of Object.entries(flows || {})) {
+      summaries[fid] = (paras || []).map((p, i) => {
+        const clean = (p.text || '').replace(/<[^>]+>/g, '').trim();
+        const preview = clean ? `${i + 1}. ${clean.slice(0, 26)}${clean.length > 26 ? '…' : ''}` : `${i + 1}. (פסקה ריקה)`;
+        return { id: p.id, preview };
+      });
+    }
+    this.flowParagraphSummaries = summaries;
+    this.multiFlowAnchors = [...(anchors || [])];
     if (this.mode === 'zero') {
+      this.render();
+    }
+  }
+
+  public getTypographySettings(): TypographySettings {
+    return {
+      ...this.typographySettings,
+      justification: {
+        ...this.typographySettings.justification,
+        tier2OheltaremLetters: [...this.typographySettings.justification.tier2OheltaremLetters]
+      }
+    };
+  }
+
+  public setTypographySettings(typo: Partial<TypographySettings>): void {
+    Object.assign(this.typographySettings, typo);
+    if (typo.justification) {
+      this.typographySettings.justification = {
+        ...this.typographySettings.justification,
+        ...typo.justification,
+        tier2OheltaremLetters: typo.justification.tier2OheltaremLetters
+          ? [...typo.justification.tier2OheltaremLetters]
+          : [...this.typographySettings.justification.tier2OheltaremLetters]
+      };
+    }
+    if (this.mode === 'text-edit') {
       this.render();
     }
   }
@@ -251,10 +319,15 @@ export class ContextualInspector {
   }
 
   private render(): void {
+    const prevBody = this.element.querySelector<HTMLElement>('.tok-inspector-body');
+    if (prevBody) {
+      this.savedScrollTop = prevBody.scrollTop;
+    }
     this.element.innerHTML = '';
 
     if (this.isCollapsed) {
       this.element.classList.add('tok-collapsed');
+      const mainCol = el('div', 'tok-inspector-main');
 
       const topBar = el('div', 'tok-inspector-top-bar');
       const expandBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-toggle-btn', {
@@ -262,12 +335,11 @@ export class ContextualInspector {
         title: t('inspExpand'),
         'aria-label': t('inspExpand')
       });
-      // In RTL, the inspector is on the left; expanding points inward towards the right.
       const expandIcon = i18n.getDirection() === 'rtl' ? 'chevronRight' : 'chevronLeft';
       expandBtn.appendChild(icon(expandIcon, 16));
       expandBtn.addEventListener('click', () => this.toggleCollapse());
       topBar.appendChild(expandBtn);
-      this.element.appendChild(topBar);
+      mainCol.appendChild(topBar);
 
       const strip = el('div', 'tok-inspector-collapsed-strip', {
         title: `${t('inspInspectorTitle')} - ${t('inspExpand')}`,
@@ -285,7 +357,7 @@ export class ContextualInspector {
           this.toggleCollapse();
         }
       });
-      this.element.appendChild(strip);
+      mainCol.appendChild(strip);
 
       const foot = el('div', 'tok-inspector-footer');
       if (this.callbacks.onOpenWhatsNew) {
@@ -306,22 +378,23 @@ export class ContextualInspector {
         footSettings.addEventListener('click', () => this.callbacks.onOpenSettings?.());
         foot.appendChild(footSettings);
       }
-      this.element.appendChild(foot);
+      mainCol.appendChild(foot);
+      this.element.appendChild(mainCol);
       return;
     }
 
     this.element.classList.remove('tok-collapsed');
 
+    const mainCol = el('div', 'tok-inspector-main');
+
     // 1. Top bar of inspector
     const topBar = el('div', 'tok-inspector-top-bar');
 
-    // In RTL, the inner edge facing the canvas is at the right side (start edge in RTL)
     const collapseBtn = el('button', 'tok-btn tok-btn-ghost tok-insp-toggle-btn', {
       type: 'button',
       title: t('inspCollapse'),
       'aria-label': t('inspCollapse')
     });
-    // In RTL, collapsing moves outward toward the left edge
     const collapseIcon = i18n.getDirection() === 'rtl' ? 'chevronLeft' : 'chevronRight';
     collapseBtn.appendChild(icon(collapseIcon, 16));
     collapseBtn.addEventListener('click', () => this.toggleCollapse());
@@ -345,29 +418,32 @@ export class ContextualInspector {
       topBar.appendChild(el('span', undefined, { style: 'width:28px;' }));
     }
 
-    this.element.appendChild(topBar);
+    mainCol.appendChild(topBar);
 
-    // 2. Scrollable Body
+    // 2. Scrollable Body (fixed list of tools, never hidden by context)
     const body = el('div', 'tok-inspector-body');
-    this.element.appendChild(body);
+    mainCol.appendChild(body);
 
-    switch (this.mode) {
-      case 'zero':
-        this.renderZeroSelection();
-        break;
-      case 'text-frame':
-        this.renderTextFrameMode();
-        break;
-      case 'text-edit':
-        this.renderTextEditMode();
-        break;
-      case 'image-frame':
-        this.renderImageFrameMode();
-        break;
-      case 'multi':
-        this.renderMultiSelectMode();
-        break;
+    this.renderContextHeader(body);
+    if (this.activeTab === 'all' || this.activeTab === 'marking') {
+      this.appendManualMarkingSection(body);
     }
+    if (this.activeTab === 'all' || this.activeTab === 'typography') {
+      this.appendTypographySection(body);
+    }
+    if (this.activeTab === 'all' || this.activeTab === 'document') {
+      this.appendDocumentSection(body);
+      this.appendPageNumberingCard(body);
+    }
+    if (this.activeTab === 'all' || this.activeTab === 'frame') {
+      this.appendFrameSection(body);
+    }
+    if (this.activeTab === 'all' || this.activeTab === 'advanced') {
+      this.appendMultiFlowLinksCard(body);
+      this.appendLiveGrepCard(body);
+      this.appendMultiApparatusCard(body);
+    }
+    body.appendChild(el('div', 'tok-insp-spacer'));
 
     // 3. Footer with Settings button
     if (this.callbacks.onOpenSettings) {
@@ -381,16 +457,106 @@ export class ContextualInspector {
       settingsBtn.appendChild(el('span', undefined, undefined, t('sidebarSettings')));
       settingsBtn.addEventListener('click', () => this.callbacks.onOpenSettings?.());
       footer.appendChild(settingsBtn);
-      this.element.appendChild(footer);
+      mainCol.appendChild(footer);
+    }
+
+    // 4. Fixed Tool Rail (mirrors StructureBar on the right side)
+    const rail = el('nav', 'tok-insp-rail', { 'aria-label': t('inspInspectorTitle') });
+    const tabs: { id: InspectorTab; label: string; icon: IconName }[] = [
+      { id: 'all', label: t('inspTabAll'), icon: 'layers' },
+      { id: 'marking', label: t('inspTabMarking'), icon: 'sparkle' },
+      { id: 'typography', label: t('inspTabTypo'), icon: 'typography' },
+      { id: 'document', label: t('inspTabDoc'), icon: 'pages' },
+      { id: 'frame', label: t('inspTabFrame'), icon: 'frame' },
+      { id: 'advanced', label: t('inspTabAdvanced'), icon: 'settings' }
+    ];
+    for (const tab of tabs) {
+      const btn = el('button', 'tok-rail-btn', {
+        type: 'button',
+        'data-insp-tab': tab.id,
+        'aria-pressed': String(this.activeTab === tab.id),
+        title: tab.label
+      });
+      btn.appendChild(icon(tab.icon, 18));
+      btn.appendChild(el('span', undefined, undefined, tab.label));
+      btn.addEventListener('click', () => {
+        this.activeTab = tab.id;
+        this.savedScrollTop = 0;
+        this.render();
+      });
+      rail.appendChild(btn);
+    }
+
+    this.element.appendChild(mainCol);
+    this.element.appendChild(rail);
+
+    if (this.savedScrollTop > 0) {
+      body.scrollTop = this.savedScrollTop;
+    }
+  }
+
+  private renderContextHeader(c: HTMLElement): void {
+    if (this.mode === 'text-frame') {
+      const flow = this.selectedFrame.flowId;
+      c.appendChild(this.createHeader(t('inspSelected'), this.flowName(flow), `${t('inspTextFrame')} · ${this.selectedFrame.id}`, 'frame', FLOW_COLORS[flow]));
+    } else if (this.mode === 'text-edit') {
+      c.appendChild(this.createHeader(t('inspSelected'), this.typographySettings.styleTokenName, t('inspTypography'), 'typography'));
+    } else if (this.mode === 'multi') {
+      c.appendChild(this.createHeader(t('inspSelected'), t('inspMulti'), t('inspMultiCount'), 'layers'));
+    } else {
+      c.appendChild(this.createHeader(t('inspNothingSelected'), this.documentSettings.title, `${t('inspDocTitle')} · ${t('inspDocSubtitle')}`, 'file'));
     }
   }
 
   // =========================================================================
-  // State 1: Zero Selection (document setup & print check)
+  // Section 1: Manual Word Marking & Sacred Text Tools
   // =========================================================================
-  private renderZeroSelection(): void {
-    const c = this.getContainer();
-    c.appendChild(this.createHeader(t('inspNothingSelected'), this.documentSettings.title, `${t('inspDocTitle')} · ${t('inspDocSubtitle')}`, 'file'));
+  private appendManualMarkingSection(c: HTMLElement): void {
+    const markCard = this.createCard(t('inspMarkingTitle'));
+    markCard.appendChild(el('div', 'tok-inspector-sub', undefined, t('inspMarkingSub')));
+    const grid = el('div', 'tok-marking-grid');
+    const marks: Array<{ id: ManualMarkType; label: string; cls?: string }> = [
+      { id: 'dibur', label: t('inspMarkDibur'), cls: 'tok-btn-primary' },
+      { id: 'citation', label: t('inspMarkCitation') },
+      { id: 'rashi', label: t('inspMarkRashi') },
+      { id: 'bold', label: t('inspMarkBold') },
+      { id: 'highlight', label: t('inspMarkHighlight') },
+      { id: 'clear', label: t('inspMarkClear') }
+    ];
+    for (const m of marks) {
+      grid.appendChild(button(m.label, {
+        className: `tok-btn tok-btn-sm ${m.cls || 'tok-btn-secondary'}`,
+        attrs: { 'data-manual-mark': m.id },
+        onClick: () => this.callbacks.onManualMark?.(m.id)
+      }));
+    }
+    markCard.appendChild(grid);
+    c.appendChild(markCard);
+
+    const sacredCard = this.createCard(t('inspSacred'));
+    sacredCard.appendChild(button(t('menuTextCleanup'), {
+      className: 'tok-btn tok-btn-block tok-btn-sm',
+      icon: 'sparkle',
+      iconSize: 14,
+      onClick: () => this.callbacks.onOpenTextCleanup?.()
+    }));
+    sacredCard.appendChild(button(t('inspNormalize'), {
+      className: 'tok-btn tok-btn-block tok-btn-sm',
+      icon: 'sparkle',
+      iconSize: 14,
+      onClick: () => this.callbacks.onNormalizeNiqqud()
+    }));
+    sacredCard.appendChild(switchRow(t('inspDivineShield'), this.typographySettings.shieldDivineNames, (v) => {
+      this.typographySettings.shieldDivineNames = v;
+      this.callbacks.onTypographyChange({ shieldDivineNames: v });
+    }));
+    c.appendChild(sacredCard);
+  }
+
+  // =========================================================================
+  // Section 2: Document Setup (page size, margins, baseline grid, columns)
+  // =========================================================================
+  private appendDocumentSection(c: HTMLElement): void {
 
     // 1. Page size
     const sizeCard = this.createCard(t('inspPageSize'));
@@ -491,23 +657,12 @@ export class ContextualInspector {
       this.callbacks.onDocumentChange({ drawColumnRule: v });
     }, { focusKey: 'draw-column-rule' }));
     c.appendChild(colCard);
-
-    // 4. Multi-Apparatus Footnotes
-    this.appendMultiApparatusCard(c);
-
-    // 5. Live GREP Rule Engine
-    this.appendLiveGrepCard(c);
-
-    c.appendChild(el('div', 'tok-insp-spacer'));
   }
 
   // =========================================================================
-  // State 2: Text frame selected (object mode)
+  // Section 3: Frame Geometry, Flow & Alignment
   // =========================================================================
-  private renderTextFrameMode(): void {
-    const c = this.getContainer();
-    const flow = this.selectedFrame.flowId;
-    c.appendChild(this.createHeader(t('inspSelected'), this.flowName(flow), `${t('inspTextFrame')} · ${this.selectedFrame.id}`, 'frame', FLOW_COLORS[flow]));
+  private appendFrameSection(c: HTMLElement): void {
 
     // 1. Geometry
     const geoCard = this.createCard(t('inspGeometry'));
@@ -556,7 +711,7 @@ export class ContextualInspector {
           { id: 'notes', name: this.flowName('notes') }
         ];
     const flows = flowList.map((f) => ({ value: f.id, label: f.name }));
-    flowCard.appendChild(selectField(t('inspFlowThreading'), flows, flow, (value) => {
+    flowCard.appendChild(selectField(t('inspFlowThreading'), flows, this.selectedFrame.flowId, (value) => {
       this.selectedFrame.flowId = value as TextFrameData['flowId'];
       this.callbacks.onFrameChange({ id: this.selectedFrame.id, flowId: this.selectedFrame.flowId });
       this.render();
@@ -601,9 +756,31 @@ export class ContextualInspector {
     }, { fill: true }));
     c.appendChild(insetCard);
 
-    // 4. Frame Typography & Alignment
-    this.appendTypographyCard(c);
-    this.appendAlignCard(c);
+    // 3b. Multi-frame alignment & distribution
+    const alignDistCard = this.createCard(t('inspAlignDist'));
+    const grid = el('div', undefined, { style: 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px' });
+    const actions = [
+      { id: 'align-right', label: t('inspAlignRight') },
+      { id: 'align-center', label: t('inspAlignCenter') },
+      { id: 'align-left', label: t('inspAlignLeft') },
+      { id: 'align-top', label: t('inspAlignTop') },
+      { id: 'align-middle', label: t('inspAlignMiddle') },
+      { id: 'align-bottom', label: t('inspAlignBottom') }
+    ];
+    for (const a of actions) {
+      grid.appendChild(button(a.label, { className: 'tok-btn tok-btn-sm', onClick: () => this.callbacks.onAlignFrames(a.id) }));
+    }
+    alignDistCard.appendChild(grid);
+    alignDistCard.appendChild(button(t('inspDistribute'), {
+      className: 'tok-btn tok-btn-primary tok-btn-block tok-btn-sm',
+      onClick: () => this.callbacks.onAlignFrames('distribute-v')
+    }));
+    const isHe = i18n.getLanguage() === 'he';
+    alignDistCard.appendChild(button(isHe ? 'פזר אופקית במרווחים שווים' : 'Distribute Horizontally', {
+      className: 'tok-btn tok-btn-block tok-btn-sm',
+      onClick: () => this.callbacks.onAlignFrames('distribute-h')
+    }));
+    c.appendChild(alignDistCard);
   }
 
   private appendTypographyCard(c: HTMLElement): void {
@@ -659,11 +836,9 @@ export class ContextualInspector {
   }
 
   // =========================================================================
-  // State 3: Text edit mode (typography, 3-tier Hebrew justification, niqqud)
+  // Section 4: Typography, Drop Cap & 3-Tier Justification
   // =========================================================================
-  private renderTextEditMode(): void {
-    const c = this.getContainer();
-    c.appendChild(this.createHeader(t('inspSelected'), this.typographySettings.styleTokenName, t('inspTypography'), 'typography'));
+  private appendTypographySection(c: HTMLElement): void {
 
     // 1. Paragraph style & override sync
     const styleCard = this.createCard(t('inspStyleToken'));
@@ -744,29 +919,279 @@ export class ContextualInspector {
     }));
     c.appendChild(justCard);
 
-    // 5. Niqqud, cantillation & divine names
-    const sacredCard = this.createCard(t('inspSacred'));
-    sacredCard.appendChild(button(t('menuTextCleanup'), {
-      className: 'tok-btn tok-btn-block tok-btn-sm',
-      icon: 'sparkle',
-      iconSize: 14,
-      onClick: () => this.callbacks.onOpenTextCleanup?.()
-    }));
-    sacredCard.appendChild(button(t('inspNormalize'), {
-      className: 'tok-btn tok-btn-block tok-btn-sm',
-      icon: 'sparkle',
-      iconSize: 14,
-      onClick: () => this.callbacks.onNormalizeNiqqud()
-    }));
-    sacredCard.appendChild(switchRow(t('inspDivineShield'), this.typographySettings.shieldDivineNames, (v) => {
-      this.typographySettings.shieldDivineNames = v;
-      this.callbacks.onTypographyChange({ shieldDivineNames: v });
-    }));
-    c.appendChild(sacredCard);
+    // 5. Drop Cap ("אות פתיח / מילת פתיחה")
+    this.appendDropCapCard(c);
+  }
 
-    // 6. Live GREP Rule Engine & Multi-Apparatus Footnotes
-    this.appendLiveGrepCard(c);
-    this.appendMultiApparatusCard(c);
+  private appendDropCapCard(c: HTMLElement): void {
+    const dc = this.typographySettings.dropCap || {
+      enabled: false,
+      lines: 3,
+      charactersCount: 1,
+      wholeWord: true,
+      fontWeight: FONT_WEIGHT_BOLD,
+      marginPt: 6
+    };
+    const commitDropCap = (patch: Partial<typeof dc>, rerender = false) => {
+      const next = { ...dc, ...patch };
+      this.typographySettings.dropCap = next;
+      this.typographySettings.isOverride = true;
+      this.callbacks.onTypographyChange({ dropCap: next, isOverride: true });
+      if (rerender) this.render();
+    };
+
+    const dcCard = this.createCard(t('inspDropCapTitle'));
+    dcCard.appendChild(switchRow(t('inspDropCapEnable'), dc.enabled, (v) => {
+      commitDropCap({ enabled: v }, true);
+    }, { focusKey: 'drop-cap-enable' }));
+
+    if (dc.enabled) {
+      dcCard.appendChild(switchRow(t('inspDropCapWholeWord'), dc.wholeWord, (v) => {
+        commitDropCap({ wholeWord: v }, true);
+      }, { focusKey: 'drop-cap-whole-word' }));
+
+      dcCard.appendChild(this.row(
+        this.createScrubber(t('inspDropCapLines'), dc.lines, '', 2, 6, (v) => {
+          commitDropCap({ lines: Math.round(v) });
+        }),
+        this.createScrubber(t('inspDropCapMargin'), dc.marginPt, 'pt', 0, 24, (v) => {
+          commitDropCap({ marginPt: v });
+        })
+      ));
+
+      if (!dc.wholeWord) {
+        dcCard.appendChild(this.createScrubber(t('inspDropCapChars'), dc.charactersCount, '', 1, 8, (v) => {
+          commitDropCap({ charactersCount: Math.round(v) });
+        }));
+      }
+
+      const fontOptions = [
+        { value: '', label: t('inspDropCapInheritFont') },
+        ...getAvailableFonts().map((f) => ({ value: f.family, label: f.label }))
+      ];
+      dcCard.appendChild(selectField(t('inspDropCapFont'), fontOptions, dc.fontFamily || '', (value) => {
+        commitDropCap({ fontFamily: value || undefined });
+      }));
+
+      const dcWeight = dc.fontWeight >= 600 ? FONT_WEIGHT_BOLD : FONT_WEIGHT_REGULAR;
+      dcCard.appendChild(segmented(t('inspWeight'), [
+        { id: String(FONT_WEIGHT_REGULAR), label: t('inspWeightRegular') },
+        { id: String(FONT_WEIGHT_BOLD), label: t('inspWeightBold') }
+      ], String(dcWeight), (id) => {
+        commitDropCap({ fontWeight: Number(id) }, true);
+      }, { fill: true, focusPrefix: 'dc-weight' }));
+
+      dcCard.appendChild(this.createScrubber(t('inspDropCapSize'), dc.fontSizePt ?? 0, 'pt', 0, 120, (v) => {
+        commitDropCap({ fontSizePt: v > 0 ? v : undefined });
+      }));
+    }
+
+    c.appendChild(dcCard);
+  }
+
+  private appendPageNumberingCard(c: HTMLElement): void {
+    const isHe = i18n.getLanguage() === 'he';
+    const pn: PageNumberingSettings = this.documentSettings.pageNumbering || {
+      enabled: false,
+      method: 'hebrew-gematria',
+      placement: 'bottom-center',
+      startNumber: 1,
+      fontFamily: DEFAULT_DOCUMENT_FONT,
+      fontSizePt: 10,
+      ornamentId: 'none',
+      ornamentEmbedNumber: false,
+      suppressOnBlankPages: true
+    };
+    const commitPn = (patch: Partial<PageNumberingSettings>, rerender = false) => {
+      const next: PageNumberingSettings = { ...pn, ...patch };
+      this.documentSettings.pageNumbering = next;
+      this.callbacks.onDocumentChange({ pageNumbering: next });
+      if (rerender) this.render();
+    };
+
+    const card = this.createCard(isHe ? 'מספור עמודים ועיטורים' : 'Page Numbering & Ornaments');
+    card.appendChild(switchRow(isHe ? 'הצג מספור עמודים' : 'Enable page numbers', pn.enabled, (v) => {
+      commitPn({ enabled: v }, true);
+    }, { focusKey: 'page-numbering-enable' }));
+
+    if (pn.enabled) {
+      const methods: Array<{ value: PageNumberingMethod; label: string }> = [
+        { value: 'hebrew-gematria', label: isHe ? 'גימטריה עם גרש (א׳, ב׳)' : 'Hebrew Gematria (א׳, ב׳)' },
+        { value: 'hebrew-plain', label: isHe ? 'אותיות עבריות (א, ב)' : 'Hebrew Letters (א, ב)' },
+        { value: 'arabic', label: isHe ? 'ספרות רגילות (1, 2, 3)' : 'Arabic Numerals (1, 2, 3)' },
+        { value: 'gemara-daf-amud', label: isHe ? 'דף ועמוד גמרא (ב., ב:)' : 'Gemara Daf/Amud (ב., ב:)' },
+        { value: 'roman-upper', label: isHe ? 'רומיות גדולות (I, II, III)' : 'Roman Upper (I, II, III)' },
+        { value: 'roman-lower', label: isHe ? 'רומיות קטנות (i, ii, iii)' : 'Roman Lower (i, ii, iii)' }
+      ];
+      card.appendChild(selectField(isHe ? 'שיטת מספור' : 'Numbering method', methods, pn.method, (v) => {
+        const method = v as PageNumberingMethod;
+        const startNumber = method === 'gemara-daf-amud' ? 2 : 1;
+        commitPn({ method, startNumber }, true);
+      }));
+
+      const placements: Array<{ value: PageNumberingPlacement; label: string }> = [
+        { value: 'bottom-center', label: isHe ? 'תחתית — מרכז' : 'Bottom — Center' },
+        { value: 'bottom-outer', label: isHe ? 'תחתית — פינה חיצונית' : 'Bottom — Outer Corner' },
+        { value: 'top-center', label: isHe ? 'ראש — מרכז' : 'Top — Center' },
+        { value: 'top-outer', label: isHe ? 'ראש — פינה חיצונית' : 'Top — Outer Corner' }
+      ];
+      card.appendChild(selectField(isHe ? 'מיקום המספור' : 'Placement', placements, pn.placement, (v) => {
+        commitPn({ placement: v as PageNumberingPlacement });
+      }));
+
+      const fontOpts = getAvailableFonts().map((f) => ({ value: f.family, label: f.label }));
+      card.appendChild(selectField(isHe ? 'גופן מספור' : 'Number font', fontOpts, pn.fontFamily || DEFAULT_DOCUMENT_FONT, (v) => {
+        commitPn({ fontFamily: v });
+      }));
+
+      card.appendChild(this.row(
+        this.createScrubber(isHe ? 'גודל' : 'Size', pn.fontSizePt || 10, 'pt', 6, 24, (v) => {
+          commitPn({ fontSizePt: v });
+        }),
+        this.createScrubber(isHe ? 'התחלה מ-' : 'Start at', pn.startNumber || 1, '', 1, 999, (v) => {
+          commitPn({ startNumber: Math.max(1, Math.round(v)) });
+        })
+      ));
+
+      const ornaments: Array<{ value: PageNumberOrnamentId; label: string }> = [
+        { value: 'none', label: isHe ? 'ללא עיטור' : 'None' },
+        { value: 'folio_cartouche', label: isHe ? 'מסגרת כרטוש (מיועדת למספור)' : 'Folio Cartouche Frame' },
+        { value: 'crown_torah', label: isHe ? 'כתר תורה' : 'Torah Crown' },
+        { value: 'menorah_divider', label: isHe ? 'מנורה ומפריד' : 'Menorah Divider' },
+        { value: 'floral_parasha', label: isHe ? 'עיטור פרשה' : 'Floral Parasha' },
+        { value: 'star_tailpiece', label: isHe ? 'חותם מגן דוד' : 'Star Tailpiece' }
+      ];
+      card.appendChild(selectField(isHe ? 'עיטור וקטורי' : 'Vector Ornament', ornaments, pn.ornamentId || 'none', (v) => {
+        const ornamentId = v as PageNumberOrnamentId;
+        commitPn({
+          ornamentId,
+          ornamentEmbedNumber: ornamentId === 'folio_cartouche' ? true : pn.ornamentEmbedNumber
+        }, true);
+      }));
+
+      if (pn.ornamentId && pn.ornamentId !== 'none') {
+        card.appendChild(switchRow(isHe ? 'שלב מספור בתוך העיטור' : 'Embed number inside ornament', Boolean(pn.ornamentEmbedNumber), (v) => {
+          commitPn({ ornamentEmbedNumber: v });
+        }));
+      }
+    }
+    c.appendChild(card);
+  }
+
+  private appendMultiFlowLinksCard(c: HTMLElement): void {
+    const isHe = i18n.getLanguage() === 'he';
+    const card = this.createCard(isHe ? 'קשרי תזרימים (עיגון לעמוד)' : 'Inter-Flow Links (Co-Pagination)');
+    card.appendChild(el('p', 'tok-panel-note', { style: 'margin:0 0 8px;font-size:11.5px;color:var(--tok-text-muted);' },
+      isHe
+        ? 'קשר בין פסקה בטקסט הראשי לפירוש או הערה כדי שיופיעו יחד באותו עמוד ויקבעו את סגנון העימוד.'
+        : 'Link a main-flow paragraph to commentary or footnote paragraphs so they always stay on the same page.'
+    ));
+
+    // List existing links
+    if (this.multiFlowAnchors.length > 0) {
+      const list = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:4px;margin-bottom:8px;' });
+      this.multiFlowAnchors.forEach((link, idx) => {
+        const row = el('div', undefined, {
+          style: 'display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 6px;border-radius:4px;background:var(--tok-bg-surface-2,rgba(0,0,0,0.04));font-size:11px;'
+        });
+        const label = link.label || `${link.primaryFlowId} ↔ ${link.commentaryFlowId}`;
+        row.appendChild(el('span', undefined, { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, label));
+        const delBtn = iconButton('close', isHe ? 'הסר קשר' : 'Remove link', () => {
+          const next = this.multiFlowAnchors.filter((_, i) => i !== idx);
+          this.multiFlowAnchors = next;
+          this.callbacks.onMultiFlowAnchorsChange?.(next);
+          this.render();
+        }, { size: 12 });
+        row.appendChild(delBtn);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+    }
+
+    const primaryFlow = this.flowParagraphSummaries['gemara']?.length
+      ? 'gemara'
+      : (this.flowParagraphSummaries['main']?.length ? 'main' : 'gemara');
+    const primaryParas = this.flowParagraphSummaries[primaryFlow] || [];
+    const targetFlows = Object.keys(this.flowParagraphSummaries).filter(
+      (fid) => fid !== primaryFlow && (this.flowParagraphSummaries[fid]?.length || 0) > 0
+    );
+
+    if (primaryParas.length > 0 && targetFlows.length > 0) {
+      const targetFlowSel = el('select', 'tok-input');
+      for (const fid of targetFlows) {
+        const flowMeta = this.availableFlows.find((f) => f.id === fid);
+        targetFlowSel.appendChild(el('option', undefined, { value: fid }, flowMeta?.name || fid));
+      }
+      const primaryParaSel = el('select', 'tok-input');
+      for (const p of primaryParas) {
+        primaryParaSel.appendChild(el('option', undefined, { value: p.id }, p.preview));
+      }
+      const targetParaSel = el('select', 'tok-input');
+      const refreshTargetParas = () => {
+        targetParaSel.innerHTML = '';
+        for (const p of this.flowParagraphSummaries[targetFlowSel.value] || []) {
+          targetParaSel.appendChild(el('option', undefined, { value: p.id }, p.preview));
+        }
+      };
+      targetFlowSel.addEventListener('change', refreshTargetParas);
+      refreshTargetParas();
+
+      card.appendChild(primaryParaSel);
+      card.appendChild(targetFlowSel);
+      card.appendChild(targetParaSel);
+
+      card.appendChild(button(isHe ? 'קשר פסקאות לאותו עמוד' : 'Link Paragraphs to Same Page', {
+        className: 'tok-btn tok-btn-primary tok-btn-block tok-btn-sm',
+        icon: 'plus',
+        iconSize: 13,
+        onClick: () => {
+          const pId = primaryParaSel.value;
+          const cFlow = targetFlowSel.value;
+          const cId = targetParaSel.value;
+          if (!pId || !cFlow || !cId) return;
+          const next: MultiFlowAnchorLink[] = [
+            ...this.multiFlowAnchors.filter((l) => l.commentaryNodeId !== cId),
+            {
+              anchorId: `anc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              primaryFlowId: primaryFlow,
+              primaryNodeId: pId,
+              commentaryFlowId: cFlow,
+              commentaryNodeId: cId,
+              label: `${primaryFlow} ↔ ${cFlow}`
+            }
+          ];
+          this.multiFlowAnchors = next;
+          this.callbacks.onMultiFlowAnchorsChange?.(next);
+          this.render();
+        }
+      }));
+
+      card.appendChild(button(isHe ? 'קשר אוטומטי לפי סדר פסקאות' : 'Auto-link by Paragraph Order', {
+        className: 'tok-btn tok-btn-secondary tok-btn-block tok-btn-sm',
+        onClick: () => {
+          const cFlow = targetFlowSel.value;
+          const cParas = this.flowParagraphSummaries[cFlow] || [];
+          const next = [...this.multiFlowAnchors];
+          const count = Math.min(primaryParas.length, cParas.length);
+          for (let i = 0; i < count; i++) {
+            const cId = cParas[i].id;
+            if (next.some((l) => l.commentaryNodeId === cId)) continue;
+            next.push({
+              anchorId: `anc-auto-${i}-${Date.now()}`,
+              primaryFlowId: primaryFlow,
+              primaryNodeId: primaryParas[i].id,
+              commentaryFlowId: cFlow,
+              commentaryNodeId: cId,
+              label: `${primaryFlow} #${i + 1} ↔ ${cFlow}`
+            });
+          }
+          this.multiFlowAnchors = next;
+          this.callbacks.onMultiFlowAnchorsChange?.(next);
+          this.render();
+        }
+      }));
+    }
+    c.appendChild(card);
   }
 
   private appendMultiApparatusCard(c: HTMLElement): void {
@@ -917,70 +1342,6 @@ export class ContextualInspector {
     grepCard.appendChild(customWrap);
 
     c.appendChild(grepCard);
-  }
-
-  // =========================================================================
-  // State 4: Image frame
-  // =========================================================================
-  private renderImageFrameMode(): void {
-    const c = this.getContainer();
-    c.appendChild(this.createHeader(t('inspSelected'), t('inspImageFrame'), t('inspImage'), 'image'));
-
-    const imgCard = this.createCard(t('inspFitting'));
-    const isHe = i18n.getLanguage() === 'he';
-    const notice = el(
-      'p',
-      'tok-panel-note',
-      { style: 'margin:0 0 8px;color:var(--tok-text-muted);font-size:12px;' },
-      isHe
-        ? 'שיבוץ תמונות רסטר מתוכנן לגרסה עתידית (בקרים מושבתים).'
-        : 'Raster image placement is planned for a future release (controls disabled).'
-    );
-    imgCard.appendChild(notice);
-
-    const fits = [t('inspFitProportional'), t('inspFitFill'), t('inspFitFrame')];
-    const fitField = selectField(t('inspFitting'), fits.map((f) => ({ value: f, label: f })), fits[0], () => {});
-    fitField.querySelectorAll('select').forEach((sel) => {
-      sel.disabled = true;
-    });
-    imgCard.appendChild(fitField);
-    imgCard.appendChild(this.createStatusRow(t('inspEffRes'), '—', 'var(--tok-text-muted)'));
-    imgCard.appendChild(this.createStatusRow(t('inspColorSpace'), '—', 'var(--tok-text-muted)'));
-    imgCard.appendChild(this.createStatusRow(t('inspWrap'), t('inspWrapAround'), 'var(--tok-text-muted)'));
-    c.appendChild(imgCard);
-  }
-
-  // =========================================================================
-  // State 5: Multi-selection (align & distribute)
-  // =========================================================================
-  private renderMultiSelectMode(): void {
-    const c = this.getContainer();
-    c.appendChild(this.createHeader(t('inspSelected'), t('inspMulti'), t('inspMultiCount'), 'layers'));
-
-    const alignCard = this.createCard(t('inspAlignDist'));
-    const grid = el('div', undefined, { style: 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px' });
-    const actions = [
-      { id: 'align-right', label: t('inspAlignRight') },
-      { id: 'align-center', label: t('inspAlignCenter') },
-      { id: 'align-left', label: t('inspAlignLeft') },
-      { id: 'align-top', label: t('inspAlignTop') },
-      { id: 'align-middle', label: t('inspAlignMiddle') },
-      { id: 'align-bottom', label: t('inspAlignBottom') }
-    ];
-    for (const a of actions) {
-      grid.appendChild(button(a.label, { className: 'tok-btn tok-btn-sm', onClick: () => this.callbacks.onAlignFrames(a.id) }));
-    }
-    alignCard.appendChild(grid);
-    alignCard.appendChild(button(t('inspDistribute'), {
-      className: 'tok-btn tok-btn-primary tok-btn-block tok-btn-sm',
-      onClick: () => this.callbacks.onAlignFrames('distribute-v')
-    }));
-    const isHe = i18n.getLanguage() === 'he';
-    alignCard.appendChild(button(isHe ? 'פזר אופקית במרווחים שווים' : 'Distribute Horizontally', {
-      className: 'tok-btn tok-btn-block tok-btn-sm',
-      onClick: () => this.callbacks.onAlignFrames('distribute-h')
-    }));
-    c.appendChild(alignCard);
   }
 
   // =========================================================================
