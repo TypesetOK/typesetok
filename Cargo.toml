@@ -55,3 +55,10 @@ tok-engine-service = { path = "crates/tok-engine-service" }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = 0
