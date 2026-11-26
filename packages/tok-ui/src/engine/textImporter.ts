@@ -279,7 +279,7 @@ export function importPlainText(
 }
 
 /**
- * Parses inline markdown tokens (bold, italic, code) into plain text and rich TextSpans.
+ * Parses inline markdown tokens (bold, italic, code, links, inline images) into plain text and rich TextSpans.
  */
 export function parseMarkdownInlineSpans(rawText: string): { text: string; cleanText: string; spans: TextSpan[] } {
   let cleanText = '';
@@ -287,6 +287,55 @@ export function parseMarkdownInlineSpans(rawText: string): { text: string; clean
   let i = 0;
 
   while (i < rawText.length) {
+    // Check for inline image ![alt](url)
+    if (rawText[i] === '!' && rawText[i + 1] === '[') {
+      const closeBracket = rawText.indexOf(']', i + 2);
+      if (closeBracket !== -1 && rawText[closeBracket + 1] === '(') {
+        const closeParen = rawText.indexOf(')', closeBracket + 2);
+        if (closeParen !== -1) {
+          const alt = rawText.slice(i + 2, closeBracket).trim();
+          const urlPart = rawText.slice(closeBracket + 2, closeParen).trim().split(/\s+/)[0];
+          const label = alt || urlPart;
+          const start = cleanText.length;
+          cleanText += label;
+          const end = cleanText.length;
+          if (end > start) {
+            spans.push({ start, end, format: { italic: true, linkUrl: urlPart } });
+          }
+          i = closeParen + 1;
+          continue;
+        }
+      }
+    }
+
+    // Check for markdown link [text](url)
+    if (rawText[i] === '[') {
+      const closeBracket = rawText.indexOf(']', i + 1);
+      if (closeBracket !== -1 && rawText[closeBracket + 1] === '(') {
+        const closeParen = rawText.indexOf(')', closeBracket + 2);
+        if (closeParen !== -1) {
+          const linkText = rawText.slice(i + 1, closeBracket);
+          const url = rawText.slice(closeBracket + 2, closeParen).trim().split(/\s+/)[0];
+          const innerParsed = parseMarkdownInlineSpans(linkText);
+          const start = cleanText.length;
+          cleanText += innerParsed.cleanText;
+          const end = cleanText.length;
+          for (const s of innerParsed.spans) {
+            spans.push({ start: start + s.start, end: start + s.end, format: s.format });
+          }
+          if (end > start) {
+            spans.push({
+              start,
+              end,
+              format: { underline: true, color: '#1E4A9E', linkUrl: url }
+            });
+          }
+          i = closeParen + 1;
+          continue;
+        }
+      }
+    }
+
     // Check for bold-italic ***text*** or ___text___
     if (
       (rawText.startsWith('***', i) || rawText.startsWith('___', i)) &&
@@ -358,8 +407,74 @@ export function parseMarkdownInlineSpans(rawText: string): { text: string; clean
   return { text: cleanText, cleanText, spans };
 }
 
+function parseMarkdownAlignmentDirective(line: string): {
+  text: string;
+  alignment?: ParagraphStylePatch['alignment'];
+} {
+  let s = line.trim();
+  // <center>...</center>
+  const centerTag = s.match(/^<center>([\s\S]*)<\/center>$/i);
+  if (centerTag) {
+    return { text: centerTag[1].trim(), alignment: 'Center' };
+  }
+  // <div align="...">...</div> or <p align="...">...</p>
+  const alignTag = s.match(/^<(?:div|p)\s+[^>]*align=["'](center|right|left|justify)["'][^>]*>([\s\S]*)<\/(?:div|p)>$/i);
+  if (alignTag) {
+    const map: Record<string, ParagraphStylePatch['alignment']> = {
+      center: 'Center',
+      right: 'Right',
+      left: 'Left',
+      justify: 'Justified'
+    };
+    return { text: alignTag[2].trim(), alignment: map[alignTag[1].toLowerCase()] };
+  }
+  // ->centered<- or ->right-> or <-left<-
+  const arrowCenter = s.match(/^->([\s\S]+)<-$/);
+  if (arrowCenter) {
+    return { text: arrowCenter[1].trim(), alignment: 'Center' };
+  }
+  const arrowRight = s.match(/^->([\s\S]+)->$/);
+  if (arrowRight) {
+    return { text: arrowRight[1].trim(), alignment: 'Right' };
+  }
+  const arrowLeft = s.match(/^<-([\s\S]+)<-$/);
+  if (arrowLeft) {
+    return { text: arrowLeft[1].trim(), alignment: 'Left' };
+  }
+  // Trailing {.center} / {align=center}
+  const attrMatch = s.match(/^(.*?)\s*\{\s*(?:\.(center|right|left|justify)|align=(center|right|left|justify))\s*\}$/i);
+  if (attrMatch) {
+    const key = (attrMatch[2] || attrMatch[3] || '').toLowerCase();
+    const map: Record<string, ParagraphStylePatch['alignment']> = {
+      center: 'Center',
+      right: 'Right',
+      left: 'Left',
+      justify: 'Justified'
+    };
+    return { text: attrMatch[1].trim(), alignment: map[key] };
+  }
+  return { text: s };
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) return false;
+  const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|');
+  return cells.length > 0 && cells.every((c) => /^\s*:?-{2,}:?\s*$/.test(c));
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((c) => c.trim());
+}
+
 /**
- * Imports Markdown document (.md) preserving headings, lists, quotes, and inline styles.
+ * Imports Markdown document (.md) preserving headings, lists, quotes, alignment/centering,
+ * tables, images, links, code blocks, and inline styles.
  */
 export function importMarkdown(
   content: string | Uint8Array | ArrayBuffer,
@@ -379,16 +494,48 @@ export function importMarkdown(
 
   const lines = text.split('\n');
   const paragraphs: StoryParagraph[] = [];
+  const tables: ImportedTableData[] = [];
+  const links: ImportedFieldLink[] = [];
   let currentParaLines: string[] = [];
   let extractedTitle: string | null = null;
+  let pendingAlignment: ParagraphStylePatch['alignment'] | undefined;
+
+  const collectLinks = (paraId: string, paraText: string, spans: TextSpan[]) => {
+    for (const sp of spans) {
+      if (sp.format.linkUrl) {
+        links.push({
+          paragraphId: paraId,
+          text: paraText.slice(sp.start, sp.end),
+          url: sp.format.linkUrl,
+          fieldType: 'HYPERLINK',
+          start: sp.start,
+          end: sp.end,
+          isExternal: /^https?:\/\//i.test(sp.format.linkUrl)
+        });
+      }
+    }
+  };
 
   function flushParagraph() {
     if (currentParaLines.length === 0) return;
     const joined = currentParaLines.join(' ').trim();
     currentParaLines = [];
-    if (!joined) return;
-    const { cleanText, spans } = parseMarkdownInlineSpans(joined);
-    paragraphs.push(createStoryParagraph(cleanText, options?.defaultStyleId || 'default-body', spans));
+    if (!joined) {
+      pendingAlignment = undefined;
+      return;
+    }
+    const { text: alignedText, alignment: inlineAlign } = parseMarkdownAlignmentDirective(joined);
+    const { cleanText, spans } = parseMarkdownInlineSpans(alignedText);
+    const effAlign = inlineAlign || pendingAlignment;
+    pendingAlignment = undefined;
+    const para = createStoryParagraph(
+      cleanText,
+      options?.defaultStyleId || 'default-body',
+      spans,
+      effAlign ? { alignment: effAlign } : undefined
+    );
+    collectLinks(para.id, cleanText, spans);
+    paragraphs.push(para);
   }
 
   for (let idx = 0; idx < lines.length; idx++) {
@@ -400,31 +547,166 @@ export function importMarkdown(
       continue;
     }
 
-    // Heading 1
+    // HTML comment alignment directive: <!-- align: center -->
+    const commentAlign = trimmed.match(/^<!--\s*align\s*:\s*(center|right|left|justify)\s*-->$/i);
+    if (commentAlign) {
+      flushParagraph();
+      const map: Record<string, ParagraphStylePatch['alignment']> = {
+        center: 'Center',
+        right: 'Right',
+        left: 'Left',
+        justify: 'Justified'
+      };
+      pendingAlignment = map[commentAlign[1].toLowerCase()];
+      continue;
+    }
+
+    // Fenced code block ```
+    if (/^```/.test(trimmed)) {
+      flushParagraph();
+      const codeLines: string[] = [];
+      idx++;
+      while (idx < lines.length && !/^```/.test(lines[idx].trim())) {
+        codeLines.push(lines[idx]);
+        idx++;
+      }
+      for (const cl of codeLines) {
+        const para = createStoryParagraph(
+          cl,
+          options?.defaultStyleId || 'default-body',
+          cl.length > 0 ? [{ start: 0, end: cl.length, format: { fontFamily: 'monospace' } }] : undefined,
+          { alignment: 'Left', direction: 'Ltr' }
+        );
+        paragraphs.push(para);
+      }
+      continue;
+    }
+
+    // Horizontal rule --- / *** / ___
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      flushParagraph();
+      paragraphs.push(createStoryParagraph('• • •', options?.defaultStyleId || 'default-body', undefined, { alignment: 'Center' }));
+      continue;
+    }
+
+    // Standalone image line: ![alt](src "title")
+    const imgMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)$/);
+    if (imgMatch) {
+      flushParagraph();
+      const altText = imgMatch[1].trim();
+      const assetPath = imgMatch[2].trim();
+      const caption = imgMatch[3]?.trim();
+      const para = createStoryParagraph(
+        caption || altText || '',
+        options?.defaultStyleId || 'default-body',
+        undefined,
+        { alignment: 'Center' }
+      );
+      para.image = {
+        assetPath,
+        widthPt: 240,
+        heightPt: 160,
+        ...(altText ? { altText } : {}),
+        ...(caption ? { caption } : {})
+      };
+      paragraphs.push(para);
+      continue;
+    }
+
+    // Markdown pipe table: header row followed by separator row |---|---|
+    if (trimmed.includes('|') && idx + 1 < lines.length && isMarkdownTableSeparator(lines[idx + 1])) {
+      flushParagraph();
+      const headerCells = splitMarkdownTableRow(trimmed);
+      idx += 2; // skip header + separator
+      const bodyRows: string[][] = [];
+      while (idx < lines.length && lines[idx].trim().includes('|') && !isMarkdownTableSeparator(lines[idx])) {
+        bodyRows.push(splitMarkdownTableRow(lines[idx]));
+        idx++;
+      }
+      idx--; // step back so outer for-loop increments cleanly
+
+      const allRawRows = [headerCells, ...bodyRows];
+      const colCount = Math.max(1, ...allRawRows.map((r) => r.length));
+      const tableRows: ImportedTableRow[] = [];
+
+      allRawRows.forEach((rawCells, rIdx) => {
+        const isHeader = rIdx === 0;
+        const cells: ImportedTableCell[] = [];
+        let rowText = '';
+        const rowSpans: TextSpan[] = [];
+        for (let c = 0; c < colCount; c++) {
+          const cellRaw = rawCells[c] ?? '';
+          const parsedCell = parseMarkdownInlineSpans(cellRaw);
+          cells.push({
+            text: parsedCell.cleanText,
+            spans: parsedCell.spans,
+            isHeader
+          });
+          if (c > 0) rowText += '  |  ';
+          const cellStart = rowText.length;
+          rowText += parsedCell.cleanText;
+          const cellEnd = rowText.length;
+          for (const sp of parsedCell.spans) {
+            rowSpans.push({ start: cellStart + sp.start, end: cellStart + sp.end, format: sp.format });
+          }
+          if (isHeader && cellEnd > cellStart) {
+            rowSpans.push({ start: cellStart, end: cellEnd, format: { fontWeight: 700 } });
+          }
+        }
+        tableRows.push({ cells, isHeader });
+        const para = createStoryParagraph(rowText, options?.defaultStyleId || 'default-body', rowSpans);
+        collectLinks(para.id, rowText, rowSpans);
+        paragraphs.push(para);
+      });
+
+      const colRatio = Number((1 / colCount).toFixed(4));
+      tables.push({
+        id: generateCrockfordUlid(),
+        rows: tableRows,
+        columnWidthsPt: Array(colCount).fill(Math.round(360 / colCount)),
+        columnRatios: Array(colCount).fill(colRatio),
+        hasBorders: true,
+        isRtl: detectTextDirection(clean) === 'rtl',
+        nestingLevel: 0
+      });
+      continue;
+    }
+
+    // Heading 1..3 (supporting alignment directives inside heading text)
     if (/^#\s+/.test(trimmed)) {
       flushParagraph();
-      const headingText = trimmed.replace(/^#\s+/, '').trim();
+      const { text: headingText, alignment } = parseMarkdownAlignmentDirective(trimmed.replace(/^#\s+/, '').trim());
       if (!extractedTitle) extractedTitle = headingText;
       const { cleanText, spans } = parseMarkdownInlineSpans(headingText);
-      paragraphs.push(createStoryParagraph(cleanText, 'heading-1', spans));
+      const effAlign = alignment || pendingAlignment;
+      pendingAlignment = undefined;
+      const para = createStoryParagraph(cleanText, 'heading-1', spans, effAlign ? { alignment: effAlign } : undefined);
+      collectLinks(para.id, cleanText, spans);
+      paragraphs.push(para);
       continue;
     }
 
-    // Heading 2
     if (/^##\s+/.test(trimmed)) {
       flushParagraph();
-      const headingText = trimmed.replace(/^##\s+/, '').trim();
+      const { text: headingText, alignment } = parseMarkdownAlignmentDirective(trimmed.replace(/^##\s+/, '').trim());
       const { cleanText, spans } = parseMarkdownInlineSpans(headingText);
-      paragraphs.push(createStoryParagraph(cleanText, 'heading-2', spans));
+      const effAlign = alignment || pendingAlignment;
+      pendingAlignment = undefined;
+      const para = createStoryParagraph(cleanText, 'heading-2', spans, effAlign ? { alignment: effAlign } : undefined);
+      collectLinks(para.id, cleanText, spans);
+      paragraphs.push(para);
       continue;
     }
 
-    // Heading 3
     if (/^###\s+/.test(trimmed)) {
       flushParagraph();
-      const headingText = trimmed.replace(/^###\s+/, '').trim();
+      const { text: headingText, alignment } = parseMarkdownAlignmentDirective(trimmed.replace(/^###\s+/, '').trim());
       const { cleanText, spans } = parseMarkdownInlineSpans(headingText);
-      paragraphs.push(createStoryParagraph(cleanText, 'heading-3', spans));
+      const effAlign = alignment || pendingAlignment;
+      pendingAlignment = undefined;
+      const para = createStoryParagraph(cleanText, 'heading-3', spans, effAlign ? { alignment: effAlign } : undefined);
+      collectLinks(para.id, cleanText, spans);
+      paragraphs.push(para);
       continue;
     }
 
@@ -433,16 +715,25 @@ export function importMarkdown(
       flushParagraph();
       const quoteText = trimmed.replace(/^>\s*/, '').trim();
       const { cleanText, spans } = parseMarkdownInlineSpans(quoteText);
-      paragraphs.push(createStoryParagraph(cleanText, 'blockquote', spans));
+      const para = createStoryParagraph(cleanText, 'blockquote', spans);
+      collectLinks(para.id, cleanText, spans);
+      paragraphs.push(para);
       continue;
     }
 
-    // List item
+    // Task list / List item
     if (/^([-*+]|\d+\.)\s+/.test(trimmed)) {
       flushParagraph();
-      const itemText = trimmed.replace(/^([-*+]|\d+\.)\s+/, '').trim();
+      let itemText = trimmed.replace(/^([-*+]|\d+\.)\s+/, '').trim();
+      if (/^\[x\]\s+/i.test(itemText)) {
+        itemText = '☑ ' + itemText.replace(/^\[x\]\s+/i, '');
+      } else if (/^\[\s\]\s+/.test(itemText)) {
+        itemText = '☐ ' + itemText.replace(/^\[\s\]\s+/, '');
+      }
       const { cleanText, spans } = parseMarkdownInlineSpans(itemText);
-      paragraphs.push(createStoryParagraph(cleanText, 'list-item', spans));
+      const para = createStoryParagraph(cleanText, 'list-item', spans);
+      collectLinks(para.id, cleanText, spans);
+      paragraphs.push(para);
       continue;
     }
 
@@ -467,6 +758,8 @@ export function importMarkdown(
   return {
     title,
     paragraphs,
+    ...(tables.length > 0 ? { tables } : {}),
+    ...(links.length > 0 ? { links } : {}),
     format: 'md',
     detectedLanguage,
     detectedDirection,
@@ -2253,7 +2546,7 @@ export function importDocument(
 
   // 3. Auto-detect Markdown vs Plain Text
   const decoded = typeof content === 'string' ? content : decodeTextBuffer(content);
-  const hasMarkdownTokens = /^#\s+|\n#\s+|\*\*|__|\n[-*+]\s+/m.test(decoded);
+  const hasMarkdownTokens = /^#{1,3}\s+|\n#{1,3}\s+|\*\*|__|\n[-*+]\s+|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|^<center>|^\|.+\|/m.test(decoded);
   if (hasMarkdownTokens) {
     return importMarkdown(content, options);
   }
