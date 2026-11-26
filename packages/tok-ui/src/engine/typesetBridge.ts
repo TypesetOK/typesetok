@@ -58,6 +58,7 @@ export interface LineBox {
   fonts?: string[];
   is_drop_cap?: boolean;
   x_offset?: number;
+  alignment?: 'Justified' | 'Right' | 'Left' | 'Center';
   visual_runs?: VisualLineRun[];
 }
 
@@ -332,11 +333,23 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
       // Lines that reach the column measure are justified; the page view stretches them to match.
       const frameMaxLineW = Math.max(0, ...(frame.lines || []).map((l) => l.width || 0));
       const linesHtml = (frame.lines || []).map((line) => {
-        const lineMeasure = widthPt - (line.x_offset || 0);
+        const lineMeasure = Math.max(1, widthPt - (line.x_offset || 0));
+        const lineAlign = line.alignment ?? 'Justified';
         const isJustifiedLine =
+          lineAlign === 'Justified' &&
           (line.width || 0) > 0 &&
           (line.width >= frameMaxLineW - 0.5 || line.width >= lineMeasure * 0.985) &&
           /\S\s+\S/.test(line.text || '');
+        const textAlignCss =
+          lineAlign === 'Center'
+            ? 'center'
+            : lineAlign === 'Left'
+            ? 'left'
+            : lineAlign === 'Right'
+            ? 'right'
+            : line.is_rtl
+            ? 'right'
+            : 'left';
         // Engine-exact widths for the page view: justified spaces and widened Ahalterm letters,
         // both in logical (cluster) order. See engine/lineFit.ts.
         let fitAttrs = '';
@@ -362,7 +375,9 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
           : Math.max(7, Math.round(line.height * 0.76 * 10) / 10);
         const fontStyle = `font-family: ${engineFont.fontFamily}; font-size: ${lineFontSizePt.toFixed(2)}pt;` + (isBoldLine ? ` font-weight: 700;` : '');
         const paraAttr = line.paragraph_id ? ` data-para-id="${escapeHtml(String(line.paragraph_id))}"` : '';
-        const offsetStyle = line.x_offset ? (line.is_rtl ? ` margin-right: ${line.x_offset.toFixed(2)}pt;` : ` margin-left: ${line.x_offset.toFixed(2)}pt;`) : '';
+        const boxBoundsStyle = line.x_offset
+          ? `left: ${line.x_offset.toFixed(2)}pt; width: ${lineMeasure.toFixed(2)}pt;`
+          : 'left: 0; right: 0;';
         const located = line.visual_runs?.length ? undefined : locatedLines?.get(line);
         const contentHtml = (line.visual_runs && line.visual_runs.length > 0)
           ? renderVisualRunsHtml(line.visual_runs, isPrimary)
@@ -372,7 +387,7 @@ export function layoutToPageDescriptors(pages: PageLayoutBox[], lineRuns?: LineR
         const paraColor = line.visual_runs?.length ? undefined : safeCssColor(located?.source.color);
         const colorStyle = paraColor ? ` color: ${paraColor};` : '';
 
-        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}"${isJustifiedLine ? ' data-justify="1"' : ''}${fitAttrs} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; left: 0; right: 0; height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; ${fontStyle}${colorStyle}${offsetStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
+        return `<div class="tok-line-box tok-line" data-line-index="${line.line_index}"${paraAttr} data-baseline-y="${line.baseline_y}" data-line-height="${line.height}" data-line-width="${line.width}" data-align="${lineAlign}"${isJustifiedLine ? ' data-justify="1"' : ''}${fitAttrs} style="position: absolute; top: ${topOffsetPt.toFixed(2)}pt; ${boxBoundsStyle} height: ${lineHPt.toFixed(2)}pt; line-height: ${lineHPt.toFixed(2)}pt; text-align: ${textAlignCss}; ${fontStyle}${colorStyle} direction: ${line.is_rtl ? 'rtl' : 'ltr'}; font-feature-settings: 'kern' 1, 'mark' 1, 'mkmk' 1; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; white-space: nowrap !important; overflow: visible; contain: layout style;">${contentHtml}</div>`;
       }).join('\n');
 
       const emptyNotice = (!frame.lines || frame.lines.length === 0)
@@ -403,7 +418,8 @@ const BUILTIN_ORNAMENT_SVGS: Record<string, string> = {
   crown_torah: `<svg viewBox="0 0 120 40" width="100%" height="100%" aria-hidden="true"><path d="M18 32 L10 14 L34 22 L60 6 L86 22 L110 14 L102 32 Z" fill="currentColor"/><rect x="20" y="34" width="80" height="3" rx="1.5" fill="currentColor"/><circle cx="60" cy="5" r="3" fill="currentColor"/><circle cx="10" cy="12" r="2.2" fill="currentColor"/><circle cx="110" cy="12" r="2.2" fill="currentColor"/></svg>`,
   menorah_divider: `<svg viewBox="0 0 120 32" width="100%" height="100%" aria-hidden="true"><line x1="6" y1="16" x2="42" y2="16" stroke="currentColor" stroke-width="1.4"/><line x1="78" y1="16" x2="114" y2="16" stroke="currentColor" stroke-width="1.4"/><path d="M60 4 L60 26 M48 26 L72 26 M52 8 Q52 17 60 17 Q68 17 68 8 M45 8 Q45 21 60 21 Q75 21 75 8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`,
   floral_parasha: `<svg viewBox="0 0 100 32" width="100%" height="100%" aria-hidden="true"><path d="M50 4 C56 10 56 22 50 28 C44 22 44 10 50 4 Z M38 16 C44 10 56 10 62 16 C56 22 44 22 38 16 Z" fill="currentColor"/><path d="M12 16 Q24 9 34 16 Q24 23 12 16 Z M88 16 Q76 9 66 16 Q76 23 88 16 Z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="50" cy="16" r="2.5" fill="currentColor"/></svg>`,
-  star_tailpiece: `<svg viewBox="0 0 60 60" width="100%" height="100%" aria-hidden="true"><polygon points="30,6 51,42 9,42" fill="none" stroke="currentColor" stroke-width="2"/><polygon points="30,54 9,18 51,18" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="30" r="3.5" fill="currentColor"/></svg>`
+  star_tailpiece: `<svg viewBox="0 0 60 60" width="100%" height="100%" aria-hidden="true"><polygon points="30,6 51,42 9,42" fill="none" stroke="currentColor" stroke-width="2"/><polygon points="30,54 9,18 51,18" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="30" r="3.5" fill="currentColor"/></svg>`,
+  folio_cartouche: `<svg viewBox="0 0 120 36" width="100%" height="100%" aria-hidden="true"><path d="M12 18 Q20 4 36 6 L84 6 Q100 4 108 18 Q100 32 84 30 L36 30 Q20 32 12 18 Z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="18" r="2.2" fill="currentColor"/><circle cx="112" cy="18" r="2.2" fill="currentColor"/></svg>`
 };
 
     const columnRulesHtml = (pageBox.column_rules || [])

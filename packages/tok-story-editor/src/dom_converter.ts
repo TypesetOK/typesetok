@@ -58,6 +58,10 @@ export function applyPatchToElement(pEl: HTMLElement, patch?: ParagraphStylePatc
   if (patch.color) {
     pEl.style.color = patch.color;
   }
+  if (patch.dropCap !== undefined) {
+    pEl.dataset.dropCap = JSON.stringify(patch.dropCap);
+    pEl.classList.toggle('tok-has-drop-cap', Boolean(patch.dropCap.enabled));
+  }
 }
 
 /** Extracts a ParagraphStylePatch from a paragraph DOM element */
@@ -143,6 +147,16 @@ export function extractPatchFromElement(pEl: HTMLElement): ParagraphStylePatch |
     hasPatch = true;
   }
 
+  const dropCapRaw = pEl.dataset.dropCap;
+  if (dropCapRaw) {
+    try {
+      patch.dropCap = JSON.parse(dropCapRaw);
+      hasPatch = true;
+    } catch {
+      // ignore malformed dropCap attribute
+    }
+  }
+
   return hasPatch ? patch : undefined;
 }
 
@@ -187,6 +201,9 @@ export function renderParagraphDom(p: StoryParagraph): HTMLParagraphElement {
       const spanEl = document.createElement('span');
       const fmt = activeSpan.format;
 
+      if (fmt.characterStyleId) {
+        spanEl.dataset.charStyleId = fmt.characterStyleId;
+      }
       if (fmt.fontWeight && fmt.fontWeight >= 600) {
         spanEl.style.fontWeight = 'bold';
       }
@@ -201,6 +218,9 @@ export function renderParagraphDom(p: StoryParagraph): HTMLParagraphElement {
       }
       if (fmt.fontSizePt !== undefined) {
         spanEl.style.fontSize = `${fmt.fontSizePt}pt`;
+      } else if (fmt.fontScale !== undefined) {
+        spanEl.dataset.fontScale = String(fmt.fontScale);
+        spanEl.style.fontSize = `${Math.round(fmt.fontScale * 100)}%`;
       }
       if (fmt.color) {
         spanEl.style.color = fmt.color;
@@ -258,8 +278,21 @@ export function parseParagraphDom(pEl: HTMLElement): StoryParagraph {
       if (el.style.fontFamily) {
         childFmt.fontFamily = el.style.fontFamily;
       }
-      if (el.style.fontSize && el.style.fontSize.endsWith('pt')) {
-        childFmt.fontSizePt = parseFloat(el.style.fontSize);
+      if (el.dataset.charStyleId) {
+        childFmt.characterStyleId = el.dataset.charStyleId;
+      }
+      if (el.dataset.fontScale) {
+        const scale = parseFloat(el.dataset.fontScale);
+        if (Number.isFinite(scale) && scale > 0) {
+          childFmt.fontScale = scale;
+        }
+      }
+      if (el.style.fontSize) {
+        if (el.style.fontSize.endsWith('pt')) {
+          childFmt.fontSizePt = parseFloat(el.style.fontSize);
+        } else if (el.style.fontSize.endsWith('px')) {
+          childFmt.fontSizePt = Math.round(parseFloat(el.style.fontSize) * 0.75 * 10) / 10;
+        }
       }
       if (el.style.color) {
         childFmt.color = el.style.color;

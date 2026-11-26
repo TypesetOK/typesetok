@@ -24,6 +24,52 @@ export interface DocumentSettings {
   baselineOffsetPt: number;
   gematriaFormat: 'standard' | 'with-geresh' | 'talmudic';
   preflightStatus: 'clean' | 'warning' | 'error';
+  pageNumbering?: PageNumberingSettings;
+  templateType?: string;
+  customTemplateId?: string;
+  customTemplateName?: string;
+  justification?: HebrewJustificationSettings;
+  cleanupOptions?: Record<string, unknown>;
+}
+
+export type PageNumberingMethod =
+  | 'none'
+  | 'hebrew-gematria'
+  | 'hebrew-plain'
+  | 'arabic'
+  | 'gemara-daf-amud'
+  | 'roman-upper'
+  | 'roman-lower';
+
+export type PageNumberingPlacement =
+  | 'bottom-center'
+  | 'bottom-outer'
+  | 'top-center'
+  | 'top-outer';
+
+export type PageNumberOrnamentId =
+  | 'none'
+  | 'folio_cartouche'
+  | 'crown_torah'
+  | 'menorah_divider'
+  | 'floral_parasha'
+  | 'star_tailpiece';
+
+export interface PageNumberingSettings {
+  enabled: boolean;
+  method: PageNumberingMethod;
+  placement: PageNumberingPlacement;
+  startNumber: number;
+  fontFamily: string;
+  fontSizePt: number;
+  color?: string;
+  prefix?: string;
+  suffix?: string;
+  ornamentId: PageNumberOrnamentId;
+  ornamentEmbedNumber: boolean;
+  ornamentWidthPt?: number;
+  ornamentHeightPt?: number;
+  suppressOnBlankPages?: boolean;
 }
 
 export interface FrameGeometry {
@@ -67,12 +113,14 @@ export interface ExclusionZoneData {
 }
 
 export interface DropCapSettings {
+  enabled: boolean;
   lines: number;
   charactersCount: number;
-  distanceMm: number;
-  isBold: boolean;
+  wholeWord: boolean;
   fontFamily?: string;
-  scaleFactor?: number;
+  fontWeight: number;
+  marginPt: number;
+  fontSizePt?: number;
 }
 
 export interface HebrewJustificationSettings {

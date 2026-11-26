@@ -164,6 +164,17 @@ export function colorJsonToCss(color?: ColorJson): string | undefined {
   return undefined;
 }
 
+export interface DropCapConfigJson {
+  enabled: boolean;
+  lines: number;
+  characters_count: number;
+  whole_word: boolean;
+  font_family?: string;
+  font_weight: number;
+  margin_pt: number;
+  font_size_pt?: number;
+}
+
 export interface ParagraphStyleJson {
   id: string;
   name: string;
@@ -180,6 +191,7 @@ export interface ParagraphStyleJson {
   keep_with_next: boolean;
   orphan_control: number;
   widow_control: number;
+  drop_cap?: DropCapConfigJson;
 }
 
 export interface StylePatchJson {
@@ -187,6 +199,7 @@ export interface StylePatchJson {
   font_size_pt?: number;
   line_height_pt?: number;
   alignment?: 'Justified' | 'Right' | 'Left' | 'Center';
+  ahalterm_stretch?: 'AutoVariable' | 'Off' | 'StaticSwash';
   tracking_em?: number;
   color?: ColorJson;
   font_weight?: number;
@@ -197,6 +210,7 @@ export interface StylePatchJson {
   indent_end_pt?: number;
   direction?: 'Rtl' | 'Ltr';
   column_span?: 'SingleColumn' | 'SpanAllColumns';
+  drop_cap?: DropCapConfigJson;
 }
 
 export interface CharacterFormatJson {
@@ -819,6 +833,13 @@ export interface OrnamentRefJson {
   color?: ColorJson;
 }
 
+export interface ParagraphOverridesJson {
+  force_page_break_before?: boolean;
+  force_page_break_after?: boolean;
+  force_odd_page_break_before?: boolean;
+  keep_lines_together?: boolean;
+}
+
 export interface ParagraphNodeJson {
   id: string;
   index: string;
@@ -826,6 +847,7 @@ export interface ParagraphNodeJson {
   text: string;
   style_patches: StylePatchJson[];
   spans?: TextSpanJson[];
+  overrides?: ParagraphOverridesJson;
   heading_level?: HierarchyLevelJson;
   numbering_scheme?: NumberingSchemeJson;
   number_label?: string;
@@ -845,12 +867,25 @@ export function patchToStylePatchJson(patch: ParagraphStylePatch): StylePatchJso
   if (patch.indentStartPt !== undefined) json.indent_start_pt = patch.indentStartPt;
   if (patch.indentEndPt !== undefined) json.indent_end_pt = patch.indentEndPt;
   if (patch.alignment !== undefined) json.alignment = patch.alignment;
+  if ((patch as any).ahaltermStretch !== undefined) json.ahalterm_stretch = (patch as any).ahaltermStretch;
   if (patch.direction !== undefined) json.direction = patch.direction;
   if (patch.color !== undefined) {
     const colorJson = cssColorToColorJson(patch.color);
     if (colorJson) json.color = colorJson;
   }
   if (patch.columnSpan !== undefined) json.column_span = patch.columnSpan;
+  if (patch.dropCap !== undefined) {
+    json.drop_cap = {
+      enabled: patch.dropCap.enabled,
+      lines: patch.dropCap.lines,
+      characters_count: patch.dropCap.charactersCount,
+      whole_word: patch.dropCap.wholeWord,
+      font_family: patch.dropCap.fontFamily || undefined,
+      font_weight: patch.dropCap.fontWeight,
+      margin_pt: patch.dropCap.marginPt,
+      font_size_pt: patch.dropCap.fontSizePt
+    };
+  }
   return json;
 }
 
@@ -866,10 +901,23 @@ export function stylePatchJsonToPatch(json: StylePatchJson): ParagraphStylePatch
   if (json.indent_start_pt != null) patch.indentStartPt = json.indent_start_pt;
   if (json.indent_end_pt != null) patch.indentEndPt = json.indent_end_pt;
   if (json.alignment != null) patch.alignment = json.alignment;
+  if (json.ahalterm_stretch != null) (patch as any).ahaltermStretch = json.ahalterm_stretch;
   if (json.direction != null) patch.direction = json.direction;
   const cssColor = colorJsonToCss(json.color);
   if (cssColor) patch.color = cssColor;
   if (json.column_span != null) patch.columnSpan = json.column_span;
+  if (json.drop_cap != null) {
+    patch.dropCap = {
+      enabled: json.drop_cap.enabled,
+      lines: json.drop_cap.lines,
+      charactersCount: json.drop_cap.characters_count,
+      wholeWord: json.drop_cap.whole_word,
+      fontFamily: json.drop_cap.font_family,
+      fontWeight: json.drop_cap.font_weight,
+      marginPt: json.drop_cap.margin_pt,
+      fontSizePt: json.drop_cap.font_size_pt
+    };
+  }
   return patch;
 }
 
@@ -983,6 +1031,7 @@ export interface SectionNodeJson {
   id: string;
   name: string;
   page_style: string;
+  layout_kind?: string;
   flows: FlowJson[];
   column_count?: number;
   column_gutter_pt?: number;
@@ -1050,7 +1099,7 @@ export function createDefaultParagraphStyles(): ParagraphStyleJson[] {
       space_after_pt: 2.0,
       first_line_indent_pt: 0.0,
       alignment: 'Justified',
-      ahalterm_stretch: 'AutoVariable',
+      ahalterm_stretch: 'Off',
       color: cmykBlack,
       keep_with_next: false,
       orphan_control: 2,
@@ -1067,7 +1116,7 @@ export function createDefaultParagraphStyles(): ParagraphStyleJson[] {
       space_after_pt: 2.0,
       first_line_indent_pt: 0.0,
       alignment: 'Justified',
-      ahalterm_stretch: 'AutoVariable',
+      ahalterm_stretch: 'Off',
       color: cmykBlack,
       keep_with_next: false,
       orphan_control: 2,
@@ -1084,7 +1133,7 @@ export function createDefaultParagraphStyles(): ParagraphStyleJson[] {
       space_after_pt: 2.0,
       first_line_indent_pt: 0.0,
       alignment: 'Justified',
-      ahalterm_stretch: 'AutoVariable',
+      ahalterm_stretch: 'Off',
       color: cmykBlack,
       keep_with_next: false,
       orphan_control: 2,
@@ -1101,7 +1150,7 @@ export function createDefaultParagraphStyles(): ParagraphStyleJson[] {
       space_after_pt: 1.5,
       first_line_indent_pt: 0.0,
       alignment: 'Justified',
-      ahalterm_stretch: 'AutoVariable',
+      ahalterm_stretch: 'Off',
       color: cmykBlack,
       keep_with_next: false,
       orphan_control: 2,
@@ -1118,7 +1167,7 @@ export function createDefaultParagraphStyles(): ParagraphStyleJson[] {
       space_after_pt: 2.0,
       first_line_indent_pt: 0.0,
       alignment: 'Justified',
-      ahalterm_stretch: 'AutoVariable',
+      ahalterm_stretch: 'Off',
       color: cmykBlack,
       keep_with_next: false,
       orphan_control: 2,
@@ -1135,7 +1184,7 @@ export function createDefaultParagraphStyles(): ParagraphStyleJson[] {
       space_after_pt: 2.0,
       first_line_indent_pt: 0.0,
       alignment: 'Justified',
-      ahalterm_stretch: 'AutoVariable',
+      ahalterm_stretch: 'Off',
       color: cmykBlack,
       keep_with_next: false,
       orphan_control: 2,
@@ -1164,6 +1213,7 @@ export function documentStateToDocumentRoot(
   // Determine flow types
   const flowKeys = Object.keys(state.flows || {});
   const flows: FlowJson[] = [];
+  const nodeIdMap = new Map<string, string>();
 
   for (const flowKey of flowKeys) {
     const paras = state.flows[flowKey] || [];
@@ -1195,6 +1245,7 @@ export function documentStateToDocumentRoot(
 
     const convertedParas: ParagraphNodeJson[] = paras.map((p, idx) => {
       const pid = isValidUlid(p.id) ? p.id : generateCrockfordUlid();
+      if (p.id) nodeIdMap.set(p.id, pid);
       const styleId = p.styleId || (
         flowKey === 'gemara' ? (isProse ? 'normal' : 'style-gemara-main') :
         flowKey === 'rashi' ? 'style-rashi-body' :
@@ -1216,7 +1267,7 @@ export function documentStateToDocumentRoot(
           space_after_pt: 2.0,
           first_line_indent_pt: 0.0,
           alignment: 'Justified',
-          ahalterm_stretch: 'AutoVariable',
+          ahalterm_stretch: 'Off',
           color: { DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 } },
           keep_with_next: false,
           orphan_control: 2,
@@ -1261,6 +1312,16 @@ export function documentStateToDocumentRoot(
         text: stripHtmlTags(p.text || ''),
         style_patches: stylePatches,
         spans: spansJson.length > 0 ? spansJson : undefined,
+        ...(p.pageBreakBefore || p.isBlankPage
+          ? {
+              overrides: {
+                force_page_break_before: true,
+                force_page_break_after: false,
+                force_odd_page_break_before: false,
+                keep_lines_together: false
+              }
+            }
+          : {}),
         ...(imageJson ? { image: imageJson } : {}),
         ...(ornamentJson ? { ornament: ornamentJson } : {}),
       };
@@ -1281,6 +1342,13 @@ export function documentStateToDocumentRoot(
       flow_type: 'Main',
       paragraphs: []
     });
+  }
+
+  const disableStretch = state.settings?.justification?.tier2OheltaremEnabled === false;
+  if (disableStretch) {
+    for (const ds of defaultStyles) {
+      ds.ahalterm_stretch = 'Off';
+    }
   }
 
   // Merge user custom styles from state if present
@@ -1307,7 +1375,7 @@ export function documentStateToDocumentRoot(
         space_after_pt: sty.spaceAfterPt || sty.space_after_pt || 0,
         first_line_indent_pt: sty.firstLineIndentPt || sty.first_line_indent_pt || 0,
         alignment: sty.alignment || 'Justified',
-        ahalterm_stretch: sty.ahalterm_stretch || 'AutoVariable',
+        ahalterm_stretch: sty.ahalterm_stretch || (state.settings?.justification?.tier2OheltaremEnabled ? 'AutoVariable' : 'Off'),
         color: sty.color || { DeviceCmyk: { c: 0, m: 0, y: 0, k: 1 } },
         keep_with_next: sty.keep_with_next ?? false,
         orphan_control: sty.orphan_control ?? 2,
@@ -1335,35 +1403,58 @@ export function documentStateToDocumentRoot(
     };
     for (const link of state.multiFlowAnchors) {
       const aid = link.anchorId;
+      const mappedPrimaryId = nodeIdMap.get(link.primaryNodeId) || link.primaryNodeId;
+      const mappedCommId = nodeIdMap.get(link.commentaryNodeId) || link.commentaryNodeId;
+      const primaryFlow = isProse && link.primaryFlowId === 'gemara' ? 'main' : link.primaryFlowId;
       if (!map.anchors[aid]) {
         map.anchors[aid] = {
           id: aid,
-          primary_flow_id: link.primaryFlowId,
-          primary_node_id: link.primaryNodeId,
+          primary_flow_id: primaryFlow,
+          primary_node_id: mappedPrimaryId,
           primary_anchor: {
-            node_id: link.primaryNodeId,
+            node_id: mappedPrimaryId,
             offset: 'a00000',
             bias: 'Before'
           },
           label: link.label
         };
-        if (!map.primary_node_to_anchors[link.primaryNodeId]) {
-          map.primary_node_to_anchors[link.primaryNodeId] = [];
+        if (!map.primary_node_to_anchors[mappedPrimaryId]) {
+          map.primary_node_to_anchors[mappedPrimaryId] = [];
         }
-        map.primary_node_to_anchors[link.primaryNodeId].push(aid);
+        map.primary_node_to_anchors[mappedPrimaryId].push(aid);
       }
       if (!map.anchor_to_commentaries[aid]) {
         map.anchor_to_commentaries[aid] = [];
       }
       map.anchor_to_commentaries[aid].push({
         commentary_flow_id: link.commentaryFlowId,
-        commentary_node_id: link.commentaryNodeId,
+        commentary_node_id: mappedCommId,
         anchor_id: aid,
         priority: map.anchor_to_commentaries[aid].length
       });
-      map.commentary_to_anchor[link.commentaryNodeId] = aid;
+      map.commentary_to_anchor[mappedCommId] = aid;
     }
     multiFlowAnchorsJson = map;
+  }
+
+  // Determine layout_kind from templateType and inter-flow anchor links.
+  const linkedFlows = new Set<string>();
+  for (const link of state.multiFlowAnchors || []) {
+    if (link.primaryFlowId) linkedFlows.add(link.primaryFlowId);
+    if (link.commentaryFlowId) linkedFlows.add(link.commentaryFlowId);
+  }
+  const nonFootnoteFlowsCount = flows.filter((f) => f.flow_type !== 'Footnote').length;
+  let layoutKind: string | undefined;
+  if (state.templateType === 'gemara') {
+    layoutKind = 'tzurat_hadaf';
+  } else if (state.templateType === 'mikraot') {
+    layoutKind = nonFootnoteFlowsCount >= 4 || linkedFlows.size >= 4 ? 'parallel_columns' : 'tzurat_hadaf';
+  } else if (state.templateType === 'notes') {
+    layoutKind = 'footnote_band';
+  } else if (linkedFlows.size >= 3) {
+    layoutKind = 'tzurat_hadaf';
+  } else if (linkedFlows.size === 2 && (linkedFlows.has('notes') || flows.some((f) => f.flow_type === 'Footnote'))) {
+    layoutKind = 'footnote_band';
   }
 
   return {
@@ -1375,6 +1466,8 @@ export function documentStateToDocumentRoot(
       primary_language: 'he',
       schema_version: '1.0',
       document_settings: state.settings
+        ? { ...state.settings, templateType: state.templateType }
+        : ({ templateType: state.templateType } as DocumentSettings)
     },
     paragraph_styles: defaultStyles,
     character_styles: [],
@@ -1383,6 +1476,7 @@ export function documentStateToDocumentRoot(
         id: generateCrockfordUlid(),
         name: docTitle,
         page_style: 'chapter-first',
+        ...(layoutKind ? { layout_kind: layoutKind } : {}),
         flows,
         ...(isProse || state.templateType === 'notes' || state.templateType === 'bulletin'
           ? {
@@ -1461,12 +1555,17 @@ export function documentRootToDocumentState(root: DocumentRootJson): MultiFlowDo
           }
         : undefined;
 
+      const isPageBreak = Boolean(p.overrides?.force_page_break_before);
+      const isBlankPage = isPageBreak && (!p.text || p.text.trim() === '');
+
       return {
         id: p.id,
         styleId: p.style_id,
         text: p.text,
         spans,
         patch,
+        ...(isPageBreak ? { pageBreakBefore: true } : {}),
+        ...(isBlankPage ? { isBlankPage: true } : {}),
         ...(image ? { image } : {}),
         ...(ornament ? { ornament } : {}),
       };
@@ -1475,8 +1574,12 @@ export function documentRootToDocumentState(root: DocumentRootJson): MultiFlowDo
     flowMap[key] = storyParas;
   }
 
+  const savedTemplate = root.metadata?.document_settings?.templateType;
+  const validTemplates: TemplateType[] = ['gemara', 'mikraot', 'prose', 'notes', 'bulletin', 'blank'];
   let templateType: TemplateType = 'prose';
-  if (hasCommentary) {
+  if (typeof savedTemplate === 'string' && validTemplates.includes(savedTemplate as TemplateType)) {
+    templateType = savedTemplate as TemplateType;
+  } else if (hasCommentary) {
     templateType = 'gemara';
   } else if ((flowMap.notes && flowMap.notes.length > 0)) {
     templateType = 'notes';

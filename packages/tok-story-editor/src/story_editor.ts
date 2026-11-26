@@ -395,12 +395,18 @@ export class StoryEditor {
   }
 
   public toggleFormatSelection(style: 'bold' | 'italic' | 'underline'): void {
+    const sel = this.getStorySelection();
     const currentFmt = this.getSelectionFormat();
     const nextFmt: Partial<CharacterFormat> = {};
 
     if (style === 'bold') {
-      const isBold = (currentFmt.fontWeight || 400) >= 600;
+      const p = sel ? this.getParagraph(sel.paraId) : null;
+      const isBold = ((currentFmt.fontWeight ?? p?.patch?.fontWeight ?? 400) >= 600);
       nextFmt.fontWeight = isBold ? 400 : 700;
+      if (sel && sel.isCollapsed) {
+        this.setParagraphPatch(sel.paraId, { fontWeight: nextFmt.fontWeight });
+        return;
+      }
     } else if (style === 'italic') {
       nextFmt.italic = !currentFmt.italic;
     } else if (style === 'underline') {

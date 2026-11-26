@@ -24,6 +24,17 @@ export interface TextSpan {
   format: CharacterFormat;
 }
 
+export interface DropCapConfigData {
+  enabled: boolean;
+  lines: number;
+  charactersCount: number;
+  wholeWord: boolean;
+  fontFamily?: string;
+  fontWeight: number;
+  marginPt: number;
+  fontSizePt?: number;
+}
+
 export interface ParagraphStylePatch {
   fontFamily?: string;
   fontWeight?: number;
@@ -38,6 +49,7 @@ export interface ParagraphStylePatch {
   direction?: 'Rtl' | 'Ltr';
   color?: string;
   columnSpan?: 'SingleColumn' | 'SpanAllColumns';
+  dropCap?: DropCapConfigData;
 }
 
 export interface ImageAttachmentData {
@@ -67,6 +79,8 @@ export interface StoryParagraph {
   patch?: ParagraphStylePatch;
   image?: ImageAttachmentData;
   ornament?: OrnamentRefData;
+  pageBreakBefore?: boolean;
+  isBlankPage?: boolean;
 }
 
 export interface StorySelection {

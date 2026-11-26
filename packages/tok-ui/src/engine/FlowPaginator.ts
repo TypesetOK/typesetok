@@ -683,8 +683,15 @@ export class FlowPaginator {
       const paras = chunks[pageIdx] || [];
       const gematria = toHebrewGematria(pageIdx + 1);
       const apparatusBandsHtml = this.renderMultiApparatusBandsHtml(doc, apparatuses, apparatusChunksMap, pageIdx);
+      const isBlankOnly = paras.length === 1 && Boolean(paras[0].isBlankPage) && !paras[0].text?.trim() && !apparatusBandsHtml;
 
-      const html = `
+      const html = isBlankOnly
+        ? `
+        <div class="tok-page-content tok-page-blank" data-page-index="${pageIdx}" style="flex: 1; min-height: 0; position: relative; padding: 24px 28px; overflow: hidden;">
+          <div class="tok-blank-page-notice" style="position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: var(--tok-text-muted, #888); font-size: 11px; font-style: italic; opacity: 0.5;">[עמוד חלק]</div>
+        </div>
+      `
+        : `
         <div class="tok-page-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; overflow: hidden;">
           <div class="tok-interactive-frame tok-frame-main" data-frame-id="frame-main-${pageIdx}" data-flow-id="gemara" style="flex: 1; min-height: 0;">
             <div class="tok-frame-text tok-frame-gemara" style="font-size: 13.5px; line-height: 1.6; text-align: justify;">
