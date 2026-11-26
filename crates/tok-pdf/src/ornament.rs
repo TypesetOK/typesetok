@@ -57,6 +57,14 @@ impl BuiltinOrnaments {
             default_height_pt: 48.0,
             svg: r#"<svg viewBox="0 0 60 60"><polygon points="30,6 51,42 9,42" fill="none" stroke="currentColor" stroke-width="2"/><polygon points="30,54 9,18 51,18" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="30" r="3.5" fill="currentColor"/></svg>"#,
         },
+        BuiltinOrnamentSpec {
+            id: "folio_cartouche",
+            label_he: "מסגרת כרטוש למספור",
+            label_en: "Folio Cartouche",
+            default_width_pt: 72.0,
+            default_height_pt: 22.0,
+            svg: r#"<svg viewBox="0 0 120 36"><path d="M12 18 Q20 4 36 6 L84 6 Q100 4 108 18 Q100 32 84 30 L36 30 Q20 32 12 18 Z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="18" r="2.2" fill="currentColor"/><circle cx="112" cy="18" r="2.2" fill="currentColor"/></svg>"#,
+        },
     ];
 
     pub fn find(id: &str) -> Option<&'static BuiltinOrnamentSpec> {

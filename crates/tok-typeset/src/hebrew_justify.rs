@@ -183,16 +183,61 @@ impl HebrewJustifier {
         let ahalterm_count = glyphs.iter().filter(|g| is_stretchable(g)).count();
 
         if allow_ahalterm_stretch && ahalterm_count > 0 && remaining_deficit > 0.0 {
-            let stretch_per_letter = remaining_deficit / (ahalterm_count as f32);
-            for g in glyphs.iter_mut().filter(|g| is_stretchable(g)) {
-                g.x_advance += stretch_per_letter;
+            // Cap per-letter stretch to a visually pleasing limit (MAX_AHALTERM_GLYPH_STRETCH
+            // of the narrowest Ahalterm letter's natural width) so the glyph shape and its
+            // advance stay balanced without leaving awkward blank gaps.
+            let min_natural = glyphs
+                .iter()
+                .filter(|g| is_stretchable(g))
+                .map(|g| g.x_advance)
+                .fold(f32::INFINITY, f32::min);
+            let max_per_letter = if min_natural.is_finite() && min_natural > 0.0 {
+                min_natural * MAX_AHALTERM_GLYPH_STRETCH
+            } else {
+                0.0
+            };
+            let desired_per_letter = remaining_deficit / (ahalterm_count as f32);
+            let stretch_per_letter = desired_per_letter.min(max_per_letter);
+            if stretch_per_letter > 0.0 {
+                for g in glyphs.iter_mut().filter(|g| is_stretchable(g)) {
+                    g.x_advance += stretch_per_letter;
+                }
+                remaining_deficit -= stretch_per_letter * (ahalterm_count as f32);
             }
+
+            // If a deficit remains after the visual stretch cap, absorb as much as possible
+            // via Tier 3 micro-tracking, and distribute any tiny remainder across spaces.
+            let mut micro_tracking_pt = 0.0;
+            if remaining_deficit > 0.1 && font_size_pt > 0.0 {
+                let is_tracked = |g: &PositionedGlyph| g.x_advance > 0.0 && !Self::is_space(g);
+                let tracked_count = glyphs.iter().filter(|g| is_tracked(g)).count();
+                if tracked_count > 1 {
+                    let max_tracking_per_glyph = font_size_pt * MAX_TRACKING_EM;
+                    let tracking = (remaining_deficit / (tracked_count as f32))
+                        .clamp(0.0, max_tracking_per_glyph);
+                    for g in glyphs.iter_mut().filter(|g| is_tracked(g)) {
+                        g.x_advance += tracking;
+                    }
+                    micro_tracking_pt = tracking;
+                    remaining_deficit -= tracking * (tracked_count as f32);
+                }
+            }
+            if remaining_deficit > 0.1 {
+                let space_count = glyphs.iter().filter(|g| Self::is_space(g)).count();
+                if space_count > 0 {
+                    let extra_space = remaining_deficit / (space_count as f32);
+                    for g in glyphs.iter_mut().filter(|g| Self::is_space(g)) {
+                        g.x_advance += extra_space;
+                    }
+                }
+            }
+
             return JustifiedLine {
                 glyphs,
                 tier_used: JustificationTier::Tier2AhaltermStretch,
                 space_multiplier,
                 stretch_per_ahalterm_pt: stretch_per_letter,
-                micro_tracking_pt: 0.0,
+                micro_tracking_pt,
             };
         }
 

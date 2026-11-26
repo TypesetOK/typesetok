@@ -516,6 +516,11 @@ impl TypesettingEngine {
                         x_offset: drop_layout.window_rect.x,
                         colors: vec![drop_color],
                         visual_runs: vec![drop_run],
+                        alignment: if is_rtl {
+                            tok_core::styles::TextAlignment::Right
+                        } else {
+                            tok_core::styles::TextAlignment::Left
+                        },
                     });
 
                     for (i, mut bl) in body_lines.into_iter().enumerate() {
@@ -718,9 +723,15 @@ impl TypesettingEngine {
             .or_else(|| base_style.map(|s| s.alignment))
             .unwrap_or(tok_core::styles::TextAlignment::Justified);
 
-        // The paragraph style's Ahalterm setting: `Off` keeps letters at their natural width.
-        let allow_ahalterm_stretch = base_style
-            .is_none_or(|s| s.ahalterm_stretch != tok_core::styles::AhaltermStretchMode::Off);
+        // The paragraph style's Ahalterm setting: `Off` (default) keeps letters at their natural width.
+        let ahalterm_mode = paragraph
+            .style_patches
+            .iter()
+            .filter_map(|p| p.ahalterm_stretch)
+            .next_back()
+            .or_else(|| base_style.map(|s| s.ahalterm_stretch))
+            .unwrap_or(tok_core::styles::AhaltermStretchMode::Off);
+        let allow_ahalterm_stretch = ahalterm_mode != tok_core::styles::AhaltermStretchMode::Off;
 
         let llc_opt = paragraph
             .style_patches
@@ -1123,7 +1134,7 @@ impl TypesettingEngine {
                     protrusion,
                 );
 
-            let justified = if is_justified_line {
+            let mut justified = if is_justified_line {
                 HebrewJustifier::justify_line_opts(
                     line_glyphs,
                     justified_target,
@@ -1135,7 +1146,26 @@ impl TypesettingEngine {
                 HebrewJustifier::justify_line(line_glyphs, target_w, font_size, true)
             };
 
-            let line_width: f32 = justified.glyphs.iter().map(|g| g.x_advance).sum();
+            let mut line_width: f32 = justified.glyphs.iter().map(|g| g.x_advance).sum();
+            if is_justified_line && justified_target - line_width > 0.1 {
+                let remaining = justified_target - line_width;
+                let space_count = justified
+                    .glyphs
+                    .iter()
+                    .filter(|g| g.character == Some(' '))
+                    .count();
+                if space_count > 0 {
+                    let extra_space = remaining / (space_count as f32);
+                    for g in justified
+                        .glyphs
+                        .iter_mut()
+                        .filter(|g| g.character == Some(' '))
+                    {
+                        g.x_advance += extra_space;
+                    }
+                    line_width = justified.glyphs.iter().map(|g| g.x_advance).sum();
+                }
+            }
             let justify_tier = justified.tier_used;
             let justify_stretch_pt = justified.stretch_per_ahalterm_pt;
             let base_start_x = match align {
@@ -1147,7 +1177,7 @@ impl TypesettingEngine {
                     span.x_offset + (target_w - line_width).max(0.0)
                 }
                 tok_core::styles::TextAlignment::Justified => {
-                    if is_justified_line {
+                    if is_justified_line && line_width >= target_w - 0.5 {
                         span.x_offset
                     } else {
                         HebrewJustifier::calculate_line_start_x(
@@ -1205,6 +1235,7 @@ impl TypesettingEngine {
                 fonts: fonts.clone(),
                 is_drop_cap: false,
                 x_offset: span.x_offset,
+                alignment: align,
                 colors: colors.clone(),
                 visual_runs,
             });
@@ -1342,13 +1373,124 @@ impl TypesettingEngine {
             }
         }
 
-        if active_config != self.config {
+        let mut pages = if active_config != self.config {
             let engine =
                 TypesettingEngine::with_font_manager(active_config, self.font_manager.clone());
-            return engine.typeset_document_internal(doc);
-        }
+            engine.typeset_document_internal(doc)
+        } else {
+            self.typeset_document_internal(doc)
+        };
+        Self::apply_page_numbering_settings(doc, &mut pages);
+        pages
+    }
 
-        self.typeset_document_internal(doc)
+    fn format_roman(mut n: usize, upper: bool) -> String {
+        let table = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        ];
+        let mut s = String::new();
+        for (val, sym) in table {
+            while n >= val {
+                s.push_str(sym);
+                n -= val;
+            }
+        }
+        if upper { s } else { s.to_lowercase() }
+    }
+
+    fn apply_page_numbering_settings(doc: &DocumentRoot, pages: &mut [PageLayoutBox]) {
+        let Some(pn) = doc
+            .metadata
+            .document_settings
+            .as_ref()
+            .and_then(|s| s.get("pageNumbering"))
+        else {
+            return;
+        };
+        let enabled = pn.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        let method = pn.get("method").and_then(|v| v.as_str()).unwrap_or("none");
+        if !enabled || method == "none" {
+            return;
+        }
+        let placement = pn.get("placement").and_then(|v| v.as_str()).unwrap_or("bottom-center");
+        let start_num = pn.get("startNumber").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+        let font_family = pn.get("fontFamily").and_then(|v| v.as_str()).unwrap_or("Frank Ruhl Libre").to_string();
+        let font_size_pt = pn.get("fontSizePt").and_then(|v| v.as_f64()).unwrap_or(10.0) as f32;
+        let prefix = pn.get("prefix").and_then(|v| v.as_str()).unwrap_or("");
+        let suffix = pn.get("suffix").and_then(|v| v.as_str()).unwrap_or("");
+        let ornament_id = pn.get("ornamentId").and_then(|v| v.as_str()).unwrap_or("none");
+        let embed_in_ornament = pn.get("ornamentEmbedNumber").and_then(|v| v.as_bool()).unwrap_or(false);
+        let orn_w = pn.get("ornamentWidthPt").and_then(|v| v.as_f64()).unwrap_or(72.0) as f32;
+        let orn_h = pn.get("ornamentHeightPt").and_then(|v| v.as_f64()).unwrap_or(22.0) as f32;
+        let suppress_on_blank = pn.get("suppressOnBlankPages").and_then(|v| v.as_bool()).unwrap_or(true);
+
+        for page in pages.iter_mut() {
+            if page.is_blank && suppress_on_blank {
+                page.page_number_gematria.clear();
+                page.page_number_style = None;
+                continue;
+            }
+            let idx = page.page_index;
+            let ordinal = idx + start_num;
+            let core = match method {
+                "hebrew-gematria" => GematriaEngine::to_hebrew_numeral(ordinal),
+                "hebrew-plain" => GematriaEngine::to_hebrew_numeral(ordinal)
+                    .replace(['\u{05F3}', '\u{05F4}'], ""),
+                "arabic" => ordinal.to_string(),
+                "gemara-daf-amud" => {
+                    let daf_offset = idx + start_num.saturating_sub(2) * 2;
+                    let daf_num = daf_offset / 2 + 2;
+                    let is_amud_b = daf_offset % 2 == 1;
+                    let daf_plain = GematriaEngine::to_hebrew_numeral(daf_num)
+                        .replace(['\u{05F3}', '\u{05F4}'], "");
+                    format!("{}{}", daf_plain, if is_amud_b { ":" } else { "." })
+                }
+                "roman-upper" => Self::format_roman(ordinal, true),
+                "roman-lower" => Self::format_roman(ordinal, false),
+                _ => continue,
+            };
+            page.page_number_gematria = format!("{prefix}{core}{suffix}");
+
+            let pw = page.dimensions.width;
+            let ph = page.dimensions.height;
+            let is_top = placement == "top-center" || placement == "top-outer";
+            let is_outer = placement == "top-outer" || placement == "bottom-outer";
+            // In RTL binding: even page_index (recto) has outer edge on LEFT; odd (verso) has outer edge on RIGHT.
+            let is_right_page = idx % 2 == 1;
+            let y_top = if is_top { 10.0 } else { (ph - 10.0 - orn_h).max(0.0) };
+            let x_left = if !is_outer {
+                (pw - orn_w) / 2.0
+            } else if is_right_page {
+                (pw - 22.0 - orn_w).max(0.0)
+            } else {
+                22.0
+            };
+
+            let orn_opt = if ornament_id != "none" {
+                let rect = PhysicalRect::new(x_left, y_top, orn_w, orn_h);
+                page.ornaments.push(crate::geometry::PlacedOrnamentBox {
+                    ornament_id: ornament_id.to_string(),
+                    asset_path: None,
+                    rect,
+                    color: tok_core::styles::Color::default(),
+                });
+                Some((ornament_id.to_string(), rect))
+            } else {
+                None
+            };
+
+            page.page_number_style = Some(crate::geometry::PageNumberRenderSpec {
+                placement: placement.to_string(),
+                font_family: font_family.clone(),
+                font_size_pt,
+                color: None,
+                ornament_id: orn_opt.as_ref().map(|(id, _)| id.clone()),
+                embed_in_ornament,
+                ornament_rect: orn_opt.map(|(_, r)| r),
+            });
+        }
     }
 
     /// Shapes a batch of paragraphs using the shared `ParagraphLayoutCache` and Rayon pool.
@@ -1661,6 +1803,46 @@ impl TypesettingEngine {
                 .unwrap_or((false, 2, 2, 0.0, 0.0));
 
             if p_lines.is_empty() {
+                if p.has_forced_page_break_before() || p.has_forced_odd_page_break_before() {
+                    if pagination_inputs.is_empty() {
+                        pagination_inputs.push(PaginationLineInput {
+                            line: LineBox::default(),
+                            section_idx: sec_idx,
+                            paragraph_idx: p_idx,
+                            paragraph_id: None,
+                            line_in_paragraph: 0,
+                            total_lines_in_paragraph: 1,
+                            keep_with_next: false,
+                            orphan_control: 0,
+                            widow_control: 0,
+                            space_before: 0.0,
+                            space_after: 0.0,
+                            char_offset: 0,
+                            force_page_break_before: false,
+                            force_page_break_after: false,
+                            keep_lines_together: false,
+                            force_odd_page_break_before: false,
+                        });
+                    }
+                    pagination_inputs.push(PaginationLineInput {
+                        line: LineBox::default(),
+                        section_idx: sec_idx,
+                        paragraph_idx: p_idx,
+                        paragraph_id: Some(p.id),
+                        line_in_paragraph: 0,
+                        total_lines_in_paragraph: 1,
+                        keep_with_next: false,
+                        orphan_control: 0,
+                        widow_control: 0,
+                        space_before: 0.0,
+                        space_after: 0.0,
+                        char_offset: 0,
+                        force_page_break_before: p.has_forced_page_break_before(),
+                        force_page_break_after: p.has_forced_page_break_after(),
+                        keep_lines_together: false,
+                        force_odd_page_break_before: force_odd_before,
+                    });
+                }
                 prev_space_after = prev_space_after.max(space_before).max(space_after);
                 continue;
             }
@@ -1721,7 +1903,12 @@ impl TypesettingEngine {
         let mut pages = Vec::new();
         for (idx, slice) in slices.into_iter().enumerate() {
             let page_num = start_page_num + idx;
-            let mut page = if slice.is_blank {
+            let is_sentinel_blank = !slice.lines.is_empty()
+                && slice
+                    .lines
+                    .iter()
+                    .all(|l| l.text.is_empty() && l.height <= 0.0 && l.glyphs.is_empty());
+            let mut page = if slice.is_blank || is_sentinel_blank {
                 self.new_blank_page(page_num)
             } else {
                 self.new_page(
@@ -2600,6 +2787,46 @@ impl TypesettingEngine {
                 .unwrap_or((false, 2, 2, 0.0, 0.0));
 
             if p_lines.is_empty() {
+                if p.has_forced_page_break_before() || p.has_forced_odd_page_break_before() {
+                    if pagination_inputs.is_empty() {
+                        pagination_inputs.push(PaginationLineInput {
+                            line: LineBox::default(),
+                            section_idx: sec_idx,
+                            paragraph_idx: p_idx,
+                            paragraph_id: None,
+                            line_in_paragraph: 0,
+                            total_lines_in_paragraph: 1,
+                            keep_with_next: false,
+                            orphan_control: 0,
+                            widow_control: 0,
+                            space_before: 0.0,
+                            space_after: 0.0,
+                            char_offset: 0,
+                            force_page_break_before: false,
+                            force_page_break_after: false,
+                            keep_lines_together: false,
+                            force_odd_page_break_before: false,
+                        });
+                    }
+                    pagination_inputs.push(PaginationLineInput {
+                        line: LineBox::default(),
+                        section_idx: sec_idx,
+                        paragraph_idx: p_idx,
+                        paragraph_id: Some(p.id),
+                        line_in_paragraph: 0,
+                        total_lines_in_paragraph: 1,
+                        keep_with_next: false,
+                        orphan_control: 0,
+                        widow_control: 0,
+                        space_before: 0.0,
+                        space_after: 0.0,
+                        char_offset: 0,
+                        force_page_break_before: p.has_forced_page_break_before(),
+                        force_page_break_after: p.has_forced_page_break_after(),
+                        keep_lines_together: false,
+                        force_odd_page_break_before: force_odd_before,
+                    });
+                }
                 prev_space_after = prev_space_after.max(space_before).max(space_after);
                 continue;
             }
@@ -3951,6 +4178,17 @@ impl TypesettingEngine {
 
             if all_exhausted || !any_lines_placed || current_page_num > 500 {
                 break;
+            }
+        }
+
+        // Emit any explicitly added trailing blank pages (e.g. from "Add Page" in multi-flow mode).
+        if let Some(pf) = first_sec.flows.iter().find(|f| f.id == primary_flow_id) {
+            for p in pf.paragraphs.iter().rev().take_while(|p| {
+                p.text.trim().is_empty()
+                    && (p.has_forced_page_break_before() || p.has_forced_odd_page_break_before())
+            }) {
+                let _ = p;
+                pages.push(self.new_blank_page(pages.len() + 1));
             }
         }
 

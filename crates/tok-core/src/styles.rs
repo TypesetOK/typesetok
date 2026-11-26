@@ -127,8 +127,8 @@ pub enum ColumnSpanMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum AhaltermStretchMode {
-    Off,
     #[default]
+    Off,
     AutoVariable,
     StaticSwash,
 }
@@ -318,7 +318,7 @@ impl Default for ParagraphStyle {
             indent_end_pt: 0.0,
             direction: None,
             alignment: TextAlignment::Justified,
-            ahalterm_stretch: AhaltermStretchMode::AutoVariable,
+            ahalterm_stretch: AhaltermStretchMode::Off,
             color: Color::default(),
             keep_with_next: false,
             orphan_control: 2,
@@ -370,6 +370,9 @@ impl ParagraphStyle {
         }
         if let Some(v) = patch.alignment {
             self.alignment = v;
+        }
+        if let Some(v) = patch.ahalterm_stretch {
+            self.ahalterm_stretch = v;
         }
         if let Some(v) = &patch.color {
             self.color = v.clone();
@@ -615,6 +618,8 @@ pub struct StylePatch {
     pub font_size_pt: Option<f32>,
     pub line_height_pt: Option<f32>,
     pub alignment: Option<TextAlignment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ahalterm_stretch: Option<AhaltermStretchMode>,
     pub tracking_em: Option<f32>,
     pub color: Option<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

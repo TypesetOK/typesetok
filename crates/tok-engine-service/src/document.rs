@@ -191,7 +191,7 @@ pub fn collect_referenced_font_families(doc: &DocumentRoot) -> HashSet<String> {
     out
 }
 
-/// Builds a [`FontManager`] containing embedded fonts, optional user fonts directory, and `.tok` fonts.
+/// Builds a [`FontManager`] containing embedded fonts, optional user fonts directory, system fonts, and `.tok` fonts.
 pub fn build_font_manager(fonts_dir: Option<&Path>, pkg: Option<&TokPackage>) -> FontManager {
     let mut mgr = FontManager::default();
     if let Some(dir) = fonts_dir {
@@ -206,6 +206,7 @@ pub fn build_font_manager(fonts_dir: Option<&Path>, pkg: Option<&TokPackage>) ->
             let _ = mgr.register_external_font_bytes(bytes.to_vec(), fallback);
         }
     }
+    mgr.load_system_fonts();
     mgr
 }
 

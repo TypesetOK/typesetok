@@ -1250,14 +1250,17 @@ impl PdfPrePressEngine {
             }
         }
 
-        // Draw page number gematria folio footer if enabled and present
-        if draw_page_numbers && !p_box.page_number_gematria.is_empty() {
+        // Draw page number folio if enabled (either via PdfExportOptions or PageNumberRenderSpec)
+        let should_draw_folio = (draw_page_numbers || p_box.page_number_style.is_some())
+            && !p_box.page_number_gematria.is_empty();
+        if should_draw_folio {
             if active_fill != default_black {
                 content.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
             }
             if let Some(slot) = registry.legacy {
                 let font = &embedded[slot];
-                let folio_font_size = 10.0;
+                let style_spec = p_box.page_number_style.as_ref();
+                let folio_font_size = style_spec.map(|s| s.font_size_pt.max(6.0)).unwrap_or(10.0);
                 // Each glyph with its advance, in logical (reading) order.
                 let glyphs: Vec<(u16, f32)> = p_box
                     .page_number_gematria
@@ -1276,8 +1279,42 @@ impl PdfPrePressEngine {
                     .collect();
                 if !glyphs.is_empty() {
                     let total_width: f32 = glyphs.iter().map(|(_, adv)| *adv).sum();
-                    let left_x = origin_x + (p_box.dimensions.width - total_width) / 2.0;
-                    let folio_y = origin_y + 25.0;
+                    let (left_x, folio_y) = if let Some(spec) = style_spec {
+                        if spec.embed_in_ornament {
+                            if let Some(ref orn_rect) = spec.ornament_rect {
+                                let cx = origin_x + orn_rect.x + (orn_rect.width - total_width) / 2.0;
+                                // Convert top-down orn_rect.y to PDF bottom-up y, centering text vertically.
+                                let cy = origin_y
+                                    + (page_h - (orn_rect.y + orn_rect.height / 2.0))
+                                    - folio_font_size * 0.35;
+                                (cx, cy)
+                            } else {
+                                (origin_x + (p_box.dimensions.width - total_width) / 2.0, origin_y + 25.0)
+                            }
+                        } else {
+                            let is_top = spec.placement == "top-center" || spec.placement == "top-outer";
+                            let is_outer = spec.placement == "top-outer" || spec.placement == "bottom-outer";
+                            let is_right_page = p_box.page_index % 2 == 1;
+                            let x = if !is_outer {
+                                origin_x + (p_box.dimensions.width - total_width) / 2.0
+                            } else if is_right_page {
+                                origin_x + (p_box.dimensions.width - 22.0 - total_width).max(0.0)
+                            } else {
+                                origin_x + 22.0
+                            };
+                            let y = if is_top {
+                                origin_y + page_h - 16.0 - folio_font_size
+                            } else {
+                                origin_y + 25.0
+                            };
+                            (x, y)
+                        }
+                    } else {
+                        (
+                            origin_x + (p_box.dimensions.width - total_width) / 2.0,
+                            origin_y + 25.0,
+                        )
+                    };
                     // A Hebrew numeral (e.g. "י״א") reads right to left. The glyphs stay in
                     // logical order in the stream, so copy and search give the right text, and
                     // each one is placed explicitly so the geresh and gershayim land on the left.

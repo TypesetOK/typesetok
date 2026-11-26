@@ -617,6 +617,112 @@ impl FontManager {
         results
     }
 
+    /// Registers installed, embeddable system TrueType fonts once per process and
+    /// merges them into this manager without overriding embedded or user-installed fonts.
+    pub fn load_system_fonts(&mut self) {
+        static SYSTEM_FONTS_CACHE: std::sync::OnceLock<
+            Vec<(String, String, u16, Arc<FontData>, FontInspectionReport)>,
+        > = std::sync::OnceLock::new();
+
+        let cached = SYSTEM_FONTS_CACHE.get_or_init(|| {
+            let mut dirs: Vec<PathBuf> = Vec::new();
+            #[cfg(windows)]
+            {
+                if let Some(windir) = std::env::var_os("WINDIR") {
+                    dirs.push(PathBuf::from(windir).join("Fonts"));
+                } else {
+                    dirs.push(PathBuf::from(r"C:\Windows\Fonts"));
+                }
+                if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+                    dirs.push(
+                        PathBuf::from(local_app_data)
+                            .join("Microsoft")
+                            .join("Windows")
+                            .join("Fonts"),
+                    );
+                }
+            }
+            #[cfg(target_os = "macos")]
+            {
+                dirs.push(PathBuf::from("/Library/Fonts"));
+                dirs.push(PathBuf::from("/System/Library/Fonts"));
+                if let Some(home) = std::env::var_os("HOME") {
+                    dirs.push(PathBuf::from(home).join("Library/Fonts"));
+                }
+            }
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                dirs.push(PathBuf::from("/usr/share/fonts"));
+                dirs.push(PathBuf::from("/usr/local/share/fonts"));
+                if let Some(home) = std::env::var_os("HOME") {
+                    dirs.push(PathBuf::from(home).join(".local/share/fonts"));
+                }
+            }
+
+            let mut out = Vec::new();
+            for dir in dirs {
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                let mut paths: Vec<PathBuf> = entries
+                    .filter_map(|e| e.ok().map(|ent| ent.path()))
+                    .filter(|p| {
+                        p.is_file()
+                            && p.extension()
+                                .and_then(|s| s.to_str())
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("ttf"))
+                    })
+                    .collect();
+                paths.sort();
+
+                for path in paths {
+                    let Ok(bytes) = std::fs::read(&path) else {
+                        continue;
+                    };
+                    let fallback = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("SystemFont");
+                    if let Ok((mut font_data, report)) =
+                        FontData::validate_and_inspect(&bytes, fallback)
+                    {
+                        let base_family = report.family_name.clone();
+                        let face_key = if report.is_bold && !base_family.ends_with(BOLD_SUFFIX) {
+                            format!("{base_family}{BOLD_SUFFIX}")
+                        } else {
+                            base_family.clone()
+                        };
+                        font_data.family_name = face_key.clone();
+                        out.push((
+                            base_family,
+                            face_key,
+                            report.weight,
+                            Arc::new(font_data),
+                            report,
+                        ));
+                    }
+                }
+            }
+            out
+        });
+
+        for (base_family, face_key, weight, font_arc, report) in cached {
+            if !self.fonts.contains_key(face_key) {
+                self.fonts.insert(face_key.clone(), Arc::clone(font_arc));
+                self.inspection_reports
+                    .entry(face_key.clone())
+                    .or_insert_with(|| report.clone());
+            }
+            self.register_weight(base_family, *weight, face_key);
+            if !self.fonts.contains_key(base_family) {
+                self.fonts.insert(base_family.clone(), Arc::clone(font_arc));
+                self.inspection_reports
+                    .entry(base_family.clone())
+                    .or_insert_with(|| report.clone());
+            }
+        }
+    }
+
     /// Returns all externally registered fonts `(face_name, FontData)` not embedded by default.
     pub fn external_fonts(&self) -> Vec<(String, Arc<FontData>)> {
         self.external_keys
@@ -625,9 +731,9 @@ impl FontManager {
             .collect()
     }
 
-    /// Returns true if `family` (exact or alias) exists in the manager without falling back blindly.
+    /// Returns true if `family` (exact, alias, or case-insensitive) exists in the manager without falling back blindly.
     pub fn is_family_available(&self, family: &str) -> bool {
-        self.fonts.contains_key(family)
+        self.font_exact(family).is_some()
     }
 
     /// Returns inspection report for `family` (computing lazily from loaded font bytes if needed).
@@ -790,7 +896,7 @@ impl FontManager {
 
     /// Resolves a family (or alias), falling back to the default Hebrew family.
     pub fn font_ref(&self, family: &str) -> Option<&Arc<FontData>> {
-        self.fonts.get(family).or_else(|| {
+        self.font_exact(family).or_else(|| {
             if self.default_hebrew_family.is_empty() {
                 self.fonts.values().next()
             } else {
@@ -829,9 +935,15 @@ impl FontManager {
         chosen.map_or_else(|| base.to_string(), |(_, face)| face.clone())
     }
 
-    /// Exact lookup of a registered family or alias, without default fallback.
+    /// Exact lookup of a registered family or alias (with case-insensitive fallback), without default fallback.
     pub fn font_exact(&self, family: &str) -> Option<&Arc<FontData>> {
-        self.fonts.get(family)
+        self.fonts.get(family).or_else(|| {
+            let trimmed = family.trim();
+            self.fonts
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(trimmed))
+                .map(|(_, v)| v)
+        })
     }
 
     pub fn get_font(&self, family: &str) -> Option<Arc<FontData>> {

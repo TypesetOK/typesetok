@@ -120,6 +120,9 @@ pub struct LineBox {
     /// Horizontal offset of this line relative to the text frame (in pt).
     #[serde(default)]
     pub x_offset: f32,
+    /// Paragraph alignment applied to this line.
+    #[serde(default)]
+    pub alignment: tok_core::styles::TextAlignment,
     /// Palette of colors referenced by `GlyphBox::color_index` (index 0 = paragraph base color).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub colors: Vec<tok_core::styles::Color>,
@@ -196,6 +199,21 @@ pub struct PlacedOrnamentBox {
     pub color: tok_core::styles::Color,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageNumberRenderSpec {
+    pub placement: String,
+    pub font_family: String,
+    pub font_size_pt: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<tok_core::styles::Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ornament_id: Option<String>,
+    #[serde(default)]
+    pub embed_in_ornament: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ornament_rect: Option<PhysicalRect>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PageLayoutBox {
     pub page_index: usize,
@@ -219,6 +237,9 @@ pub struct PageLayoutBox {
     /// Vector ornaments placed on this page.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ornaments: Vec<PlacedOrnamentBox>,
+    /// Optional styling and placement for page number rendering (and ornament embedding).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_number_style: Option<PageNumberRenderSpec>,
 }
 
 impl PageLayoutBox {
@@ -240,6 +261,7 @@ impl PageLayoutBox {
             diagnostics: Vec::new(),
             images: Vec::new(),
             ornaments: Vec::new(),
+            page_number_style: None,
         }
     }
 
@@ -259,6 +281,7 @@ impl PageLayoutBox {
             diagnostics: Vec::new(),
             images: Vec::new(),
             ornaments: Vec::new(),
+            page_number_style: None,
         }
     }
 }
