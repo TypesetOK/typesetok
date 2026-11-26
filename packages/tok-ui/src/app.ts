@@ -162,6 +162,8 @@ export class TypesetOkApp {
   private pdfPreviewRequestId = 0;
   private preflightReturnToExport = false;
   private lastPreviewOptions: ExportOptions | null = null;
+  /** Export format and bleed the print check is evaluated against (follows the export dialog). */
+  private exportPreflight: { standard: string; bleed: boolean } = { standard: 'pdfx1a', bleed: true };
   private importTemplateModalInstance?: ImportTemplateModal;
   private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
@@ -1443,7 +1445,11 @@ export class TypesetOkApp {
       this.exportDialogInstance = new ExportDialog({
         onExport: (options) => this.runExport(options),
         onPreviewPdf: (options) => this.runPdfPreview(options),
-        onShowPreflight: () => this.openPreflightDialog(true)
+        onShowPreflight: () => this.openPreflightDialog(true),
+        onSettingsChange: (s) => {
+          this.exportPreflight = { standard: s.format, bleed: s.bleed };
+          this.scheduleRepaginate(400);
+        }
       });
       this.root.appendChild(this.exportDialogInstance.element);
     }
@@ -2509,7 +2515,12 @@ export class TypesetOkApp {
       if (host.has('typesetDocument')) {
         try {
           const docRoot = documentStateToDocumentRoot(this.documentState);
-          const res = await host.typesetDocument({ document: docRoot, assetsFrom: this.currentFilePath || undefined });
+          const res = await host.typesetDocument({
+            document: docRoot,
+            assetsFrom: this.currentFilePath || undefined,
+            preflightStandard: this.exportPreflight.standard,
+            preflightBleed: this.exportPreflight.bleed
+          });
           // Discard stale response if a newer typeset request was dispatched while this was in flight
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
             return;

@@ -105,12 +105,31 @@ impl HebrewJustifier {
         }
     }
 
-    /// Justifies an individual line of Hebrew glyphs to `target_width_pt`.
+    /// Justifies an individual line of Hebrew glyphs to `target_width_pt`,
+    /// with Ahalterm letter stretching enabled.
     pub fn justify_line(
+        glyphs: Vec<PositionedGlyph>,
+        target_width_pt: f32,
+        font_size_pt: f32,
+        is_last_line_of_para: bool,
+    ) -> JustifiedLine {
+        Self::justify_line_opts(
+            glyphs,
+            target_width_pt,
+            font_size_pt,
+            is_last_line_of_para,
+            true,
+        )
+    }
+
+    /// Like [`Self::justify_line`], but `allow_ahalterm_stretch = false` skips Tier 2
+    /// (letter widening) so only word spacing and micro-tracking are used.
+    pub fn justify_line_opts(
         mut glyphs: Vec<PositionedGlyph>,
         target_width_pt: f32,
         font_size_pt: f32,
         is_last_line_of_para: bool,
+        allow_ahalterm_stretch: bool,
     ) -> JustifiedLine {
         // Last line of paragraph is not justified to margin in standard Hebrew typography
         if is_last_line_of_para || glyphs.is_empty() {
@@ -162,7 +181,7 @@ impl HebrewJustifier {
         };
         let ahalterm_count = glyphs.iter().filter(|g| is_stretchable(g)).count();
 
-        if ahalterm_count > 0 && remaining_deficit > 0.0 {
+        if allow_ahalterm_stretch && ahalterm_count > 0 && remaining_deficit > 0.0 {
             let stretch_per_letter = remaining_deficit / (ahalterm_count as f32);
             for g in glyphs.iter_mut().filter(|g| is_stretchable(g)) {
                 g.x_advance += stretch_per_letter;
@@ -284,6 +303,16 @@ mod tests {
         assert!(justified.stretch_per_ahalterm_pt > 0.0);
         assert!((justified.space_multiplier - MAX_SPACE_RATIO).abs() < 1e-6);
         assert!((width(&justified.glyphs) - target).abs() < 0.5);
+    }
+
+    #[test]
+    fn ahalterm_stretch_can_be_switched_off() {
+        let text = "אמר רב יהודה";
+        let run = TextShaper::shape_fallback(text, 12.0, true);
+        let target = run.total_width_pt + 50.0;
+        let justified = HebrewJustifier::justify_line_opts(run.glyphs, target, 12.0, false, false);
+        assert_ne!(justified.tier_used, JustificationTier::Tier2AhaltermStretch);
+        assert_eq!(justified.stretch_per_ahalterm_pt, 0.0);
     }
 
     /// Regression: shrinking past 80% sent the whole deficit to the spaces,

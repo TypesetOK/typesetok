@@ -124,6 +124,7 @@ impl PreflightEngine {
         let pdfx_standard = match options.standard {
             PdfXStandard::PdfX1a2001 => "PDF/X-1a:2001".to_string(),
             PdfXStandard::PdfX4 => "PDF/X-4".to_string(),
+            PdfXStandard::Plain => "PDF".to_string(),
         };
         let mut color_status = PreflightStatus::Pass;
         let mut color_details = Vec::new();

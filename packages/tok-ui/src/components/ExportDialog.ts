@@ -39,6 +39,8 @@ export interface ExportDialogCallbacks {
   onPreviewPdf?: (options: ExportOptions) => void;
   /** Opens the full print-check dialog (the export dialog is closed first and reopened after). */
   onShowPreflight?: () => void;
+  /** Fired when the format or bleed changes, so the print check can follow the export settings. */
+  onSettingsChange?: (settings: { format: ExportFormat; bleed: boolean }) => void;
 }
 
 /** Folder part of a path, or '' when it has none. */
@@ -183,6 +185,7 @@ export class ExportDialog {
     const fmtBox = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:6px' });
     fmtBox.appendChild(segmented(t('exportFormat'), FORMATS.map((f) => ({ id: f.id, label: f.recommended ? `${f.code} ★` : f.code })), o.format, (id) => {
       o.format = id;
+      this.callbacks.onSettingsChange?.({ format: o.format, bleed: o.bleed });
       this.render();
     }, { fill: true, focusPrefix: 'format' }));
     const chosen = FORMATS.find((f) => f.id === o.format) ?? FORMATS[0];
@@ -235,7 +238,10 @@ export class ExportDialog {
     // Print marks and colour profile, side by side.
     const two = el('div', undefined, { style: 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start' });
     const marks = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:2px' });
-    marks.appendChild(switchRow(t('exportBleed'), o.bleed, (v) => (o.bleed = v), { focusKey: 'bleed' }));
+    marks.appendChild(switchRow(t('exportBleed'), o.bleed, (v) => {
+      o.bleed = v;
+      this.callbacks.onSettingsChange?.({ format: o.format, bleed: o.bleed });
+    }, { focusKey: 'bleed' }));
     marks.appendChild(switchRow(t('exportCropMarks'), o.cropMarks, (v) => (o.cropMarks = v), { focusKey: 'crop' }));
     marks.appendChild(switchRow(t('exportRegMarks'), o.registrationMarks, (v) => (o.registrationMarks = v), { focusKey: 'reg' }));
     two.appendChild(group(t('exportMarks'), marks));

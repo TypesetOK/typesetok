@@ -103,6 +103,10 @@ pub struct TypesetPayload {
     pub input_path: Option<String>,
     pub assets_from: Option<String>,
     pub with_preflight: Option<bool>,
+    /// Export format id (`pdfx1a`, `pdfx4`, `pdf`) the print check is evaluated against.
+    pub preflight_standard: Option<String>,
+    /// Whether the print check assumes bleed (the export dialog's bleed switch).
+    pub preflight_bleed: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -506,6 +510,10 @@ pub async fn tok_typeset_document(
         return Err("Either document or inputPath must be provided for typesetting".to_string());
     }
     let with_preflight = payload.with_preflight.unwrap_or(true);
+    let pf_req = PreflightRequest::from_ui_options(
+        payload.preflight_standard.as_deref(),
+        payload.preflight_bleed,
+    );
     let session = Arc::clone(&state.session);
     let fonts_dir = optional_fonts_dir(&state.fonts_dir);
 
@@ -513,6 +521,7 @@ pub async fn tok_typeset_document(
         let mut guard = session
             .lock()
             .map_err(|_| "WorkspaceSession lock poisoned".to_string())?;
+        guard.set_preflight_request(pf_req);
         let out = guard
             .typeset_json_or_path(
                 doc_json.as_deref(),

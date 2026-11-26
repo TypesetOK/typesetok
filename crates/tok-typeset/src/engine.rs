@@ -718,6 +718,10 @@ impl TypesettingEngine {
             .or_else(|| base_style.map(|s| s.alignment))
             .unwrap_or(tok_core::styles::TextAlignment::Justified);
 
+        // The paragraph style's Ahalterm setting: `Off` keeps letters at their natural width.
+        let allow_ahalterm_stretch = base_style
+            .is_none_or(|s| s.ahalterm_stretch != tok_core::styles::AhaltermStretchMode::Off);
+
         let llc_opt = paragraph
             .style_patches
             .iter()
@@ -1120,7 +1124,13 @@ impl TypesettingEngine {
                 );
 
             let justified = if is_justified_line {
-                HebrewJustifier::justify_line(line_glyphs, justified_target, font_size, false)
+                HebrewJustifier::justify_line_opts(
+                    line_glyphs,
+                    justified_target,
+                    font_size,
+                    false,
+                    allow_ahalterm_stretch,
+                )
             } else {
                 HebrewJustifier::justify_line(line_glyphs, target_w, font_size, true)
             };
