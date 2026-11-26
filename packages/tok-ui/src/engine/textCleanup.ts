@@ -123,10 +123,38 @@ export const DEFAULT_CLEANUP_OPTIONS: CleanupOptions = {
 };
 
 /**
- * Finds the index of the Dibur HaMatchil delimiter in a paragraph text.
- * Returns -1 if no delimiter is found within the threshold.
+ * Counts consecutive whitespace-delimited words in a string.
  */
-export function findDiburDelimiter(text: string, delimiter: CleanupOptions['diburDelimiter'], maxChars = 140): number {
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+/**
+ * Checks whether a paragraph already has a manual Dibur HaMatchil span at the start
+ * (e.g., explicitly marked via `char-dibur-hamatchil` or a manually bolded opening > 5 words).
+ */
+function hasManualDiburSpan(spans?: TextSpan[]): boolean {
+  if (!spans || spans.length === 0) return false;
+  return spans.some(
+    (s) =>
+      s.start === 0 &&
+      s.end > 0 &&
+      (s.format.characterStyleId === 'char-dibur-hamatchil' || (s.format.fontWeight ?? 0) >= 700)
+  );
+}
+
+/**
+ * Finds the index of the Dibur HaMatchil delimiter in a paragraph text.
+ * Returns -1 if no delimiter is found within the character or word threshold.
+ */
+export function findDiburDelimiter(
+  text: string,
+  delimiter: CleanupOptions['diburDelimiter'],
+  maxChars = 140,
+  maxWords = 5
+): number {
   if (!text || text.length === 0) return -1;
   const searchLimit = Math.min(text.length, maxChars);
 
@@ -159,6 +187,13 @@ export function findDiburDelimiter(text: string, delimiter: CleanupOptions['dibu
           break;
         }
       }
+    }
+  }
+
+  if (bestIdx > 0 && maxWords > 0) {
+    const prefix = text.slice(0, bestIdx + 1);
+    if (countWords(prefix) > maxWords) {
+      return -1;
     }
   }
 
@@ -291,14 +326,10 @@ export function analyzeParagraphs(paragraphs: StoryParagraph[], options: Cleanup
       if (gm) stats.gereshConverted += gm.length;
     }
 
-    if (options.boldDiburHaMatchil) {
-      const delimIdx = findDiburDelimiter(text, options.diburDelimiter);
+    if (options.boldDiburHaMatchil && !hasManualDiburSpan(p.spans)) {
+      const delimIdx = findDiburDelimiter(text, options.diburDelimiter, 140, 5);
       if (delimIdx > 0) {
-        // Check if not already bold
-        const alreadyBold = (p.spans || []).some((s) => s.start === 0 && s.end >= delimIdx + 1 && s.format.fontWeight === 700);
-        if (!alreadyBold) {
-          stats.diburHaMatchilBolded++;
-        }
+        stats.diburHaMatchilBolded++;
       }
     }
   }
@@ -411,12 +442,18 @@ export function cleanupParagraphs(
       stats.gereshConverted += rg.count;
     }
 
-    // 5. Automatic Dibur HaMatchil run-in bold styling
-    if (options.boldDiburHaMatchil) {
-      const delimIdx = findDiburDelimiter(curText, options.diburDelimiter);
+    // 5. Automatic Dibur HaMatchil run-in bold styling (max 5 consecutive words unless manually marked)
+    if (options.boldDiburHaMatchil && !hasManualDiburSpan(curSpans)) {
+      const delimIdx = findDiburDelimiter(curText, options.diburDelimiter, 140, 5);
       if (delimIdx > 0) {
         const boldEnd = delimIdx + 1; // Include delimiter in bold formatting
-        curSpans = formatRangeInSpans(curSpans, 0, boldEnd, { fontWeight: 700 }, curText.length);
+        curSpans = formatRangeInSpans(
+          curSpans,
+          0,
+          boldEnd,
+          { characterStyleId: 'char-dibur-hamatchil', fontWeight: 700 },
+          curText.length
+        );
         stats.diburHaMatchilBolded++;
       }
     }
