@@ -6,6 +6,68 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.38.1",
+    "releaseDate": "2026-11-27",
+    "importance": "minor",
+    "title": {
+      "he": "מנוע הערות צד וכותרות ביניים, הטלת חוברות PDF, מפתח תורני ותוכן עניינים, ייבוא Tag ו-DOCX אצווה (0.38.1)",
+      "en": "Sidenotes & Run-In Notes, 2-Up Booklet Imposition, Torah Citation Index, TOC Engine, Legacy Tag & Batch DOCX Importer (0.38.1)"
+    },
+    "summary": {
+      "he": "עדכון מקיף המוסיף הערות רצות והערות שוליים צידיות עם מניעת התנגשויות, הטלת חוברות 2-up ב-PDF עם פיצוי גלישה (Creep), אינדקס מובנה של ספרי קודש ופסוקי תנ\"ך, מנוע תוכן עניינים אוטומטי, מפת חום להצדקת שורות, ייבוא קבצי תג (Tag) ישנים ואיחוד אצווה של קבצי DOCX, טעינת גופני מערכת והתקנת גופנים מהגדרות, אות פתיח (Drop Cap), עמודים ריקים, תבניות מותאמות אישית וניקוי סופי של שאריות Electron.",
+      "en": "Major feature release adding inline run-in notes and sidenotes with collision avoidance, 2-up PDF booklet signature imposition with creep compensation, canonical Torah citation index and offline Tanakh lookup, automatic TOC layout engine, justification heatmap, legacy Tag file parser and batch DOCX stitching, system font loading and in-app TTF/OTF font installation, drop caps, blank pages, custom templates, and final Electron cleanup."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "ייבוא קבצי \"תג\" (Tag) ישנים ואיחוד אצווה (Batch Stitching) של מספר קבצי DOCX למסמך רציף אחד, כולל מפת חום להצדקת שורות בתצוגת העמודים",
+          "en": "Legacy Tag file parser and batch DOCX stitching into a single continuous document, plus a justification heatmap overlay in page view"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מפתח ציטוטים תורני קנוני (ש\"ס, תנ\"ך וחיבורים) וחיפוש תנ\"ך לא מקוון, יחד עם מנוע פריסת תוכן עניינים (TOC) אוטומטי",
+          "en": "Canonical Torah citation index and offline Tanakh lookup, alongside an automatic Table of Contents (TOC) layout engine"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "הטלת חוברות 2-up לייצוא PDF (Booklet Signature Imposition) כולל פיצוי גלישה (Creep Compensation) לקיפול וכריכה",
+          "en": "2-up PDF booklet signature imposition with creep compensation for folded signatures"
+        }
+      },
+      {
+        "category": "typography",
+        "text": {
+          "he": "הערות רצות בתוך השורה (Run-in Notes) והערות צד (Sidenotes) עם מנגנון אוטומטי למניעת התנגשויות, וכן תמיכה באות פתיח (Drop Cap), עמודים ריקים ופריסות רב-זרימה",
+          "en": "Inline run-in notes and sidenotes with automatic collision avoidance, plus drop caps, blank pages, and multi-flow layout kinds"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "טעינת גופני המערכת, התקנת גופני TTF/OTF ישירות מחלון ההגדרות, יישור פסקאות, מספור עמודים ודפי גמרא, פקד HUD לפעולות, תבניות מותאמות אישית, והרחבת מנתח Markdown (טבלאות, יישור, תמונות ובלוקי קוד)",
+          "en": "System font loading, direct TTF/OTF font installation from Settings, paragraph alignment, page and Gemara numbering, action HUD, custom templates, and extended Markdown importer (tables, alignment, images, code blocks)"
+        }
+      },
+      {
+        "category": "fixes",
+        "text": {
+          "he": "הגבלת זיהוי אוטומטי של דיבור המתחיל ל-5 מילים תוך שמירה על סימונים ידניים, הגשת תצוגה מקדימה של PDF דרך `tok-asset` ב-Tauri v2, מתקין בעברית ללא ניקוד עם רישיון RTF מעוצב, והסרה מלאה של תלויות Electron ישנות",
+          "en": "Cap auto Dibur Hamatchil detection at 5 words while preserving manual marks, serve PDF preview via `tok-asset` in Tauri v2, Hebrew without niqqud and formatted RTF license in the installer, and full removal of legacy Electron dependencies"
+        }
+      }
+    ],
+    "highlights": [],
+    "badge": {
+      "he": "הוצאה לאור, ספר תורני והטלת חוברות",
+      "en": "Torah Publishing, Booklet Imposition & Importer Suite"
+    }
+  },
+  {
     "version": "0.37.2",
     "releaseDate": "2026-11-22",
     "importance": "patch",
