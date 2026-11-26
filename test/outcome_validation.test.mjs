@@ -304,9 +304,9 @@ describe('Phase 3 Outcome-Based Validation: Production Capabilities & Real Gaps'
     assert.equal(hasCloseGuard, false, 'RESOLVED: WelcomeModal must NOT trap the user with unconditional return guard');
     assert.ok(welcomeSrc.includes('onExitApp'), 'RESOLVED: WelcomeModal must provide onExitApp callback');
 
-    // Audit Electron Main Window closing & IPC bridge
-    const mainSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-    const hasCloseAppIpc = mainSrc.includes("tok:close-window") || mainSrc.includes("tok:quit-app");
-    assert.equal(hasCloseAppIpc, true, 'RESOLVED: tok-electron main.ts provides IPC handlers for closing window and quitting app');
+    // Audit Tauri Desktop Window closing & IPC commands
+    const commandsSrc = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf-8');
+    const hasCloseAppIpc = commandsSrc.includes('tok_close_window') && commandsSrc.includes('tok_quit_app');
+    assert.equal(hasCloseAppIpc, true, 'RESOLVED: tok-desktop commands.rs provides IPC handlers for closing window and quitting app');
   });
 });

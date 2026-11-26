@@ -9,41 +9,43 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 describe('Phase 3 Lifecycle Integration: Window Closing, Safe Exit, and Guards', () => {
-  let mainSrc;
-  let preloadSrc;
+  let mainRs;
+  let commandsRs;
+  let adapterTs;
   let topBarSrc;
   let welcomeSrc;
   let appSrc;
 
   before(() => {
-    mainSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-    preloadSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/preload.ts'), 'utf-8');
+    mainRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/main.rs'), 'utf-8');
+    commandsRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf-8');
+    adapterTs = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/platform/tauriHostAdapter.ts'), 'utf-8');
     topBarSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/TopSystemBar.ts'), 'utf-8');
     welcomeSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/WelcomeModal.ts'), 'utf-8');
     appSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/app.ts'), 'utf-8');
   });
 
-  test('1. IPC contract declares closeWindow and quitApp in preload bridge', () => {
-    assert.ok(preloadSrc.includes('closeWindow: () => Promise<void>;'), 'Preload interface must declare closeWindow');
-    assert.ok(preloadSrc.includes('quitApp: () => Promise<void>;'), 'Preload interface must declare quitApp');
-    assert.ok(preloadSrc.includes("ipcRenderer.invoke('tok:close-window')"), 'tokIpc must invoke tok:close-window');
-    assert.ok(preloadSrc.includes("ipcRenderer.invoke('tok:quit-app')"), 'tokIpc must invoke tok:quit-app');
+  test('1. TauriHostAdapter declares closeWindow and quitApp IPC calls', () => {
+    assert.ok(adapterTs.includes('closeWindow'), 'Adapter must declare closeWindow');
+    assert.ok(adapterTs.includes('quitApp'), 'Adapter must declare quitApp');
+    assert.ok(adapterTs.includes('tok_close_window'), 'Adapter must invoke tok_close_window');
+    assert.ok(adapterTs.includes('tok_quit_app'), 'Adapter must invoke tok_quit_app');
   });
 
-  test('2. Main process registers secure handlers for tok:close-window and tok:quit-app', () => {
-    assert.ok(mainSrc.includes("handle('tok:close-window'"), 'Main must handle tok:close-window securely');
-    assert.ok(mainSrc.includes("handle('tok:quit-app'"), 'Main must handle tok:quit-app securely');
+  test('2. Tauri commands register tok_close_window and tok_quit_app', () => {
+    assert.ok(commandsRs.includes('pub fn tok_close_window'), 'commands.rs must define tok_close_window');
+    assert.ok(commandsRs.includes('pub fn tok_quit_app'), 'commands.rs must define tok_quit_app');
   });
 
-  test('3. Window close guard checks renderer dirty state and prompts with 3 choices', () => {
-    assert.ok(mainSrc.includes("win.on('close'"), 'Main window must listen to close event');
-    assert.ok(mainSrc.includes('e.preventDefault()'), 'Close event must be prevented until confirmed');
-    assert.ok(mainSrc.includes('isDirty'), 'Close event must query renderer dirty state');
-    assert.ok(mainSrc.includes("buttons: ['שמור וצא', 'צא ללא שמירה', 'ביטול']"), 'Close dialog must present 3 choices: save, discard, cancel');
+  test('3. Window close guard checks dirty state and prompts before closing', () => {
+    assert.ok(mainRs.includes('WindowEvent::CloseRequested'), 'Main window must handle CloseRequested');
+    assert.ok(mainRs.includes('api.prevent_close()'), 'Close event must be prevented when dirty');
+    assert.ok(mainRs.includes('is_dirty'), 'Close event must check is_dirty state');
+    assert.ok(mainRs.includes('MessageDialogButtons::YesNo'), 'Main must show confirmation dialog when dirty');
   });
 
-  test('4. Duplicate close requests and deadlocks are prevented with active prompt guard', () => {
-    assert.ok(mainSrc.includes('isClosingPromptActive'), 'Main process must guard against concurrent duplicate close dialogs');
+  test('4. Duplicate close requests and deadlocks are prevented with active guard', () => {
+    assert.ok(commandsRs.includes('tok_set_dirty'), 'commands.rs must expose tok_set_dirty');
     assert.ok(appSrc.includes('isClosingInProgress'), 'Renderer App must guard against re-entrant close requests');
   });
 

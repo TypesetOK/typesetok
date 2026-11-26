@@ -50,9 +50,10 @@ describe('GitHub Issue #20 Regression Tests: All Bugs Verified', () => {
       assert.ok(modalTs.includes("closeOnBackdrop: true"), 'Enables backdrop closing');
     });
 
-    it('Electron main process handles window close cancel without locking exit', () => {
-      const mainTs = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-      assert.ok(mainTs.includes('isClosingPromptActive = false'), 'isClosingPromptActive must be cleared on cancel');
+    it('Tauri desktop main handles window close guard without locking exit', () => {
+      const mainRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/main.rs'), 'utf-8');
+      assert.ok(mainRs.includes('CloseRequested'), 'main.rs handles CloseRequested');
+      assert.ok(mainRs.includes('is_dirty'), 'main.rs checks is_dirty state');
     });
   });
 
@@ -63,11 +64,11 @@ describe('GitHub Issue #20 Regression Tests: All Bugs Verified', () => {
       assert.ok(importerTs.includes('decompressDeflateRawAsync'), 'Provides async decompression helper');
     });
 
-    it('preload and main expose decompressRaw IPC bridge', () => {
-      const preloadTs = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/preload.ts'), 'utf-8');
-      const mainTs = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-      assert.ok(preloadTs.includes('decompressRaw'), 'Preload exposes decompressRaw');
-      assert.ok(mainTs.includes('tok:decompress-raw'), 'Main handles tok:decompress-raw');
+    it('tauriHostAdapter and commands.rs expose decompressRaw IPC bridge', () => {
+      const adapterTs = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/platform/tauriHostAdapter.ts'), 'utf-8');
+      const commandsRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf-8');
+      assert.ok(adapterTs.includes('decompressRaw'), 'Adapter exposes decompressRaw');
+      assert.ok(commandsRs.includes('tok_decompress_raw'), 'commands.rs handles tok_decompress_raw');
     });
   });
 
@@ -204,11 +205,10 @@ describe('GitHub Issue #20 Regression Tests: All Bugs Verified', () => {
       assert.ok(appTs.includes("onExportPdf: () => this.handleSystemAction('export-pdf')"), 'App wires onExportPdf to status bar');
     });
 
-    it('Window close guard in Electron main uses win.destroy() and valid JS with timeout', () => {
-      const mainTs = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-      assert.ok(mainTs.includes('win.destroy()'), 'Main uses win.destroy() to ensure clean unblocked window closing');
-      assert.ok(!mainTs.includes('(window as any)'), 'Main does not pass TypeScript "as any" to Chromium executeJavaScript');
-      assert.ok(mainTs.includes('timeoutPromise'), 'Main sets a safe timeout on renderer dirty check');
+    it('Window close guard in Tauri main uses api.prevent_close() and native confirmation dialog', () => {
+      const mainRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/main.rs'), 'utf-8');
+      assert.ok(mainRs.includes('api.prevent_close()'), 'Main prevents close when dirty');
+      assert.ok(mainRs.includes('MessageDialogButtons::YesNo'), 'Main prompts user before closing dirty document');
     });
 
     it('Flow id main and primary are mapped to gemara in typesetBridge and app.ts', async () => {

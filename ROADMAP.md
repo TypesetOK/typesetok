@@ -68,11 +68,6 @@ crates/
 
 ```
 packages/
-├── tok-electron/                # תהליך ראשי של Electron
-│   ├── src/main.ts              # ניהול חלונות, חיבור ל-tok-cli והפעלת המעטפת
-│   ├── src/menu.ts              # תפריטי מערכת שולחניים מקומיים (Native Menus)
-│   └── src/preload.ts           # גשר IPC מבודד (Context Isolation & contextBridge)
-│
 ├── tok-viewer/                  # מנוע תצוגה מבוסס וירטואליזציה
 │   └── src/virtualizer.ts       # אכיפת חלון פעיל של 3 עמודים בלבד [K-1, K, K+1]
 │

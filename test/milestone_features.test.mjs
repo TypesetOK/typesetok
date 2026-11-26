@@ -31,13 +31,14 @@ describe('Core Feature 1: In-App Updater (מנגנון עדכונים מתוך �
     assert.equal(compareVersions('v0.9.1', '0.9.0'), 1, 'handles leading v');
   });
 
-  test('Updater module is compiled and defines GitHub repository target', () => {
-    const updaterTs = path.join(rootDir, 'packages/tok-electron/src/updater.ts');
-    assert.equal(fs.existsSync(updaterTs), true);
-    const content = fs.readFileSync(updaterTs, 'utf-8');
+  test('Updater module is implemented in Tauri desktop and defines GitHub repository target', () => {
+    const updaterRs = path.join(rootDir, 'crates/tok-desktop/src/updater.rs');
+    assert.equal(fs.existsSync(updaterRs), true);
+    const content = fs.readFileSync(updaterRs, 'utf-8');
     assert.equal(content.includes('TypesetOK'), true);
     assert.equal(content.includes('typesetok'), true);
-    assert.equal(content.includes('checkForUpdates'), true);
+    const commandsRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf-8');
+    assert.equal(commandsRs.includes('tok_check_for_updates'), true);
   });
 });
 
@@ -105,13 +106,11 @@ describe('Core Feature 3: Multilingual Installer (מתקין עברית ואנג
 
 describe('Core Feature 4: Plugin Architecture (מערכת תוספים JS ו-TS)', () => {
   test('Plugin Manager discovers and supports both TS and JS plugins', () => {
-    const pluginManagerTs = path.join(rootDir, 'packages/tok-electron/src/plugin-manager.ts');
-    assert.equal(fs.existsSync(pluginManagerTs), true);
-    const content = fs.readFileSync(pluginManagerTs, 'utf-8');
-    assert.equal(content.includes('discoverPlugins'), true);
-    assert.equal(content.includes('togglePlugin'), true);
-    assert.equal(content.includes('smart-quotes-ts'), true);
-    assert.equal(content.includes('word-counter-js'), true);
+    const pluginsRs = path.join(rootDir, 'crates/tok-desktop/src/plugins.rs');
+    assert.equal(fs.existsSync(pluginsRs), true);
+    const content = fs.readFileSync(pluginsRs, 'utf-8');
+    assert.equal(content.includes('discover_plugins'), true);
+    assert.equal(content.includes('toggle_plugin'), true);
   });
 
   test('Plugin Engine executes plugins and registers commands into Command Palette', () => {
@@ -123,14 +122,10 @@ describe('Core Feature 4: Plugin Architecture (מערכת תוספים JS ו-TS)
   });
 });
 
-describe('Core Feature 5: Startup Speed & Anti-Contrast Splash (ספלאש מהיר בלי ניגודיות)', () => {
-  test('Splash window uses matching dark slate blue background and pulsating logo animation', () => {
-    const mainTs = path.join(rootDir, 'packages/tok-electron/src/main.ts');
-    const content = fs.readFileSync(mainTs, 'utf-8');
-    assert.equal(content.includes('createSplashWindow'), true);
-    assert.equal(content.includes('#0B132B'), true, 'Must use chosen dark blue to prevent white glare');
-    assert.equal(content.includes('tokGlowPulse'), true, 'Logo must have pulsating glow animation');
-    assert.equal(content.includes('setMenuBarVisibility(false)'), true, 'Eliminates ugly Windows grey menu bar');
+describe('Core Feature 5: Startup Speed & Frameless Tauri Window (חלון מהיר ללא סרגל מערכת אפור)', () => {
+  test('Tauri window configuration uses frameless decorations and dark background', () => {
+    const mainRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/main.rs'), 'utf-8');
+    assert.equal(mainRs.includes('.decorations(false)'), true, 'Eliminates ugly Windows grey menu bar');
   });
 });
 

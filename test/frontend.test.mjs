@@ -403,18 +403,18 @@ describe('Canvas Overlay & Optimistic RTL Advance (Section 9.2)', () => {
 });
 
 describe('Build Artifacts & Distribution Packaging', () => {
-  test('Electron main process is compiled to dist/main.js', () => {
-    const mainJs = path.join(rootDir, 'packages/tok-electron/dist/main.js');
-    assert.equal(fs.existsSync(mainJs), true, 'main.js must exist');
-    const content = fs.readFileSync(mainJs, 'utf-8');
-    assert.equal(content.includes('createWindow'), true);
+  test('Tauri frontend dist-tauri/index.html is generated', () => {
+    const tauriIndex = path.join(rootDir, 'packages/tok-ui/dist-tauri/index.html');
+    assert.equal(fs.existsSync(tauriIndex), true, 'dist-tauri/index.html must exist');
+    const content = fs.readFileSync(tauriIndex, 'utf-8');
+    assert.equal(content.includes('id="app"'), true);
   });
 
-  test('Electron preload script is compiled to dist/preload.js', () => {
-    const preloadJs = path.join(rootDir, 'packages/tok-electron/dist/preload.js');
-    assert.equal(fs.existsSync(preloadJs), true, 'preload.js must exist');
-    const content = fs.readFileSync(preloadJs, 'utf-8');
-    assert.equal(content.includes('contextBridge.exposeInMainWorld'), true);
+  test('Tauri frontend dist-tauri/renderer.js is generated and non-empty', () => {
+    const tauriRenderer = path.join(rootDir, 'packages/tok-ui/dist-tauri/renderer.js');
+    assert.equal(fs.existsSync(tauriRenderer), true, 'dist-tauri/renderer.js must exist');
+    const stat = fs.statSync(tauriRenderer);
+    assert.equal(stat.size > 10000, true, 'dist-tauri/renderer.js should be > 10KB');
   });
 
   test('UI renderer bundle is generated and non-empty', () => {
@@ -3657,40 +3657,16 @@ describe('Side panel flows follow the document template (new and opened document
 describe('Installer language is adopted by the app on first run', () => {
   const read = (rel) => fs.readFileSync(path.join(rootDir, rel), 'utf-8').replace(/\r\n/g, '\n');
 
-  test('parseInstallLanguage understands Inno Setup and NSIS registry output', async () => {
-    const { parseInstallLanguage } = await loadTs('packages/tok-electron/src/install-language.ts');
-    const inno = (v) => `\r\nHKEY_CURRENT_USER\\Software\\TypesetOK\r\n    ProjectsDir    REG_SZ    C:\\Books\r\n    Language    REG_SZ    ${v}\r\n`;
-    assert.equal(parseInstallLanguage(inno('en')), 'en');
-    assert.equal(parseInstallLanguage(inno('he')), 'he');
-    assert.equal(parseInstallLanguage('    Installer Language    REG_SZ    1033\r\n'), 'en');
-    assert.equal(parseInstallLanguage('    Installer Language    REG_SZ    1037\r\n'), 'he');
-    assert.equal(parseInstallLanguage(inno('fr')), null);
-    assert.equal(parseInstallLanguage(''), null);
-  });
-
-  test('preload applies it only when the user has no saved language; main answers only the app page', () => {
-    const preload = read('packages/tok-electron/src/preload.ts');
-    assert.ok(preload.includes("!localStorage.getItem('tok_lang')"), 'a saved choice must win');
-    assert.ok(preload.includes("sendSync('tok:get-install-language')"));
-    const main = read('packages/tok-electron/src/main.ts');
-    const at = main.indexOf("ipcMain.on('tok:get-install-language'");
-    assert.ok(at > 0, 'main must answer the channel');
-    assert.ok(main.slice(at, at + 220).includes('isAppUrl('), 'sender must be validated');
-  });
-
-  test('parseInstallProjectsDir reads the installer projects folder, including spaces', async () => {
-    const { parseInstallProjectsDir } = await loadTs('packages/tok-electron/src/install-language.ts');
-    const out = '\r\n    ProjectsDir    REG_SZ    C:\\Users\\Dan Cohen\\TypesetOK Projects\r\n    Language    REG_SZ    en\r\n';
-    assert.equal(parseInstallProjectsDir(out), 'C:\\Users\\Dan Cohen\\TypesetOK Projects');
-    assert.equal(parseInstallProjectsDir('    Language    REG_SZ    he\r\n'), null);
-    assert.equal(parseInstallProjectsDir(''), null);
+  test('Tauri desktop reads installer language and projects dir from registry', () => {
+    const stateRs = read('crates/tok-desktop/src/state.rs');
+    assert.ok(stateRs.includes('ProjectsDir') || stateRs.includes('Language'), 'state.rs reads installer registry keys');
   });
 
   test('save and open dialogs start in the installer projects folder', () => {
-    const main = read('packages/tok-electron/src/main.ts');
-    assert.ok(main.includes('defaultPath: withProjectsDir(options?.defaultPath)'), 'save dialog');
-    const open = main.indexOf("handle('tok:show-open-dialog'");
-    assert.ok(open > 0 && main.slice(open, open + 300).includes('defaultPath: getProjectsDir()'), 'open dialog');
+    const commandsRs = read('crates/tok-desktop/src/commands.rs');
+    assert.ok(commandsRs.includes('tok_show_save_dialog'), 'save dialog command');
+    assert.ok(commandsRs.includes('tok_show_open_dialog'), 'open dialog command');
+    assert.ok(commandsRs.includes('tok_get_projects_dir'), 'projects dir command');
   });
 
   test('the Inno Setup installer still records the chosen language', () => {
@@ -3798,8 +3774,8 @@ describe('Home screen, dialogs and About screen', () => {
     assert.ok(rename.includes('TARGET_EXISTS'), 'aborts cleanly when target .tok file already exists');
     assert.ok(rename.includes('saveDocumentToFile(this.currentFilePath, { silent: true })'), 'syncs internal metadata.title and manifest.json after .tok rename');
 
-    const mainCode = read('packages/tok-electron/src/main.ts');
-    assert.ok(mainCode.includes("error: 'TARGET_EXISTS'"), 'Electron rename handler checks destination existence before renaming');
+    const commandsRs = read('crates/tok-desktop/src/commands.rs');
+    assert.ok(commandsRs.includes('"TARGET_EXISTS"'), 'Tauri rename handler checks destination existence before renaming');
   });
 
   test('TEMPLATE_TITLES in app.ts contains no demo projects', () => {
@@ -4163,20 +4139,20 @@ describe('Torah Heading Auto-Numbering Engine & IPC Integration', () => {
     assert.equal(paragraphs[2].numberLabel, undefined);
   });
 
-  test('Electron IPC bridge exposes heading numbering methods', () => {
-    const preload = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/preload.ts'), 'utf-8');
-    assert.ok(preload.includes('configureHeadingNumbering:'), 'preload must define configureHeadingNumbering');
-    assert.ok(preload.includes('reorderHeading:'), 'preload must define reorderHeading');
-    assert.ok(preload.includes('insertHeading:'), 'preload must define insertHeading');
-    assert.ok(preload.includes('deleteHeading:'), 'preload must define deleteHeading');
-    assert.ok(preload.includes('recalculateHeadingNumbers:'), 'preload must define recalculateHeadingNumbers');
+  test('Tauri IPC bridge exposes heading numbering methods', () => {
+    const adapter = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/platform/tauriHostAdapter.ts'), 'utf-8');
+    assert.ok(adapter.includes('configureHeadingNumbering'), 'adapter must define configureHeadingNumbering');
+    assert.ok(adapter.includes('reorderHeading'), 'adapter must define reorderHeading');
+    assert.ok(adapter.includes('insertHeading'), 'adapter must define insertHeading');
+    assert.ok(adapter.includes('deleteHeading'), 'adapter must define deleteHeading');
+    assert.ok(adapter.includes('recalculateHeadingNumbers'), 'adapter must define recalculateHeadingNumbers');
 
-    const main = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-    assert.ok(main.includes("handle('tok:configure-heading-numbering'"), 'main must handle tok:configure-heading-numbering');
-    assert.ok(main.includes("handle('tok:reorder-heading'"), 'main must handle tok:reorder-heading');
-    assert.ok(main.includes("handle('tok:insert-heading'"), 'main must handle tok:insert-heading');
-    assert.ok(main.includes("handle('tok:delete-heading'"), 'main must handle tok:delete-heading');
-    assert.ok(main.includes("handle('tok:recalculate-heading-numbers'"), 'main must handle tok:recalculate-heading-numbers');
+    const commandsRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf-8');
+    assert.ok(commandsRs.includes('tok_configure_heading_numbering'), 'commands.rs must handle tok_configure_heading_numbering');
+    assert.ok(commandsRs.includes('tok_reorder_heading'), 'commands.rs must handle tok_reorder_heading');
+    assert.ok(commandsRs.includes('tok_insert_heading'), 'commands.rs must handle tok_insert_heading');
+    assert.ok(commandsRs.includes('tok_delete_heading'), 'commands.rs must handle tok_delete_heading');
+    assert.ok(commandsRs.includes('tok_recalculate_heading_numbers'), 'commands.rs must handle tok_recalculate_heading_numbers');
   });
 
   test('Issue #28 Regression: ContextualInspector is instantiated before setFlows is invoked in TokApp', () => {

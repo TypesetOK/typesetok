@@ -13,9 +13,8 @@ TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית 
    - `tok-ipc`: פרוטוקול מסגור ו-Worker לתקשורת בין-תהליכית.
    - `tok-cli`: ממשק שורת הפקודה (`typeset-document`, `render-pdf`, `render-html`, `save-package`, `open-package`, `verify-determinism`, `benchmark-typeset`, `worker`).
    - `tok-desktop`: מעטפת שולחן העבודה הראשית ב-Tauri v2 הקוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך.
-2. **מעטפת הממשק וה-Renderer (Desktop UI — 5 חבילות TypeScript):**
+2. **מעטפת הממשק וה-Renderer (Desktop UI — 4 חבילות TypeScript):**
    - `packages/tok-ui`: ממשק שולחני מהיר (Vanilla TypeScript נקי מ-React/Vue), רינדור נאמן ב-DOM של תוצאות הפריסה מ-Rust במיקום אבסולוטי מדויק בנקודות (pt), ומתאם `tauriHostAdapter.ts` מול Tauri v2.
-   - `packages/tok-electron`: מעטפת Electron משנית/אופציונלית מאובטחת (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`) המפעילה את `tok-cli` כ-Subprocess.
    - `packages/tok-story-editor`: עורך טקסט עשיר בסגנון Story Editor של InDesign, היסטוריית שינויים, וחיפוש/החלפה עמידי ניקוד.
    - `packages/tok-viewer`: וירטואליזציית עמודים (`PageDomVirtualizer`).
    - `packages/tok-canvas`: שכבת כיסוי גרפית (`CanvasInteractionOverlay`).
@@ -110,7 +109,6 @@ TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית 
   - `tok-desktop/`: Primary Tauri v2 desktop shell
 - `packages/`
   - `tok-ui/`: Desktop UI renderer, `SpreadCanvas`, `tauriHostAdapter`, and components
-  - `tok-electron/`: Optional Electron main process and preload script
   - `tok-story-editor/`: Text editor component and DOM converter
   - `tok-viewer/`: Viewport virtualization (`PageDomVirtualizer`)
   - `tok-canvas/`: Interactive canvas overlay (`CanvasInteractionOverlay`)

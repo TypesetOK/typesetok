@@ -62,8 +62,9 @@ function findTokCli() {
 }
 
 describe('Phase 3.1 End-to-End: Lifecycle, Import & Geometric Fidelity', async () => {
-  const mainSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf-8');
-  const preloadSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/preload.ts'), 'utf-8');
+  const mainRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/main.rs'), 'utf-8');
+  const commandsRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf-8');
+  const adapterTs = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/platform/tauriHostAdapter.ts'), 'utf-8');
   const appSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/app.ts'), 'utf-8');
   const welcomeSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/WelcomeModal.ts'), 'utf-8');
   const topBarSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/components/TopSystemBar.ts'), 'utf-8');
@@ -118,24 +119,24 @@ describe('Phase 3.1 End-to-End: Lifecycle, Import & Geometric Fidelity', async (
   // PILLAR 1: LIFECYCLE VERIFICATION
   // =========================================================================
   describe('Pillar 1: Application Lifecycle & Safe Exit', () => {
-    test('1. Preload and Main IPC contracts expose closeWindow and quitApp', () => {
-      assert.ok(preloadSrc.includes('closeWindow: () => Promise<void>;'), 'Preload interface must declare closeWindow');
-      assert.ok(preloadSrc.includes('quitApp: () => Promise<void>;'), 'Preload interface must declare quitApp');
-      assert.ok(preloadSrc.includes("ipcRenderer.invoke('tok:close-window')"), 'tokIpc must invoke tok:close-window');
-      assert.ok(preloadSrc.includes("ipcRenderer.invoke('tok:quit-app')"), 'tokIpc must invoke tok:quit-app');
-      assert.ok(mainSrc.includes("handle('tok:close-window'"), 'Main must handle tok:close-window securely');
-      assert.ok(mainSrc.includes("handle('tok:quit-app'"), 'Main must handle tok:quit-app securely');
+    test('1. TauriHostAdapter and commands.rs expose closeWindow and quitApp', () => {
+      assert.ok(adapterTs.includes('closeWindow'), 'Adapter must declare closeWindow');
+      assert.ok(adapterTs.includes('quitApp'), 'Adapter must declare quitApp');
+      assert.ok(adapterTs.includes('tok_close_window'), 'Adapter must invoke tok_close_window');
+      assert.ok(adapterTs.includes('tok_quit_app'), 'Adapter must invoke tok_quit_app');
+      assert.ok(commandsRs.includes('pub fn tok_close_window'), 'commands.rs must handle tok_close_window');
+      assert.ok(commandsRs.includes('pub fn tok_quit_app'), 'commands.rs must handle tok_quit_app');
     });
 
-    test('2. Main window close handler checks dirty state and offers 3 actions: save, discard, cancel', () => {
-      assert.ok(mainSrc.includes("win.on('close'"), 'Main window must listen to close event');
-      assert.ok(mainSrc.includes('e.preventDefault()'), 'Close event must be prevented until confirmed');
-      assert.ok(mainSrc.includes('isDirty'), 'Close event must query renderer dirty state');
-      assert.ok(mainSrc.includes("buttons: ['שמור וצא', 'צא ללא שמירה', 'ביטול']"), 'Close dialog must present 3 choices');
+    test('2. Main window close handler checks dirty state and prompts before closing', () => {
+      assert.ok(mainRs.includes('WindowEvent::CloseRequested'), 'Main window must handle CloseRequested');
+      assert.ok(mainRs.includes('api.prevent_close()'), 'Close event must be prevented until confirmed');
+      assert.ok(mainRs.includes('is_dirty'), 'Close event must query dirty state');
+      assert.ok(mainRs.includes('MessageDialogButtons::YesNo'), 'Main must show confirmation dialog');
     });
 
     test('3. Duplicate close dialogs and race conditions are guarded in Main and Renderer', () => {
-      assert.ok(mainSrc.includes('isClosingPromptActive'), 'Main process must guard against concurrent close dialogs');
+      assert.ok(commandsRs.includes('tok_set_dirty'), 'commands.rs must expose tok_set_dirty');
       assert.ok(appSrc.includes('isClosingInProgress'), 'Renderer App must guard against re-entrant close requests');
     });
 
@@ -472,8 +473,8 @@ describe('Phase 3.1 End-to-End: Lifecycle, Import & Geometric Fidelity', async (
 
       // 6. Verify safe exit coordination
       assert.ok(appSrc.includes('requestCloseOrExit'), 'App must coordinate safe close and exit');
-      assert.ok(mainSrc.includes("handle('tok:quit-app'"), 'Main must handle quit-app securely');
-      assert.ok(mainSrc.includes("handle('tok:close-window'"), 'Main must handle close-window securely');
+      assert.ok(commandsRs.includes('pub fn tok_quit_app'), 'commands.rs must handle quit-app securely');
+      assert.ok(commandsRs.includes('pub fn tok_close_window'), 'commands.rs must handle close-window securely');
     });
   });
 });

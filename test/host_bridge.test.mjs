@@ -299,15 +299,16 @@ describe('Phase 0 Host Bridge & Persistent Settings', () => {
     assert.deepEqual(syncStartupOffenders, []);
   });
 
-  test('7. Electron main and preload expose host settings and bootstrap IPC contracts', () => {
-    const mainSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/main.ts'), 'utf8');
-    const preloadSrc = fs.readFileSync(path.join(rootDir, 'packages/tok-electron/src/preload.ts'), 'utf8');
+  test('7. Tauri desktop commands and adapter expose host settings and bootstrap contracts', () => {
+    const commandsRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/commands.rs'), 'utf8');
+    const mainRs = fs.readFileSync(path.join(rootDir, 'crates/tok-desktop/src/main.rs'), 'utf8');
+    const adapterTs = fs.readFileSync(path.join(rootDir, 'packages/tok-ui/src/platform/tauriHostAdapter.ts'), 'utf8');
 
-    for (const ch of ['tok:read-settings', 'tok:set-setting', 'tok:set-settings', 'tok:remove-setting', 'tok:get-bootstrap-sync']) {
-      assert.ok(mainSrc.includes(ch), `main.ts must handle ${ch}`);
-      assert.ok(preloadSrc.includes(ch), `preload.ts must invoke ${ch}`);
+    for (const cmd of ['tok_read_settings', 'tok_set_setting', 'tok_set_settings', 'tok_remove_setting']) {
+      assert.ok(commandsRs.includes(cmd), `commands.rs must handle ${cmd}`);
+      assert.ok(adapterTs.includes(cmd), `tauriHostAdapter.ts must invoke ${cmd}`);
     }
-    assert.ok(preloadSrc.includes("exposeInMainWorld('__TOK_BOOTSTRAP__'"));
+    assert.ok(mainRs.includes('__TOK_BOOTSTRAP__'));
   });
 
   test('8. TauriHostAdapter auto-detection preserves Electron priority and resets cleanly', () => {
@@ -487,18 +488,17 @@ describe('Phase 0 Host Bridge & Persistent Settings', () => {
     }
   });
 
-  test('12. Gate 1 startup measurement script parses --tauri, --electron, and trace/memory lines', () => {
-    const parsedMixed = parseMeasureArgs(['--runs', '5', '--electron', '.', '--tauri', 'target/release/tok-desktop.exe'], rootDir);
-    assert.equal(parsedMixed.runs, 5);
-    assert.equal(parsedMixed.targets.length, 2);
-    assert.equal(parsedMixed.targets[0].kind, 'electron');
-    assert.equal(parsedMixed.targets[1].kind, 'tauri');
-    assert.ok(parsedMixed.targets[1].targetPath.endsWith(path.join('target', 'release', 'tok-desktop.exe')));
+  test('12. Gate 1 startup measurement script parses --tauri and trace/memory lines', () => {
+    const parsedTauri = parseMeasureArgs(['--runs', '5', '--tauri', 'target/release/tok-desktop.exe'], rootDir);
+    assert.equal(parsedTauri.runs, 5);
+    assert.equal(parsedTauri.targets.length, 1);
+    assert.equal(parsedTauri.targets[0].kind, 'tauri');
+    assert.ok(parsedTauri.targets[0].targetPath.endsWith(path.join('target', 'release', 'tok-desktop.exe')));
 
-    const parsedLegacy = parseMeasureArgs(['3', '.'], rootDir);
-    assert.equal(parsedLegacy.runs, 3);
-    assert.equal(parsedLegacy.targets.length, 1);
-    assert.equal(parsedLegacy.targets[0].kind, 'electron');
+    const parsedPositional = parseMeasureArgs(['3', 'target/release/tok-desktop.exe'], rootDir);
+    assert.equal(parsedPositional.runs, 3);
+    assert.equal(parsedPositional.targets.length, 1);
+    assert.equal(parsedPositional.targets[0].kind, 'tauri');
 
     assert.deepEqual(parseTraceLine('[TOK-TRACE] main-shown 1700000000512', 1700000000000), {
       kind: 'trace',

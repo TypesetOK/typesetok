@@ -230,22 +230,24 @@ test('Offline & Browserless Updater - Full Test Suite', async (t) => {
     }
   });
 
-  await t.test('IPC Security & Interface: Preload & Main Registration', () => {
-    const mainSource = fs.readFileSync(path.join(ROOT, 'packages/tok-electron/src/main.ts'), 'utf8');
-    const preloadSource = fs.readFileSync(path.join(ROOT, 'packages/tok-electron/src/preload.ts'), 'utf8');
+  await t.test('IPC Security & Interface: Tauri Adapter & Rust Command Registration', () => {
+    const commandsSource = fs.readFileSync(path.join(ROOT, 'crates/tok-desktop/src/commands.rs'), 'utf8');
+    const adapterSource = fs.readFileSync(path.join(ROOT, 'packages/tok-ui/src/platform/tauriHostAdapter.ts'), 'utf8');
+    const updaterSource = fs.readFileSync(path.join(ROOT, 'crates/tok-desktop/src/updater.rs'), 'utf8');
 
-    const expectedChannels = [
-      'tok:download-update',
-      'tok:apply-update',
-      'tok:inspect-offline-update',
-      'tok:scan-usb-updates',
-      'tok:update-download-progress'
+    const expectedCommands = [
+      'tok_download_update',
+      'tok_apply_update',
+      'tok_inspect_offline_update',
+      'tok_scan_usb_updates',
     ];
 
-    for (const channel of expectedChannels) {
-      assert.ok(mainSource.includes(channel), `Main process missing IPC channel: ${channel}`);
-      assert.ok(preloadSource.includes(channel), `Preload script missing IPC channel: ${channel}`);
+    for (const cmd of expectedCommands) {
+      assert.ok(commandsSource.includes(cmd), `commands.rs missing Tauri command: ${cmd}`);
+      assert.ok(adapterSource.includes(cmd), `tauriHostAdapter.ts missing Tauri invoke: ${cmd}`);
     }
+    assert.ok(updaterSource.includes('tok:update-download-progress'), 'updater.rs missing progress event');
+    assert.ok(adapterSource.includes('tok:update-download-progress'), 'tauriHostAdapter.ts missing progress event');
   });
 
   await t.test('UI Components: SettingsModal Integration', () => {
