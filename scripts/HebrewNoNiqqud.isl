@@ -1,0 +1,2 @@
+[LangOptions]
+LanguageName=עברית

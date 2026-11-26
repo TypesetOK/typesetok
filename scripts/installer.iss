@@ -52,7 +52,7 @@ AppMutex=TypesetOK_Desktop_App_Mutex
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-LicenseFile=..\LICENSE.md
+LicenseFile=LICENSE.rtf
 OutputDir=..\dist
 #if OfflineWebView2 == "1"
   OutputBaseFilename=TypesetOK-v{#MyAppVersion}-Setup-Offline-x64
@@ -78,7 +78,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"
+Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl,HebrewNoNiqqud.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]

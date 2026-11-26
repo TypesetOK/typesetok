@@ -42,6 +42,107 @@ if (!fs.existsSync(sidebarBmp) || !fs.existsSync(headerBmp)) {
   }
 }
 
+// 2b. Convert LICENSE.md -> scripts/LICENSE.rtf so Inno Setup & NSIS render formatted rich text
+function markdownToRtf(mdText) {
+  const escapeRtf = (str) => {
+    let out = '';
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i);
+      if (str[i] === '\\' || str[i] === '{' || str[i] === '}') {
+        out += '\\' + str[i];
+      } else if (code > 127) {
+        const signed = code > 32767 ? code - 65536 : code;
+        out += `\\u${signed}?`;
+      } else {
+        out += str[i];
+      }
+    }
+    return out;
+  };
+
+  const formatInline = (text) => {
+    let res = '';
+    let i = 0;
+    while (i < text.length) {
+      if (text.startsWith('**', i)) {
+        const end = text.indexOf('**', i + 2);
+        if (end !== -1) {
+          res += `{\\b ${escapeRtf(text.slice(i + 2, end))}}`;
+          i = end + 2;
+          continue;
+        }
+      }
+      if (text[i] === '*' && text[i + 1] !== ' ') {
+        const end = text.indexOf('*', i + 1);
+        if (end !== -1 && text[end - 1] !== ' ') {
+          res += `{\\i ${escapeRtf(text.slice(i + 1, end))}}`;
+          i = end + 1;
+          continue;
+        }
+      }
+      if (text[i] === '`') {
+        const end = text.indexOf('`', i + 1);
+        if (end !== -1) {
+          res += `{\\f1 ${escapeRtf(text.slice(i + 1, end))}}`;
+          i = end + 1;
+          continue;
+        }
+      }
+      res += escapeRtf(text[i]);
+      i++;
+    }
+    return res;
+  };
+
+  const lines = mdText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const body = [];
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      body.push('\\par');
+      continue;
+    }
+    if (/^-{3,}$/.test(trimmed)) {
+      body.push('\\pard\\sa100\\brdrb\\brdrs\\brdrw10\\brsp20 \\par\\pard\\sa80\\sl260\\slmult1');
+      continue;
+    }
+    if (/^#\s+/.test(trimmed)) {
+      body.push(`\\pard\\sb140\\sa80{\\b\\fs28 ${formatInline(trimmed.replace(/^#\s+/, ''))}}\\par`);
+      continue;
+    }
+    if (/^###\s+/.test(trimmed)) {
+      body.push(`\\pard\\sb120\\sa60{\\b\\fs22 ${formatInline(trimmed.replace(/^###\s+/, ''))}}\\par`);
+      continue;
+    }
+    if (/^##\s+/.test(trimmed)) {
+      body.push(`\\pard\\sb120\\sa60{\\b\\fs24 ${formatInline(trimmed.replace(/^##\s+/, ''))}}\\par`);
+      continue;
+    }
+    const bulletMatch = trimmed.match(/^[-*]\s+(.*)$/);
+    if (bulletMatch) {
+      body.push(`\\pard\\li360\\sa60\\bullet\\tab ${formatInline(bulletMatch[1])}\\par`);
+      continue;
+    }
+    body.push(`\\pard\\sa80\\sl260\\slmult1 ${formatInline(trimmed)}\\par`);
+  }
+
+  return [
+    '{\\rtf1\\ansi\\deff0',
+    '{\\fonttbl{\\f0\\fswiss Segoe UI;}{\\f1\\fmodern Consolas;}}',
+    '\\fs19',
+    ...body,
+    '}'
+  ].join('\n');
+}
+
+const licenseMdPath = path.join(rootDir, 'LICENSE.md');
+const licenseRtfPath = path.join(rootDir, 'scripts', 'LICENSE.rtf');
+if (fs.existsSync(licenseMdPath)) {
+  const md = fs.readFileSync(licenseMdPath, 'utf-8');
+  fs.writeFileSync(licenseRtfPath, markdownToRtf(md), 'utf-8');
+  console.log('[BUILD-INSTALLER] Generated formatted scripts/LICENSE.rtf from LICENSE.md');
+}
+
 // 3. Find Inno Setup compiler (ISCC.exe)
 const isccCandidates = [
   'iscc',
