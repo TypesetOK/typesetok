@@ -331,12 +331,12 @@ pub fn build_citation_index<'a>(
 
     for (page_num, gematria, text) in pages {
         for cit in extract_torah_citations(text) {
-            let entry = map
-                .entry(cit.canonical_key.clone())
-                .or_insert_with(|| CitationIndexEntry {
-                    citation: cit,
-                    pages: Vec::new(),
-                });
+            let entry =
+                map.entry(cit.canonical_key.clone())
+                    .or_insert_with(|| CitationIndexEntry {
+                        citation: cit,
+                        pages: Vec::new(),
+                    });
             if !entry.pages.iter().any(|(p, _)| *p == page_num) {
                 entry.pages.push((page_num, gematria.to_string()));
             }
@@ -354,9 +354,7 @@ mod tests {
     fn test_extract_and_index_torah_citations() {
         let p1 = "כמבואר במסכת ברכות דף ב ע\"א, וכן נפסק בשו\"ע או\"ח סי' רל\"ה סעיף א'.";
         let p2 = "כתיב בראשית א, א וכדברי הרמב\"ם הל' תפילה פ\"א ה\"ב.";
-        let index = build_citation_index(
-            vec![(1, "א׳", p1), (2, "ב׳", p2)].into_iter(),
-        );
+        let index = build_citation_index(vec![(1, "א׳", p1), (2, "ב׳", p2)].into_iter());
 
         assert_eq!(index.len(), 4);
         // Canonical order: Tanakh (1_) -> Bavli (2_) -> Rambam (3_) -> Shulchan Aruch (4_)

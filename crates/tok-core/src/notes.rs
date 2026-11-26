@@ -68,11 +68,7 @@ impl InlineNote {
         }
     }
 
-    pub fn with_delimiters(
-        mut self,
-        prefix: impl Into<String>,
-        suffix: impl Into<String>,
-    ) -> Self {
+    pub fn with_delimiters(mut self, prefix: impl Into<String>, suffix: impl Into<String>) -> Self {
         self.prefix = prefix.into();
         self.suffix = suffix.into();
         self
@@ -144,7 +140,13 @@ pub fn expand_paragraph_with_inline_notes(
         text.insert_str(byte_idx, &snippet);
 
         let inserted_span = vec![TextSpan::new(0, snippet_chars, fmt)];
-        spans = insert_range(&spans, insert_char_pos, snippet_chars, &inserted_span, char_len);
+        spans = insert_range(
+            &spans,
+            insert_char_pos,
+            snippet_chars,
+            &inserted_span,
+            char_len,
+        );
         delta += snippet_chars;
     }
 
@@ -272,7 +274,8 @@ mod tests {
             },
         )];
         let note = InlineNote::new(8, "עיין תוספות ד\"ה הלכתא");
-        let (expanded, spans) = expand_paragraph_with_inline_notes(base, &base_spans, &[note], 12.0);
+        let (expanded, spans) =
+            expand_paragraph_with_inline_notes(base, &base_spans, &[note], 12.0);
         assert!(expanded.contains(" (עיין תוספות ד\"ה הלכתא)"));
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].start, 0);

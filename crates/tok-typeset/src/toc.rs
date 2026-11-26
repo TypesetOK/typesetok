@@ -230,7 +230,8 @@ impl TocLayoutEngine {
                     let page_est = page_str.chars().count() as f32 * avg_char_w;
                     let leader_w = (avail_w - title_est - page_est - 12.0).max(dot_w * 3.0);
                     let dot_count = ((leader_w / dot_w) as usize).clamp(3, 80);
-                    let dots: String = std::iter::repeat_n(config.dot_leader_char, dot_count).collect();
+                    let dots: String =
+                        std::iter::repeat_n(config.dot_leader_char, dot_count).collect();
                     let formatted = format!("{} {} {}", entry.title, dots, page_str);
 
                     cursor_y += config.line_height_pt;
@@ -359,10 +360,18 @@ mod tests {
     fn test_toc_line_by_line_dot_leaders_and_inline_run_in() {
         let mut doc = DocumentRoot::new("ספר הלכה");
         let mut sec = SectionNode::new("שער א", "default");
-        let h1 = ParagraphNode::new(FractionalIndex::initial(), "default-heading", "סימן א: דיני תפילה")
-            .with_heading_level(HierarchyLevel::Chapter);
-        let h2 = ParagraphNode::new(FractionalIndex::initial(), "default-heading", "סימן ב: דיני ברכות")
-            .with_heading_level(HierarchyLevel::Chapter);
+        let h1 = ParagraphNode::new(
+            FractionalIndex::initial(),
+            "default-heading",
+            "סימן א: דיני תפילה",
+        )
+        .with_heading_level(HierarchyLevel::Chapter);
+        let h2 = ParagraphNode::new(
+            FractionalIndex::initial(),
+            "default-heading",
+            "סימן ב: דיני ברכות",
+        )
+        .with_heading_level(HierarchyLevel::Chapter);
         let h1_id = h1.id;
         let h2_id = h2.id;
         sec.main_flow_mut().unwrap().paragraphs = vec![h1, h2];

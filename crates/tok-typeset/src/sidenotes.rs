@@ -78,12 +78,8 @@ pub fn resolve_sidenote_positions(
     placed_y
 }
 
-fn resolve_margin_is_left(
-    side: SidenoteMarginSide,
-    page_index: usize,
-    is_doc_rtl: bool,
-) -> bool {
-    let is_recto = page_index % 2 == 0; // page 1 (index 0) is Recto
+fn resolve_margin_is_left(side: SidenoteMarginSide, page_index: usize, is_doc_rtl: bool) -> bool {
+    let is_recto = page_index.is_multiple_of(2); // page 1 (index 0) is Recto
     match side {
         SidenoteMarginSide::Left => true,
         SidenoteMarginSide::Right => false,
@@ -201,8 +197,11 @@ pub fn attach_sidenotes_to_pages(
                         sn_style.color = c.clone();
                     }
 
-                    let sn_para =
-                        ParagraphNode::new(FractionalIndex::initial(), "sidenote-inline", &display_text);
+                    let sn_para = ParagraphNode::new(
+                        FractionalIndex::initial(),
+                        "sidenote-inline",
+                        &display_text,
+                    );
                     let mut lines = engine.typeset_paragraph_shaped_with_style(
                         &sn_para,
                         Some(&sn_style),
@@ -224,8 +223,8 @@ pub fn attach_sidenotes_to_pages(
                         total_h = total_h.max(l.baseline_y);
                     }
 
-                    let desired_top_y = (frame.rect.y + line.baseline_y - line.height)
-                        .max(margin_top);
+                    let desired_top_y =
+                        (frame.rect.y + line.baseline_y - line.height).max(margin_top);
                     let side = sn.side.unwrap_or(cfg.default_side);
                     let is_left_margin = resolve_margin_is_left(side, page.page_index, is_doc_rtl);
 

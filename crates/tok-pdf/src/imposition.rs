@@ -191,42 +191,43 @@ pub fn impose_layout_pages(
             None,
         );
 
-        let place_half = |sheet: &mut PageLayoutBox, page_opt: Option<usize>, is_left_half: bool| {
-            let Some(p_idx) = page_opt else {
-                return;
-            };
-            let Some(src) = pages.get(p_idx) else {
-                return;
-            };
-            let base_x = if is_left_half { 0.0 } else { pw };
-            // Creep shifts toward the center spine (x = pw):
-            // Left half shifts RIGHT (+creep), Right half shifts LEFT (-creep).
-            let creep_dx = if is_left_half {
-                side.creep_offset_pt
-            } else {
-                -side.creep_offset_pt
-            };
-            let dx = base_x + creep_dx;
+        let place_half =
+            |sheet: &mut PageLayoutBox, page_opt: Option<usize>, is_left_half: bool| {
+                let Some(p_idx) = page_opt else {
+                    return;
+                };
+                let Some(src) = pages.get(p_idx) else {
+                    return;
+                };
+                let base_x = if is_left_half { 0.0 } else { pw };
+                // Creep shifts toward the center spine (x = pw):
+                // Left half shifts RIGHT (+creep), Right half shifts LEFT (-creep).
+                let creep_dx = if is_left_half {
+                    side.creep_offset_pt
+                } else {
+                    -side.creep_offset_pt
+                };
+                let dx = base_x + creep_dx;
 
-            for frame in &src.frames {
-                let mut f = frame.clone();
-                f.rect.x += dx;
-                sheet.frames.push(f);
-            }
-            for &(x1, y1, x2, y2) in &src.column_rules {
-                sheet.column_rules.push((x1 + dx, y1, x2 + dx, y2));
-            }
-            for img in &src.images {
-                let mut im = img.clone();
-                im.rect.x += dx;
-                sheet.images.push(im);
-            }
-            for orn in &src.ornaments {
-                let mut o = orn.clone();
-                o.rect.x += dx;
-                sheet.ornaments.push(o);
-            }
-        };
+                for frame in &src.frames {
+                    let mut f = frame.clone();
+                    f.rect.x += dx;
+                    sheet.frames.push(f);
+                }
+                for &(x1, y1, x2, y2) in &src.column_rules {
+                    sheet.column_rules.push((x1 + dx, y1, x2 + dx, y2));
+                }
+                for img in &src.images {
+                    let mut im = img.clone();
+                    im.rect.x += dx;
+                    sheet.images.push(im);
+                }
+                for orn in &src.ornaments {
+                    let mut o = orn.clone();
+                    o.rect.x += dx;
+                    sheet.ornaments.push(o);
+                }
+            };
 
         place_half(&mut sheet, side.left_page_index, true);
         place_half(&mut sheet, side.right_page_index, false);
@@ -268,22 +269,46 @@ mod tests {
 
     #[test]
     fn test_impose_layout_pages_applies_spine_creep_shift() {
-        let mut p1 = PageLayoutBox::new(0, "א".to_string(), PhysicalRect::new(0.0, 0.0, 400.0, 600.0), vec![], None);
+        let mut p1 = PageLayoutBox::new(
+            0,
+            "א".to_string(),
+            PhysicalRect::new(0.0, 0.0, 400.0, 600.0),
+            vec![],
+            None,
+        );
         p1.frames.push(tok_typeset::TextFrameBox {
             frame_id: "f1".into(),
             flow_id: "main".into(),
             rect: PhysicalRect::new(50.0, 50.0, 300.0, 500.0),
             lines: vec![],
         });
-        let p2 = PageLayoutBox::new(1, "ב".to_string(), PhysicalRect::new(0.0, 0.0, 400.0, 600.0), vec![], None);
-        let mut p3 = PageLayoutBox::new(2, "ג".to_string(), PhysicalRect::new(0.0, 0.0, 400.0, 600.0), vec![], None);
+        let p2 = PageLayoutBox::new(
+            1,
+            "ב".to_string(),
+            PhysicalRect::new(0.0, 0.0, 400.0, 600.0),
+            vec![],
+            None,
+        );
+        let mut p3 = PageLayoutBox::new(
+            2,
+            "ג".to_string(),
+            PhysicalRect::new(0.0, 0.0, 400.0, 600.0),
+            vec![],
+            None,
+        );
         p3.frames.push(tok_typeset::TextFrameBox {
             frame_id: "f3".into(),
             flow_id: "main".into(),
             rect: PhysicalRect::new(50.0, 50.0, 300.0, 500.0),
             lines: vec![],
         });
-        let p4 = PageLayoutBox::new(3, "ד".to_string(), PhysicalRect::new(0.0, 0.0, 400.0, 600.0), vec![], None);
+        let p4 = PageLayoutBox::new(
+            3,
+            "ד".to_string(),
+            PhysicalRect::new(0.0, 0.0, 400.0, 600.0),
+            vec![],
+            None,
+        );
 
         let cfg = ImpositionConfig {
             enabled: true,

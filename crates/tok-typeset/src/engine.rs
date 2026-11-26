@@ -1621,9 +1621,7 @@ impl TypesettingEngine {
                             p_eff.spans = doc.effective_spans_for_paragraph(p, Some(flow_id));
                         }
                         if !p_eff.inline_notes.is_empty() {
-                            let base_sz = p
-                                .effective_style(&doc.paragraph_styles)
-                                .font_size_pt;
+                            let base_sz = p.effective_style(&doc.paragraph_styles).font_size_pt;
                             let (expanded_text, expanded_spans) =
                                 tok_core::expand_paragraph_with_inline_notes(
                                     &p_eff.text,
