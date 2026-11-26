@@ -59,6 +59,8 @@ pub struct PdfExportOptions {
     pub image_assets: BTreeMap<String, Vec<u8>>,
     /// Custom ornament SVG documents keyed by asset path (e.g. `ornaments/sep.svg` -> SVG XML).
     pub ornament_assets: BTreeMap<String, String>,
+    /// Optional 2-up booklet / signature imposition with creep compensation.
+    pub imposition: Option<crate::imposition::ImpositionConfig>,
 }
 
 impl Default for PdfExportOptions {
@@ -79,6 +81,7 @@ impl Default for PdfExportOptions {
             compress_streams: true,
             image_assets: BTreeMap::new(),
             ornament_assets: BTreeMap::new(),
+            imposition: None,
         }
     }
 }
@@ -461,7 +464,8 @@ impl PdfPrePressEngine {
         fonts: &FontManager,
     ) -> Result<Vec<u8>, PdfError> {
         let dummy_page;
-        let iter_pages: &[PageLayoutBox] = if pages.is_empty() {
+        let imposed_pages_owned;
+        let raw_pages: &[PageLayoutBox] = if pages.is_empty() {
             dummy_page = [PageLayoutBox {
                 page_index: 0,
                 page_number_gematria: String::new(),
@@ -474,6 +478,14 @@ impl PdfPrePressEngine {
             &dummy_page
         } else {
             pages
+        };
+        let iter_pages: &[PageLayoutBox] = match &options.imposition {
+            Some(imp) if imp.enabled => {
+                let (_plan, imposed) = crate::imposition::impose_layout_pages(raw_pages, imp);
+                imposed_pages_owned = imposed;
+                &imposed_pages_owned
+            }
+            _ => raw_pages,
         };
 
         let legacy_data: &[u8] = options

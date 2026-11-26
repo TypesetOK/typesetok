@@ -30,6 +30,8 @@ pub struct PdfRenderRequest {
     pub draw_registration_marks: bool,
     /// Pages to export, 1-based and inclusive. `None` exports every page.
     pub page_range: Option<(usize, usize)>,
+    /// Optional 2-up booklet / signature imposition with creep compensation.
+    pub imposition: Option<tok_pdf::imposition::ImpositionConfig>,
 }
 
 impl Default for PdfRenderRequest {
@@ -41,6 +43,7 @@ impl Default for PdfRenderRequest {
             draw_crop_marks: true,
             draw_registration_marks: false,
             page_range: None,
+            imposition: None,
         }
     }
 }
@@ -182,6 +185,7 @@ pub fn render_pdf_bytes(
         compress_streams: true,
         image_assets,
         ornament_assets,
+        imposition: req.imposition.clone(),
     };
 
     Ok(PdfPrePressEngine::export_pdf_with_fonts(
