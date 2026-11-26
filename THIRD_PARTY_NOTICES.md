@@ -73,17 +73,14 @@ All direct workspace dependencies and their core transitive libraries used acros
 
 ## 3. Third-Party Node.js / TypeScript Dependencies (`package.json` / `package-lock.json`)
 
-All direct and transitive npm packages in the workspace are development/build tools (`typescript`, `esbuild`, `rcedit`) or the desktop runtime shell (`electron`):
+All direct and transitive npm packages in the workspace are development/build tools (`typescript`, `esbuild`, `@tauri-apps/api`):
 
 | Package | Version | License | Role in TypesetOK |
 | :--- | :--- | :--- | :--- |
-| **`electron`** | `29.4.6` | `MIT` (Electron) / `BSD-3-Clause` (Chromium) | Cross-platform desktop shell hosting the hardened UI renderer and IPC preload bridge |
-| **`@electron/get`** | `2.0.3` | `MIT` | Electron binary downloader utility |
-| **`typescript`** | `5.9.3` | `Apache-2.0` | TypeScript compiler and typechecker (`tsc`) for all 5 packages in `packages/` |
-| **`esbuild`** | `0.27.4` | `MIT` | Fast TypeScript/JavaScript bundler for `packages/tok-ui/dist/app.js` |
-| **`@types/node`** | `20.19.37` | `MIT` | TypeScript type definitions for Node.js APIs |
-| **`rcedit`** | `3.1.0` | `MIT` | Windows executable resource editor for build/packaging tooling |
-| **Transitive npm utilities** (`fs-extra`, `semver`, `minimatch`, `progress`, `sumchecker`, `global-agent`, `roarr`, `got`, `extract-zip`, `yauzl`, `fd-slicer`, `pend`) | Various | `MIT`, `ISC`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0` | Build-time and Electron packaging helper libraries |
+| **`@tauri-apps/api`** | `2.12.x` | `MIT OR Apache-2.0` | TypeScript IPC client definitions for Tauri v2 |
+| **`typescript`** | `5.4.x` | `Apache-2.0` | TypeScript compiler and typechecker (`tsc`) for all 4 packages in `packages/` |
+| **`esbuild`** | `0.28.x` | `MIT` | Fast TypeScript/JavaScript bundler for `packages/tok-ui/dist/renderer.js` |
+| **Transitive npm utilities** | Various | `MIT`, `ISC`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0` | Build-time helper libraries |
 
 > **Note on Zero External UI Runtime Frameworks:** The renderer bundle (`packages/tok-ui/dist/app.js`) is compiled purely from the workspace's own TypeScript packages (`tok-ui`, `tok-viewer`, `tok-canvas`, `tok-story-editor`) with **zero** third-party runtime JavaScript dependencies bundled into the renderer process. In particular, `@vivliostyle/core` and `Paged.js` are **not** used or included anywhere in the codebase.
 
@@ -113,7 +110,7 @@ All fonts distributed with TypesetOK in `assets/fonts/` (TrueType `.ttf` for the
 
 ## 5. Common Permissive License Texts Summary
 
-### MIT License (Applicable to `ulid`, `ropey`, `rustybuzz`, `rusqlite`, `zip`, `electron`, `esbuild`, etc.)
+### MIT License (Applicable to `ulid`, `ropey`, `rustybuzz`, `rusqlite`, `zip`, `esbuild`, etc.)
 
 ```text
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -139,6 +136,6 @@ SOFTWARE.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use these components except in compliance with the License. You may obtain a copy of the License at `http://www.apache.org/licenses/LICENSE-2.0`. Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-### BSD 3-Clause License (Applicable to `zstd` C library and Chromium components in `electron`)
+### BSD 3-Clause License (Applicable to `zstd` C library)
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the copyright notice, list of conditions, and disclaimer are retained in redistributions of source code and binary documentation, and that the names of the copyright holders are not used to endorse or promote products derived from the software without specific prior written permission.

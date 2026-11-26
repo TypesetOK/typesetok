@@ -38,8 +38,8 @@ The project is organized as a Monorepo that strictly separates the Rust typesett
 ```text
 [UI / Story Editor / SpreadCanvas (TypeScript)]
        │
-       ▼  (Tauri v2 IPC Commands  —  or tok-cli Bridge in Electron)
-[tok-desktop (Tauri v2) / tok-cli (Rust Binary Bridge)]
+       ▼  (Tauri v2 IPC Commands)
+[tok-desktop (Tauri v2)]
        │
        ├──► [tok-engine-service]  Unified Typesetting, Pre-Press, Storage & Plugin Orchestration
        ├──► [tok-core]            Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
@@ -72,16 +72,15 @@ The project is organized as a Monorepo that strictly separates the Rust typesett
 | **`tok-plugin-host`** | Deterministic extension & plugin engine: executes core plugins based on atomic transactions under capability checks (`PluginCapability`) and panic isolation (`catch_unwind`), including built-in plugins `tok.builtin.divine-shield` and `tok.builtin.hebrew-grep-acronym`. |
 | **`tok-engine-service`** | Unified Rust service layer orchestrating document loading, typesetting, PDF/HTML export, preflight evaluation, package persistence, and built-in plugins for both `tok-desktop` and `tok-cli`. |
 | **`tok-ipc`** | Binary framing & worker protocol library (`TOKB` Binary Framing / JSON `WorkerRequest`) for inter-process command and response messages. |
-| **`tok-cli`** | Main system CLI binary, serving for headless batch processing, CI, persistent `worker` mode, and as the typesetting/storage bridge for the Electron shell. |
+| **`tok-cli`** | Main system CLI binary, serving for headless batch processing, CI, and persistent `worker` mode. |
 | **`tok-desktop`** | Native **Tauri v2** desktop shell (`src-tauri` equivalent): manages native windows, Tauri IPC commands, Windows system fonts, `.tok` file associations, plugin loading, and Ed25519-verified updates, calling `tok-engine-service` directly in-process. |
 
 ---
 
-### 5 TypeScript UI & Desktop Packages (`packages/`)
+### 4 TypeScript UI Packages (`packages/`)
 
 | Package | Primary Role & Responsibilities |
 | :--- | :--- |
-| **`tok-electron`** | Optional Electron Main process and hardened `preload` bridge (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), strict IPC schema validation, external navigation blocking, and `tok-cli` subprocess management. |
 | **`tok-ui`** | Full desktop workspace: `SpreadCanvas` component for deterministic `PageLayoutBox` DOM projection, live style and typography sync pipeline across the inspector panel, toolbar, and canvas, direct dragging and locking of text frames on the canvas, adding custom streams (including edge-split unconnected blocks flowing by height), template-aware style filtering, guided template selection screen on document creation with continuous-book recommendation, update & changelog ("What's New") system, hardened `PluginEngine`, and live `Preflight` checks. |
 | **`tok-viewer`** | Viewport page virtualization manager (`PageDomVirtualizer`): keeps an active window of only 3 pages in the DOM (`[K-1, K, K+1]`) and represents the rest of the book as lightweight Spacer elements. |
 | **`tok-canvas`** | Transparent graphic overlay (`CanvasInteractionOverlay`): bidirectional caret rendering (`Dual Caret` / `RTL Caret`), optimistic instant caret movement (`<16ms`), non-contiguous visual selection in mixed text, and spatial hit-testing. |
@@ -105,28 +104,18 @@ npm install
 
 # 2. Build all Rust crates in the workspace (including tok-desktop and tok-cli)
 cargo build --workspace
-cargo build --bin tok-cli
 
-# 3. Type-check, compile, and bundle the UI and Electron packages
+# 3. Type-check, compile, and bundle the UI packages
 npm run lint
 npm run build
 
-# 4. Launch the TypesetOK desktop application (Tauri v2 by default; use start:electron for Electron)
+# 4. Launch the TypesetOK desktop application (Tauri v2)
 npm start
-# or for Electron:
-npm run start:electron
 
 # 5. (Optional) Package the desktop bundle and build an installer
 npm run package:desktop
 npm run package:installer
 ```
-
-> **Note on Locating `tok-cli.exe` (Electron shell only):** `tok-desktop` (Tauri v2) embeds the Rust engine in-process. When running the Electron shell (`packages/tok-electron/src/main.ts`), it searches for `tok-cli.exe` in the following order:
-> 1. The `TOK_CLI_PATH` environment variable (if set).
-> 2. `CARGO_TARGET_DIR` (`release` then `debug`), if set.
-> 3. The target directory configured in `.cargo/config.toml` (`%LOCALAPPDATA%\tok_target\release\tok-cli.exe` or `debug\tok-cli.exe`).
-> 4. `target/release/tok-cli.exe` or `target/debug/tok-cli.exe` at the repository root.
-> Therefore, run `cargo build --bin tok-cli` before running `npm run start:electron`.
 
 ---
 
@@ -162,7 +151,7 @@ The project includes a multi-layered test suite verifying the Rust core, the Typ
 # 1. Run all unit and integration tests for the Rust core (all workspace crates)
 cargo test --workspace
 
-# 2. Run strict TypeScript compilation and type checking across all 5 packages
+# 2. Run strict TypeScript compilation and type checking across all 4 packages
 npm run lint
 
 # 3. Run the frontend, gematria, virtualization, Canvas, Story Editor, updater, and security test suite
@@ -179,9 +168,8 @@ cargo run -p tok-cli -- verify-determinism
 In accordance with the project's engineering discipline (zero false claims and zero mock implementations), the following are the known limitations in the current release:
 
 1. **TIFF Image Support:** The layout engine (`tok-typeset`) and PDF generator (`tok-pdf`) support text frames, vector ornaments, divider rules, and inline PNG/JPEG bitmap images (`image_xobject`), but do not yet decode or place TIFF images.
-2. **Inter-Process Communication (`tok-ipc` vs. `tok-cli`):** `tok-desktop` (Tauri v2) invokes `tok-engine-service` directly in-process. The optional Electron shell (`tok-electron`) communicates with the Rust core via controlled invocations of the `tok-cli` subprocess, while `crates/tok-ipc` provides the framing/worker protocol types.
+2. **In-Process Engine (`tok-engine-service`):** `tok-desktop` (Tauri v2) invokes `tok-engine-service` directly in-process, while `crates/tok-ipc` provides the framing/worker protocol types for `tok-cli`.
 3. **PDF/X-4 Export & External ICC Profile Management:** The PDF generator produces `PDF/X-1a:2001` and `PDF/X-4` files with real `DeviceCMYK` and `Separation` (Spot Colors) operators and a built-in `OutputIntent` dictionary (ISO Coated v2 / Fogra39), without dynamically linking an external C library such as `LittleCMS`.
-4. **Repository Electron Version (`electron@29.4.6`):** The optional Electron shell is fully hardened (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, strict CSP, and navigation blocking), though upgrading to a newer major Electron version (v32+) requires downloading the Electron binary in an online environment.
 
 ---
 
@@ -226,8 +214,8 @@ For contribution guidelines and community standards, see [`CONTRIBUTING.md`](./C
 ```text
 [UI / Story Editor / SpreadCanvas (TypeScript)]
        │
-       ▼  (פקודות IPC של Tauri v2  —  או גשר tok-cli ב-Electron)
-[tok-desktop (Tauri v2) / tok-cli (Rust Binary Bridge)]
+       ▼  (פקודות IPC של Tauri v2)
+[tok-desktop (Tauri v2)]
        │
        ├──► [tok-engine-service]  שכבת תיאום מאוחדת לעימוד, קדם-דפוס, אחסון ותוספים
        ├──► [tok-core]            Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
@@ -260,16 +248,15 @@ For contribution guidelines and community standards, see [`CONTRIBUTING.md`](./C
 | **`tok-plugin-host`** | מנוע הרחבות ותוספים דטרמיניסטי: הרצת תוספי ליבה מבוססי טרנזקציות אטומיות עם בדיקות הרשאות (`PluginCapability`) ובידוד קריסות (`catch_unwind`), כולל התוספים המובנים `tok.builtin.divine-shield` ו-`tok.builtin.hebrew-grep-acronym`. |
 | **`tok-engine-service`** | שכבת שירות מאוחדת ב-Rust המרכזת טעינת מסמכים, עימוד, ייצוא PDF/HTML, בדיקות `Preflight`, שמירת חבילות והרצת תוספים עבור `tok-desktop` ו-`tok-cli`. |
 | **`tok-ipc`** | ספריית פרוטוקול תקשורת (`TOKB` Binary Framing ו-`WorkerRequest` ב-JSON) להודעות פקודה ותגובה בין תהליכים. |
-| **`tok-cli`** | בינארי ה-CLI הראשי של המערכת, המשמש להרצה באצווה (Headless Batch Processing & CI), למצב `worker` מתמיד, וכגשר העימוד והאחסון של מעטפת ה-Electron. |
+| **`tok-cli`** | בינארי ה-CLI הראשי של המערכת, המשמש להרצה באצווה (Headless Batch Processing & CI) ולמצב `worker` מתמיד. |
 | **`tok-desktop`** | מעטפת שולחן העבודה הראשית ב-**Tauri v2**: מנהלת חלונות מקומיים, פקודות IPC של Tauri, גופני מערכת ב-Windows, שיוך קובצי `.tok`, טעינת תוספים ועדכונים מאומתי Ed25519, וקוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך. |
 
 ---
 
-### 5 חבילות הממשק ושולחן העבודה ב-TypeScript (`packages/`)
+### 4 חבילות הממשק ב-TypeScript (`packages/`)
 
 | חבילה (Package) | תפקיד ואחריות מרכזית |
 | :--- | :--- |
-| **`tok-electron`** | מעטפת Electron אופציונלית וגשר `preload` מוקשח (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), אימות סכמת IPC קפדני, חסימת ניווט חיצוני, וניהול קריאות תהליכי משנה אל `tok-cli`. |
 | **`tok-ui`** | סביבת העבודה השולחנית המלאה: רכיב `SpreadCanvas` להקרנת `PageLayoutBox` להיטל DOM דטרמיניסטי, צינור סנכרון סגנונות וטיפוגרפיה חי בין סרגל המאפיינים, סרגל הכלים והקנבס, גרירה ישירה ונעילת תיבות טקסט על גבי הקנבס, הוספת תזרימים מותאמים אישית (כולל פריסת בלוקים מפוצלים בקצוות ללא חיבור ביניהם הזורמים לפי גובה), סינון סגנונות מותאם לתבנית הפעילה, מסך בחירת תבנית מודרך בפתיחת מסמך עם המלצה על ספר רציף, מערכת עדכונים ויומן שינויים ("מה חדש"), מנוע תוספים מוקשח (`PluginEngine`), ובדיקות קדם-דפוס חיות (`Preflight`). |
 | **`tok-viewer`** | מנהל הווירטואליזציה של עמודי התצוגה (`PageDomVirtualizer`): שומר ב-DOM חלון פעיל של 3 עמודים בלבד (`[K-1, K, K+1]`) ומייצג את שאר עמודי הספר כאלמנטי Spacer קלי-משקל. |
 | **`tok-canvas`** | שכבת הכיסוי הגרפית השקופה (`CanvasInteractionOverlay`): ציור סמן דו-כיווני (`Dual Caret` / `RTL Caret`), תנועת סמן אופטימית מיידית (`<16ms`), בחירה ויזואלית לא-רציפה בטקסט מעורב, ובדיקת פגיעה מרחבית (`Hit-Testing`). |
@@ -293,28 +280,18 @@ npm install
 
 # 2. בניית כל חבילות ה-Rust במאגר (כולל tok-desktop ו-tok-cli)
 cargo build --workspace
-cargo build --bin tok-cli
 
-# 3. בדיקת תקינות הטיפוסים, הידור ואריזת ממשק המשתמש ו-Electron
+# 3. בדיקת תקינות הטיפוסים, הידור ואריזת ממשק המשתמש
 npm run lint
 npm run build
 
-# 4. הפעלת תוכנת השולחן TypesetOK (ברירת מחדל: Tauri v2; להרצת Electron השתמשו ב-start:electron)
+# 4. הפעלת תוכנת השולחן TypesetOK (Tauri v2)
 npm start
-# או להרצה ב-Electron:
-npm run start:electron
 
 # 5. (אופציונלי) אריזת גרסה שולחנית ובניית קובץ התקנה (Installer)
 npm run package:desktop
 npm run package:installer
 ```
-
-> **הערה לגבי איתור `tok-cli.exe` (מעטפת Electron בלבד):** מעטפת ה-Tauri v2 (`tok-desktop`) מריצה את מנוע ה-Rust ישירות בתוך התהליך. בעת הרצת מעטפת ה-Electron (`packages/tok-electron/src/main.ts`), היא מחפשת את `tok-cli.exe` לפי הסדר הבא:
-> 1. משתנה הסביבה `TOK_CLI_PATH` (אם הוגדר).
-> 2. `CARGO_TARGET_DIR` (`release` ואז `debug`), אם הוגדר.
-> 3. תיקיית היעד המוגדרת ב-`.cargo/config.toml` (`%LOCALAPPDATA%\tok_target\release\tok-cli.exe` או `debug\tok-cli.exe`).
-> 4. תיקיית `target/release/tok-cli.exe` או `target/debug/tok-cli.exe` בשורש המאגר.
-> לכן יש להריץ `cargo build --bin tok-cli` לפני הפעלת `npm run start:electron`.
 
 ---
 
@@ -350,7 +327,7 @@ npm run package:installer
 # 1. הרצת כל בדיקות היחידה והאינטגרציה של ליבת ה-Rust
 cargo test --workspace
 
-# 2. בדיקת קומפילציה וטיפוסים קפדנית בכל 5 חבילות ה-TypeScript
+# 2. בדיקת קומפילציה וטיפוסים קפדנית בכל 4 חבילות ה-TypeScript
 npm run lint
 
 # 3. הרצת חבילת הבדיקות של ה-Frontend, הגימטריה, הווירטואליזציה, ה-Canvas, ה-Story Editor, מערכת העדכונים והאבטחה
@@ -367,9 +344,8 @@ cargo run -p tok-cli -- verify-determinism
 בהתאם למשמעת ההנדסית של הפרויקט (אפס טענות שווא ואפס מצגי דמה), להלן המגבלות הידועות בגרסה הנוכחית:
 
 1. **תמיכה בתמונות TIFF:** מנוע הפריסה (`tok-typeset`) ומחולל ה-PDF (`tok-pdf`) תומכים במסגרות טקסט, עיטורים וקטוריים, קווי הפרדה ושיבוץ תמונות רסטר בפורמטי PNG ו-JPEG (`image_xobject`), אך טרם תומכים בפענוח והטמעה של תמונות TIFF.
-2. **תקשורת תהליכים (`tok-ipc` לעומת `tok-cli`):** מעטפת ה-Tauri v2 (`tok-desktop`) קוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך. מעטפת ה-Electron האופציונלית (`tok-electron`) מתקשרת עם ליבת ה-Rust באמצעות הפעלה מבוקרת של תהליך המשנה `tok-cli`, בעוד `crates/tok-ipc` מספקת את טיפוסי המסגור ופרוטוקול ה-Worker.
+2. **מנוע בתהליך יחיד (`tok-engine-service`):** מעטפת ה-Tauri v2 (`tok-desktop`) קוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך, בעוד `crates/tok-ipc` מספקת את טיפוסי המסגור ופרוטוקול ה-Worker עבור `tok-cli`.
 3. **ייצוא PDF/X-4 וניהול פרופילי ICC חיצוניים:** מחולל ה-PDF מפיק קובצי `PDF/X-1a:2001` ו-`PDF/X-4` עם פקודות צבע `DeviceCMYK` וצבעי `Separation` (Spot Colors) אמיתיים ומילון `OutputIntent` מובנה (ISO Coated v2 / Fogra39), ללא קישור דינמי לספריית C חיצונית דוגמת `LittleCMS`.
-4. **גרסת Electron במאגר (`electron@29.4.6`):** מעטפת ה-Electron האופציונלית מוקשחת במלואה (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, CSP קפדני וחסימת ניווט), אך שדרוג לגרסת Electron ראשית חדשה יותר (v32+) דורש הורדת בינארי Electron בסביבה מקוונת.
 
 ---
 

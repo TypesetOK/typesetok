@@ -19,7 +19,7 @@ TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית 
    - `packages/tok-viewer`: וירטואליזציית עמודים (`PageDomVirtualizer`).
    - `packages/tok-canvas`: שכבת כיסוי גרפית (`CanvasInteractionOverlay`).
 3. **ערוצי התקשורת (IPC & Data Flow):**
-   - מעבר נתונים חד-כיווני ודטרמיניסטי: UI Event -> State Update -> Tauri v2 IPC (`tok-desktop` -> `tok-engine-service`) או `tok-cli` (ב-Electron) -> `PageLayoutBox` (pt) -> Render to Screen / Output PDF.
+   - מעבר נתונים חד-כיווני ודטרמיניסטי: UI Event -> State Update -> Tauri v2 IPC (`tok-desktop` -> `tok-engine-service`) -> `PageLayoutBox` (pt) -> Render to Screen / Output PDF.
 
 ---
 
@@ -69,9 +69,9 @@ TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית 
 
 ## Interface Contracts
 
-### 1. `tok-cli` ↔ `tok-electron`
-- **Invocation**: `child_process.spawn(cliPath, args, { windowsHide: true })`
-- **Commands**:
+### 1. `tok-desktop` ↔ `tok-engine-service` & `tok-cli`
+- **In-Process (`tok-desktop`)**: Tauri v2 commands call `tok-engine-service` directly in-process via `WorkspaceSession`.
+- **CLI / CI (`tok-cli`)**: Standalone Rust binary for headless batch processing, E2E testing, and determinism checks:
   - `typeset-document <input.json> <output.json>`:
     - Input: JSON serialization of `DocumentRoot`
     - Output: JSON serialization of `Vec<PageLayoutBox>` (pt coordinates, lines, styles)
@@ -85,7 +85,7 @@ TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית 
   - `open-package <input.tok> <output.json>`:
     - Input: `.tok` package
     - Output: JSON `DocumentRoot`
-- **Error Handling**: Non-zero exit code triggers an explicit UI error notification; fallback layout displays an explicit warning banner: `⚠️ תצוגה משוערת בלבד — מנוע העימוד Rust אינו זמין`.
+- **Error Handling**: Non-zero exit code / failed IPC call triggers an explicit UI error notification; fallback layout displays an explicit warning banner: `⚠️ תצוגה משוערת בלבד — מנוע העימוד Rust אינו זמין`.
 
 ### 2. `tok-ui` ↔ `tok-story-editor`
 - **Method**: `storyEditor.flush()` / `storyEditor.getStory(true)`

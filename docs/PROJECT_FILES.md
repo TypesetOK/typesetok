@@ -200,10 +200,9 @@
 | `packages/tok-ui/src/updates/*.ts` | מערכת "מה חדש": `changelogData.ts`, `updatesManager.ts`, `ChangelogEntryCard.ts`, `UpdatesBellButton.ts`, `updatePills.ts`, `types.ts` |
 | `packages/tok-ui/src/services/recentProjectsStore.ts` ו-`utils/frameAlignment.ts` | ניהול פרויקטים אחרונים ויישור מסגרות |
 
-### `packages/tok-electron/`, `tok-story-editor/`, `tok-viewer/`, `tok-canvas/`
+### `packages/tok-story-editor/`, `tok-viewer/`, `tok-canvas/`
 | קובץ | תפקיד |
 | :--- | :--- |
-| `packages/tok-electron/src/*.ts` | מעטפת Electron האופציונלית: `main.ts`, `preload.ts`, `menu.ts`, `plugin-manager.ts`, `updater.ts`, `logger.ts`, `install-language.ts`, `filter-ssl.ts` |
 | `packages/tok-story-editor/src/*.ts` | עורך הסיפור הרציף: `story_editor.ts`, `dom_converter.ts`, `find_replace.ts`, `history.ts`, `types.ts`, `index.ts` |
 | `packages/tok-viewer/src/*.ts` | מנהל וירטואליזציית עמודים (`[K-1, K, K+1]`): `virtualizer.ts`, `index.ts` |
 | `packages/tok-canvas/src/*.ts` | שכבת כיסוי גרפית וסמן אינטראקטיבי: `overlay.ts`, `index.ts` |

@@ -13,7 +13,7 @@
 | 3 | Multi-stream Talmud layout (Gemara/Rashi/Tosafot) | ORIGINAL_REQUEST §R2 | 5 | 5 | ✓ | ✓ |
 | 4 | ISO PDF/X-1a export & PageBoxes | ORIGINAL_REQUEST §R2, §R4 | 5 | 5 | ✓ | ✓ |
 | 5 | Atomic .tok package save/open & Zip defense | ORIGINAL_REQUEST §R2, §R3 | 5 | 5 | ✓ | ✓ |
-| 6 | Desktop Shell (Tauri v2 / Electron) & Story Editor synchronization | ORIGINAL_REQUEST §R2, §R3 | 5 | 5 | ✓ | ✓ |
+| 6 | Desktop Shell (Tauri v2) & Story Editor synchronization | ORIGINAL_REQUEST §R2, §R3 | 5 | 5 | ✓ | ✓ |
 
 ## Test Architecture
 - Test runner: `cmd /c node test/run_e2e_suite.mjs`
