@@ -4,7 +4,8 @@
 //! 1. Tier 1: Inter-word spacing adjustment within [80%, 130%] of base space.
 //! 2. Tier 2: Ahalterm (אהלתר"ם) letter stretching:
 //!    - Applicable to: Alef (א), He (ה), Lamed (ל), Tav (ת), Resh (ר), Final Mem (ם), Dalet (ד), Final Kaf (ך).
-//!    - Distributes excess line width without vertical stroke weight (Stem Weight) distortion.
+//!    - Widens Ahalterm glyphs horizontally (capped at MAX_AHALTERM_GLYPH_STRETCH = 15%
+//!      to limit vertical stem weight distortion; any excess advance stays as spacing).
 //! 3. Tier 3: Micro-tracking fallback (±2% of em) when letter stretch is not applicable.
 //!
 //! Only glyphs with a positive advance take part in Tier 2 and Tier 3: with
