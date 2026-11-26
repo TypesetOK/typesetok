@@ -19,9 +19,9 @@
         "img-src": "'self' data: blob: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
         "font-src": "'self' data: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
         "connect-src": "'self' ipc: http://ipc.localhost https://ipc.localhost",
-        "object-src": "blob:",
+        "object-src": "blob: tok-asset: http://tok-asset.localhost https://tok-asset.localhost",
         "base-uri": "'none'",
-        "frame-src": "blob:"
+        "frame-src": "blob: tok-asset: http://tok-asset.localhost https://tok-asset.localhost"
       }
     }
   },

@@ -1,12 +1,19 @@
 import { t, i18n } from '../i18n';
 import { el, iconButton, button, kbd } from '../ui';
 import { ModalController } from './ModalController';
+import { getHostBridge } from '../platform/hostBridge.js';
 
 export interface PdfPreviewModalCallbacks {
   /** Back to the export settings (also what Esc / the close button do). */
   onBack: () => void;
   /** Export the file with the settings that were previewed. */
   onExport: () => void;
+}
+
+function tauriPreviewAssetUrl(): string {
+  const isWin = typeof navigator !== 'undefined' && /win/i.test(navigator.platform || navigator.userAgent || '');
+  const base = isWin ? 'http://tok-asset.localhost/preview/latest.pdf' : 'tok-asset://localhost/preview/latest.pdf';
+  return `${base}?t=${Date.now()}`;
 }
 
 function base64ToBlobUrl(base64: string): string {
@@ -16,7 +23,7 @@ function base64ToBlobUrl(base64: string): string {
   return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
 }
 
-type PreviewState = { kind: 'loading' } | { kind: 'ready'; url: string } | { kind: 'error'; message: string };
+type PreviewState = { kind: 'loading' } | { kind: 'ready'; url: string; revokeOnClose: boolean } | { kind: 'error'; message: string };
 
 /**
  * Shows the real PDF the engine would export (same bytes as the exported file),
@@ -54,7 +61,10 @@ export class PdfPreviewModal {
     if (!this.isVisible) return;
     this.releaseUrl();
     try {
-      this.state = { kind: 'ready', url: base64ToBlobUrl(base64) };
+      const isTauri = getHostBridge().kind === 'tauri';
+      this.state = isTauri
+        ? { kind: 'ready', url: tauriPreviewAssetUrl(), revokeOnClose: false }
+        : { kind: 'ready', url: base64ToBlobUrl(base64), revokeOnClose: true };
     } catch (err: any) {
       this.state = { kind: 'error', message: err?.message ?? String(err) };
     }
@@ -88,7 +98,7 @@ export class PdfPreviewModal {
   }
 
   private releaseUrl(): void {
-    if (this.state.kind === 'ready') URL.revokeObjectURL(this.state.url);
+    if (this.state.kind === 'ready' && this.state.revokeOnClose) URL.revokeObjectURL(this.state.url);
     this.state = { kind: 'loading' };
   }
 

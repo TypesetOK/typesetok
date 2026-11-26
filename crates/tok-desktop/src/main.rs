@@ -169,6 +169,7 @@ fn main() {
                 fonts_dir: user_data_dir.join("fonts"),
                 draft_recovery_path: user_data_dir.join("draft_recovery.json"),
                 trace_mode: trace_mode.clone(),
+                latest_pdf_preview: Mutex::new(None),
             };
             app.manage(state);
             trace_milestone(trace_enabled, "session-ready", None);

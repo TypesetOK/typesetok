@@ -142,6 +142,28 @@ pub fn handle_tok_asset_protocol<R: tauri::Runtime>(
             responder.respond(empty_response(StatusCode::SERVICE_UNAVAILABLE));
             return;
         };
+        if uri_path == "/preview/latest.pdf" {
+            let bytes_opt = state
+                .latest_pdf_preview
+                .lock()
+                .ok()
+                .and_then(|guard| guard.clone());
+            match bytes_opt {
+                Some(bytes) => {
+                    let resp = Response::builder()
+                        .status(StatusCode::OK)
+                        .header(CONTENT_TYPE, "application/pdf")
+                        .header("Content-Disposition", "inline; filename=\"preview.pdf\"")
+                        .header("Cache-Control", "no-store")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(bytes)
+                        .unwrap_or_else(|_| empty_response(StatusCode::INTERNAL_SERVER_ERROR));
+                    responder.respond(resp);
+                }
+                None => responder.respond(empty_response(StatusCode::NOT_FOUND)),
+            }
+            return;
+        }
         let fonts_dir = state.fonts_dir.clone();
         match resolve_authorized_font_file(&fonts_dir, &uri_path) {
             Ok((file_path, mime)) => match fs::read(&file_path) {

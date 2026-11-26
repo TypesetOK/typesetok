@@ -371,6 +371,7 @@ pub struct AppState {
     pub fonts_dir: PathBuf,
     pub draft_recovery_path: PathBuf,
     pub trace_mode: Option<String>,
+    pub latest_pdf_preview: Mutex<Option<Vec<u8>>>,
 }
 
 impl AppState {

@@ -633,11 +633,11 @@ pub async fn tok_render_pdf_preview(
     let session = Arc::clone(&state.session);
     let fonts_dir = optional_fonts_dir(&state.fonts_dir);
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
         let mut guard = session
             .lock()
             .map_err(|_| "WorkspaceSession lock poisoned".to_string())?;
-        let bytes = guard
+        guard
             .render_pdf_bytes_from_json_or_path(
                 doc_json.as_deref(),
                 input_path.as_deref(),
@@ -645,11 +645,15 @@ pub async fn tok_render_pdf_preview(
                 assets_from.as_deref(),
                 &req,
             )
-            .map_err(|e| e.to_string())?;
-        Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+            .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+
+    if let Ok(mut preview_guard) = state.latest_pdf_preview.lock() {
+        *preview_guard = Some(bytes.clone());
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
 #[tauri::command]
