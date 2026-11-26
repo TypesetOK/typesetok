@@ -1,20 +1,19 @@
-// Measures desktop startup time of the built app (run `npm run build` first).
+// Measures desktop startup time of the built Tauri v2 app (run `npm run build` and `cargo build --release -p tok-desktop` first).
 //
-//   node scripts/measure-startup.mjs [runs=7] [appRoot ...]
-//   node scripts/measure-startup.mjs --runs 7 --electron . --tauri path/to/tok-desktop.exe
+//   node scripts/measure-startup.mjs [runs=7] [tokDesktopExe ...]
+//   node scripts/measure-startup.mjs --runs 7 --tauri path/to/tok-desktop.exe
 //
-// Launches Electron or Tauri with TOK_STARTUP_TRACE=exit, which makes the host print
+// Launches Tauri with TOK_STARTUP_TRACE=exit, which makes the host print
 // `[TOK-TRACE] <label> <epoch_ms>` milestones (and optional `[TOK-MEM] <label> <bytes>`)
 // and quit as soon as the main window is visible and renderer timings are collected.
 // All timings are ms since process spawn. One warm-up run per target is discarded;
 // medians are reported, interleaved A/B/A/B across multiple targets.
 import { spawn } from 'child_process';
-import { createRequire } from 'module';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-const require = createRequire(import.meta.url);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Isolated profile so measurements never touch the real userData (logs, plugins, caches).
 const defaultUserDataDir = process.env.TOK_MEASURE_USER_DATA || path.join(os.tmpdir(), 'typesetok-startup-profile');
@@ -56,25 +55,25 @@ export function parseMeasureArgs(argv, fallbackRoot = rootDir) {
     } else if (arg.startsWith('--tauri=')) {
       const targetPath = path.resolve(arg.slice('--tauri='.length));
       targets.push({ kind: 'tauri', targetPath, label: `tauri:${targetPath}` });
-    } else if (arg === '--electron' && i + 1 < argv.length) {
-      const targetPath = path.resolve(argv[++i]);
-      targets.push({ kind: 'electron', targetPath, label: `electron:${targetPath}` });
-    } else if (arg.startsWith('--electron=')) {
-      const targetPath = path.resolve(arg.slice('--electron='.length));
-      targets.push({ kind: 'electron', targetPath, label: `electron:${targetPath}` });
     } else if (i === 0 && !sawNamedRun && /^\d+$/.test(arg)) {
       runs = Math.max(1, parseInt(arg, 10));
     } else if (!arg.startsWith('--')) {
       const targetPath = path.resolve(arg);
-      targets.push({ kind: 'electron', targetPath, label: targetPath });
+      targets.push({ kind: 'tauri', targetPath, label: targetPath });
     } else {
       throw new Error(`Unknown or incomplete argument: ${arg}`);
     }
   }
 
   if (targets.length === 0) {
-    const targetPath = path.resolve(fallbackRoot);
-    targets.push({ kind: 'electron', targetPath, label: targetPath });
+    const candidates = [
+      process.env.TOK_DESKTOP_PATH,
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'tok_target/release/tok-desktop.exe') : null,
+      path.join(fallbackRoot, 'target/release/tok-desktop.exe'),
+      path.join(fallbackRoot, 'target/release/tok-desktop'),
+    ].filter(Boolean);
+    const targetPath = candidates.find((p) => fs.existsSync(p)) || candidates[candidates.length - 1];
+    targets.push({ kind: 'tauri', targetPath: path.resolve(targetPath), label: `tauri:${targetPath}` });
   }
   return { runs, targets };
 }
@@ -102,14 +101,10 @@ function killTree(pid) {
   }
 }
 
-function runOnce(target, electronExe, userDataDir) {
+function runOnce(target, userDataDir) {
   return new Promise((resolve, reject) => {
-    const exe = target.kind === 'tauri' ? target.targetPath : electronExe;
-    const args = target.kind === 'tauri'
-      ? []
-      : [path.join(target.targetPath, 'packages/tok-electron/dist/main.js'), `--user-data-dir=${userDataDir}`];
     const t0 = Date.now();
-    const child = spawn(exe, args, {
+    const child = spawn(target.targetPath, [], {
       cwd: rootDir,
       env: { ...process.env, TOK_STARTUP_TRACE: 'exit', TOK_USER_DATA_DIR: userDataDir },
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -148,13 +143,12 @@ const median = (xs) => {
 };
 
 async function main() {
-  const electronExe = require('electron');
   const { runs, targets } = parseMeasureArgs(process.argv.slice(2), rootDir);
-  console.log(`Electron: ${electronExe}\nProfile:  ${defaultUserDataDir}\nRuns: ${runs} per target (+1 warm-up)\n`);
+  console.log(`Profile:  ${defaultUserDataDir}\nRuns: ${runs} per target (+1 warm-up)\n`);
 
   const results = targets.map(() => []);
   const tryRun = (t) =>
-    runOnce(t, electronExe, defaultUserDataDir).catch((err) => {
+    runOnce(t, defaultUserDataDir).catch((err) => {
       console.error(`  ! ${err.message}`);
       return null;
     });

@@ -10,20 +10,18 @@ const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), '
 const version = rootPkg.version || '0.35.0';
 const distDir = path.join(rootDir, 'dist');
 const bundleDir = path.join(distDir, `TypesetOK-v${version}-windows-x64`);
-const useElectron = process.argv.includes('--electron') || process.env.TOK_RUNTIME === 'electron';
-const useTauri = !useElectron;
 const buildOffline = process.argv.includes('--offline');
 const buildDual = process.argv.includes('--dual');
 const rebuildBundle = process.argv.includes('--rebuild');
 
 console.log('====================================================');
-console.log(` TypesetOK Modern Windows Installer Builder (${useTauri ? 'Tauri v2' : 'Electron'})`);
+console.log(' TypesetOK Modern Windows Installer Builder (Tauri v2)');
 console.log('====================================================');
 
-// 1. Build or reuse desktop bundle
-if (rebuildBundle || useTauri || !fs.existsSync(bundleDir)) {
+// 1. Build desktop bundle
+if (rebuildBundle || !fs.existsSync(bundleDir)) {
   console.log('[BUILD-INSTALLER] Building desktop bundle...');
-  execSync(`node scripts/build-desktop-bundle.mjs${useTauri ? ' --tauri' : ' --electron'}`, {
+  execSync('node scripts/build-desktop-bundle.mjs --tauri', {
     cwd: rootDir,
     stdio: 'inherit'
   });
@@ -108,7 +106,7 @@ if (!foundIscc) {
 }
 
 if (foundIscc) {
-  const runtimeMode = useTauri ? 'tauri' : 'electron';
+  const runtimeMode = 'tauri';
   console.log(`[BUILD-INSTALLER] Compiling with Inno Setup 6: ${foundIscc}`);
   console.log(`[BUILD-INSTALLER] Runtime Mode: ${runtimeMode}`);
   console.log(`[BUILD-INSTALLER] Visual Theme: Windows 11 Fluent Dynamic Mode (No retro bevels)`);

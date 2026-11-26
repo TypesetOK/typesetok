@@ -14,9 +14,9 @@
 #define MyAppExeName "TypesetOK.exe"
 #define SourceDir "..\dist\TypesetOK-v" + MyAppVersion + "-windows-x64"
 
-; RuntimeMode: "electron" (legacy) or "tauri" (Stage 4+ Tauri v2 shell)
+; RuntimeMode: "tauri" (Tauri v2 native shell)
 #ifndef RuntimeMode
-  #define RuntimeMode "electron"
+  #define RuntimeMode "tauri"
 #endif
 
 ; OfflineWebView2: "0" (standard ~10-20 MB installer) or "1" (bundles MicrosoftEdgeWebView2RuntimeInstallerX64.exe)

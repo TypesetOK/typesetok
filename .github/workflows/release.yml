@@ -190,8 +190,6 @@ jobs:
         run: |
           mkdir -p dist-package
           cp -r packages/tok-ui/dist-tauri dist-package/ui
-          cp -r packages/tok-ui/dist dist-package/ui-legacy
-          cp -r packages/tok-electron/dist dist-package/electron
           cp -r assets dist-package/assets
           cp README.md LICENSE.md dist-package/
           tar -czvf "typesetok-desktop-workbench-${{ needs.check-release.outputs.tag_name }}.tar.gz" dist-package
