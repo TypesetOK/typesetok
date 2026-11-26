@@ -302,6 +302,7 @@ pub const SUPPORTED_CAPABILITIES: &[&str] = &[
     "sendCommand",
     "onEvent",
     "renderPdf",
+    "renderPdfPreview",
     "renderHtml",
     "getRecentLogs",
     "openLogsFolder",

@@ -4,7 +4,8 @@
 //! 1. Tier 1: Inter-word spacing adjustment within [80%, 130%] of base space.
 //! 2. Tier 2: Ahalterm (אהלתר"ם) letter stretching:
 //!    - Applicable to: Alef (א), He (ה), Lamed (ל), Tav (ת), Resh (ר), Final Mem (ם), Dalet (ד), Final Kaf (ך).
-//!    - Distributes excess line width without vertical stroke weight (Stem Weight) distortion.
+//!    - Widens Ahalterm glyphs horizontally (capped at MAX_AHALTERM_GLYPH_STRETCH = 15%
+//!      to limit vertical stem weight distortion; any excess advance stays as spacing).
 //! 3. Tier 3: Micro-tracking fallback (±2% of em) when letter stretch is not applicable.
 //!
 //! Only glyphs with a positive advance take part in Tier 2 and Tier 3: with
@@ -24,6 +25,9 @@ pub const MIN_SPACE_RATIO: f32 = 0.80;
 pub const MAX_SPACE_RATIO: f32 = 1.30;
 /// Tier 3 tracking limit per glyph, as a fraction of the em.
 pub const MAX_TRACKING_EM: f32 = 0.02;
+/// Largest horizontal widening of an Ahalterm letter's shape in Tier 2, as a
+/// fraction of its natural width. Any extra advance beyond it stays as spacing.
+pub const MAX_AHALTERM_GLYPH_STRETCH: f32 = 0.15;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JustificationTier {
@@ -69,6 +73,29 @@ impl HebrewJustifier {
         AHALTERM_LETTERS.contains(&c)
     }
 
+    /// Horizontal widening (fraction of the natural width) with which a glyph of a
+    /// line justified with `tier` / `stretch_per_ahalterm_pt` must be drawn.
+    /// `g` is the glyph as returned by [`Self::justify_line`], after its advance grew.
+    pub fn glyph_stretch(
+        tier: JustificationTier,
+        stretch_per_ahalterm_pt: f32,
+        g: &PositionedGlyph,
+    ) -> f32 {
+        if tier != JustificationTier::Tier2AhaltermStretch
+            || !stretch_per_ahalterm_pt.is_finite()
+            || stretch_per_ahalterm_pt <= 0.0
+            || g.x_advance <= 0.0
+            || !g.character.is_some_and(Self::is_ahalterm_letter)
+        {
+            return 0.0;
+        }
+        let natural = g.x_advance - stretch_per_ahalterm_pt;
+        if natural <= 0.0 {
+            return 0.0;
+        }
+        (stretch_per_ahalterm_pt / natural).min(MAX_AHALTERM_GLYPH_STRETCH)
+    }
+
     fn is_space(g: &PositionedGlyph) -> bool {
         g.character == Some(' ')
     }
@@ -79,12 +106,31 @@ impl HebrewJustifier {
         }
     }
 
-    /// Justifies an individual line of Hebrew glyphs to `target_width_pt`.
+    /// Justifies an individual line of Hebrew glyphs to `target_width_pt`,
+    /// with Ahalterm letter stretching enabled.
     pub fn justify_line(
+        glyphs: Vec<PositionedGlyph>,
+        target_width_pt: f32,
+        font_size_pt: f32,
+        is_last_line_of_para: bool,
+    ) -> JustifiedLine {
+        Self::justify_line_opts(
+            glyphs,
+            target_width_pt,
+            font_size_pt,
+            is_last_line_of_para,
+            true,
+        )
+    }
+
+    /// Like [`Self::justify_line`], but `allow_ahalterm_stretch = false` skips Tier 2
+    /// (letter widening) so only word spacing and micro-tracking are used.
+    pub fn justify_line_opts(
         mut glyphs: Vec<PositionedGlyph>,
         target_width_pt: f32,
         font_size_pt: f32,
         is_last_line_of_para: bool,
+        allow_ahalterm_stretch: bool,
     ) -> JustifiedLine {
         // Last line of paragraph is not justified to margin in standard Hebrew typography
         if is_last_line_of_para || glyphs.is_empty() {
@@ -136,7 +182,7 @@ impl HebrewJustifier {
         };
         let ahalterm_count = glyphs.iter().filter(|g| is_stretchable(g)).count();
 
-        if ahalterm_count > 0 && remaining_deficit > 0.0 {
+        if allow_ahalterm_stretch && ahalterm_count > 0 && remaining_deficit > 0.0 {
             let stretch_per_letter = remaining_deficit / (ahalterm_count as f32);
             for g in glyphs.iter_mut().filter(|g| is_stretchable(g)) {
                 g.x_advance += stretch_per_letter;
@@ -260,6 +306,16 @@ mod tests {
         assert!((width(&justified.glyphs) - target).abs() < 0.5);
     }
 
+    #[test]
+    fn ahalterm_stretch_can_be_switched_off() {
+        let text = "אמר רב יהודה";
+        let run = TextShaper::shape_fallback(text, 12.0, true);
+        let target = run.total_width_pt + 50.0;
+        let justified = HebrewJustifier::justify_line_opts(run.glyphs, target, 12.0, false, false);
+        assert_ne!(justified.tier_used, JustificationTier::Tier2AhaltermStretch);
+        assert_eq!(justified.stretch_per_ahalterm_pt, 0.0);
+    }
+
     /// Regression: shrinking past 80% sent the whole deficit to the spaces,
     /// producing zero or negative space advances.
     #[test]
@@ -330,6 +386,34 @@ mod tests {
                 assert_eq!(after.x_advance, 0.0);
             }
         }
+    }
+
+    #[test]
+    fn tier2_reports_glyph_stretch_only_for_widened_ahalterm_letters() {
+        let run = TextShaper::shape_fallback("אמר רב יהודה", 12.0, true);
+        let justified =
+            HebrewJustifier::justify_line(run.glyphs, run.total_width_pt + 50.0, 12.0, false);
+        assert_eq!(justified.tier_used, JustificationTier::Tier2AhaltermStretch);
+        for g in &justified.glyphs {
+            let s = HebrewJustifier::glyph_stretch(
+                justified.tier_used,
+                justified.stretch_per_ahalterm_pt,
+                g,
+            );
+            let widened = g.character.is_some_and(HebrewJustifier::is_ahalterm_letter);
+            if widened {
+                assert!(s > 0.0 && s <= MAX_AHALTERM_GLYPH_STRETCH + 1e-6);
+            } else {
+                assert_eq!(s, 0.0);
+            }
+        }
+        // Lines justified with another tier never report a stretch.
+        let run = TextShaper::shape_fallback("אמר רב", 12.0, true);
+        let g = &run.glyphs[0];
+        assert_eq!(
+            HebrewJustifier::glyph_stretch(JustificationTier::Tier1WordSpacing, 0.0, g),
+            0.0
+        );
     }
 
     #[test]

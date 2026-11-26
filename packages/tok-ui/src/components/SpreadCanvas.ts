@@ -269,6 +269,22 @@ export class SpreadCanvas {
     });
   }
 
+  /**
+   * Detached copy of a page exactly as the page viewer draws it (engine layout, justified lines),
+   * without guides or selection handles. Used by dialogs that preview the real page, e.g. export.
+   * Returns null when the page is not drawn right now (outside the active window).
+   */
+  public cloneRenderedSheet(pageIndex: number): HTMLElement | null {
+    const entry = this.sheetEntries.get(pageIndex);
+    if (!entry || !entry.hydrated) return null;
+    const copy = entry.sheet.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('.tok-guides-layer, .tok-resize-handle, .tok-frame-tag').forEach((n) => n.remove());
+    copy.querySelectorAll('.tok-selected').forEach((n) => n.classList.remove('tok-selected'));
+    copy.setAttribute('aria-hidden', 'true');
+    copy.style.pointerEvents = 'none';
+    return copy;
+  }
+
   public scrollToPage(pageIndex: number): void {
     this.activePageIndex = pageIndex;
     this.virtualizer.updateActiveWindow(pageIndex);

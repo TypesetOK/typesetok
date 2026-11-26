@@ -134,11 +134,11 @@ fn handle_render_pdf(
     while idx < extra_args.len() {
         match extra_args[idx].as_str() {
             "--standard" if idx + 1 < extra_args.len() => {
-                if extra_args[idx + 1].eq_ignore_ascii_case("pdfx4") {
-                    req.standard = PdfXStandard::PdfX4;
-                } else {
-                    req.standard = PdfXStandard::PdfX1a2001;
-                }
+                req.standard = match extra_args[idx + 1].to_ascii_lowercase().as_str() {
+                    "pdfx4" => PdfXStandard::PdfX4,
+                    "pdf" => PdfXStandard::Plain,
+                    _ => PdfXStandard::PdfX1a2001,
+                };
                 idx += 2;
             }
             "--profile" if idx + 1 < extra_args.len() => {
@@ -575,8 +575,10 @@ fn handle_preflight(
 
     let mut req = PreflightRequest::default();
     if let Some(std_arg) = extract_flag_value(extra_args, "--standard") {
-        if std_arg.eq_ignore_ascii_case("pdfx4") {
-            req.standard = PdfXStandard::PdfX4;
+        match std_arg.to_ascii_lowercase().as_str() {
+            "pdfx4" => req.standard = PdfXStandard::PdfX4,
+            "pdf" => req.standard = PdfXStandard::Plain,
+            _ => {}
         }
     }
     if extra_args.iter().any(|a| a == "--no-bleed") {

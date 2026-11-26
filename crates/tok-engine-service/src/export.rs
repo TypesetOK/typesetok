@@ -9,6 +9,17 @@ use tok_storage::package::{TokManifest, TokPackage};
 use tok_typeset::font::FontManager;
 use tok_typeset::geometry::PageLayoutBox;
 
+/// Maps a UI/CLI format id (`pdfx1a`, `pdfx4`, `pdf`) to a PDF standard.
+/// Unknown ids return `None` so the caller keeps its default.
+fn parse_standard(id: &str) -> Option<PdfXStandard> {
+    match id.trim().to_ascii_lowercase().as_str() {
+        "pdfx1a" | "pdfx1a2001" => Some(PdfXStandard::PdfX1a2001),
+        "pdfx4" => Some(PdfXStandard::PdfX4),
+        "pdf" => Some(PdfXStandard::Plain),
+        _ => None,
+    }
+}
+
 /// Configuration options for PDF/X prepress export.
 #[derive(Debug, Clone)]
 pub struct PdfRenderRequest {
@@ -17,6 +28,8 @@ pub struct PdfRenderRequest {
     pub bleed_pt: f32,
     pub draw_crop_marks: bool,
     pub draw_registration_marks: bool,
+    /// Pages to export, 1-based and inclusive. `None` exports every page.
+    pub page_range: Option<(usize, usize)>,
 }
 
 impl Default for PdfRenderRequest {
@@ -27,11 +40,23 @@ impl Default for PdfRenderRequest {
             bleed_pt: 8.504,
             draw_crop_marks: true,
             draw_registration_marks: false,
+            page_range: None,
         }
     }
 }
 
 impl PdfRenderRequest {
+    /// Limits the export to pages `from..=to` (1-based, inclusive).
+    /// Missing or invalid bounds leave the export at every page.
+    pub fn with_page_range(mut self, from: Option<usize>, to: Option<usize>) -> Self {
+        if let (Some(from), Some(to)) = (from, to) {
+            if from >= 1 && to >= from {
+                self.page_range = Some((from, to));
+            }
+        }
+        self
+    }
+
     /// Parses UI/host export dialog options into a typed [`PdfRenderRequest`].
     pub fn from_ui_options(
         format: Option<&str>,
@@ -41,10 +66,8 @@ impl PdfRenderRequest {
         registration_marks: Option<bool>,
     ) -> Self {
         let mut req = Self::default();
-        if let Some(fmt) = format {
-            if fmt.trim().eq_ignore_ascii_case("pdfx4") {
-                req.standard = PdfXStandard::PdfX4;
-            }
+        if let Some(standard) = format.and_then(parse_standard) {
+            req.standard = standard;
         }
         if let Some(profile) = color_profile {
             if !profile.trim().is_empty() {
@@ -84,10 +107,8 @@ impl PreflightRequest {
     /// Parses UI/host preflight options into a typed [`PreflightRequest`].
     pub fn from_ui_options(standard: Option<&str>, bleed: Option<bool>) -> Self {
         let mut req = Self::default();
-        if let Some(std_arg) = standard {
-            if std_arg.trim().eq_ignore_ascii_case("pdfx4") {
-                req.standard = PdfXStandard::PdfX4;
-            }
+        if let Some(parsed) = standard.and_then(parse_standard) {
+            req.standard = parsed;
         }
         if bleed == Some(false) {
             req.bleed_pt = 0.0;
@@ -124,6 +145,23 @@ pub fn render_pdf_bytes(
     req: &PdfRenderRequest,
 ) -> Result<Vec<u8>, EngineServiceError> {
     let (image_assets, ornament_assets) = collect_package_media(assets_pkg);
+    let selected: Vec<PageLayoutBox>;
+    let pages = match req.page_range {
+        Some((from, to)) => {
+            selected = pages
+                .iter()
+                .skip(from - 1)
+                .take(to - from + 1)
+                .cloned()
+                .collect();
+            if selected.is_empty() {
+                pages
+            } else {
+                selected.as_slice()
+            }
+        }
+        None => pages,
+    };
     let options = PdfExportOptions {
         standard: req.standard,
         color_profile: req.color_profile,
@@ -183,4 +221,39 @@ pub fn evaluate_preflight(
         ..PdfExportOptions::default()
     };
     PreflightEngine::evaluate(doc, pages, font_manager, &opts)
+}
+
+#[cfg(test)]
+mod page_range_tests {
+    use super::*;
+
+    #[test]
+    fn page_range_needs_valid_one_based_bounds() {
+        let req = PdfRenderRequest::default().with_page_range(Some(3), Some(5));
+        assert_eq!(req.page_range, Some((3, 5)));
+        for (from, to) in [
+            (Some(0), Some(2)),
+            (Some(4), Some(2)),
+            (Some(1), None),
+            (None, None),
+        ] {
+            let req = PdfRenderRequest::default().with_page_range(from, to);
+            assert_eq!(req.page_range, None, "{from:?}..{to:?}");
+        }
+    }
+
+    fn std_of(id: &str) -> PdfXStandard {
+        let req = PdfRenderRequest::from_ui_options(Some(id), None, None, None, None);
+        req.standard
+    }
+
+    #[test]
+    fn format_ids_map_to_their_own_standard() {
+        assert_eq!(std_of("pdfx1a"), PdfXStandard::PdfX1a2001);
+        assert_eq!(std_of("pdfx4"), PdfXStandard::PdfX4);
+        assert_eq!(std_of("pdf"), PdfXStandard::Plain);
+        assert_eq!(std_of("???"), PdfXStandard::PdfX1a2001);
+        let pf = PreflightRequest::from_ui_options(Some("pdf"), None);
+        assert_eq!(pf.standard, PdfXStandard::Plain);
+    }
 }

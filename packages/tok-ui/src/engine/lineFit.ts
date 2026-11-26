@@ -1,35 +1,37 @@
 /**
- * Preview-side line fitting.
+ * Preview-side line fitting, driven by the engine's own numbers.
  *
- * The engine justifies every full line to the column measure and reports the final width in
- * `data-line-width`. The browser, however, paints each line at its natural width, so the page
- * view showed ragged lines (and lines wider than their frame got clipped mid-word).
+ * The Rust engine justifies each full line and reports, per glyph, its final advance. The
+ * browser paints text at its natural width, so the page view showed ragged lines. This module
+ * replays what the engine decided, instead of estimating it:
  *
- * `fitJustifiedLines` reproduces the engine's three tiers on the rendered lines:
- *   1. inter-word space within [80%, 130%] of the natural space,
- *   2. widening of the Ahalterm letters (א ה ל ת ר ם ד ך) for the rest,
- *   3. micro-tracking over all letters when there are no such letters.
- * Only extra advance is added or removed; glyph shapes are never scaled.
+ *   Tier 1  every inter-word space gets exactly the width the engine gave it (`data-sp`).
+ *   Tier 2  every widened Ahalterm letter (א ה ל ת ר ם ד ך) gets the engine's advance and is
+ *           drawn horizontally widened by the engine's `stretch`, from its origin, exactly like
+ *           the PDF text-matrix scale (`data-ah`).
+ *   Tier 3  whatever small difference is left (micro-tracking, or font metrics that differ
+ *           slightly from the engine's) is spread as letter-spacing, so the line ends where the
+ *           engine's line ends.
+ *
+ * `data-sp` / `data-ah` are lists in logical (cluster) order, so they map one-to-one onto the
+ * spaces and Ahalterm letters in the line text. If the counts do not match, that tier is skipped
+ * and the residual step still closes the gap.
  */
 
 const PT_TO_PX = 96 / 72;
-/** Mirrors crates/tok-typeset/src/engine.rs and hebrew_justify.rs. */
-const SPACE_EM = 0.28;
-const SPACE_STRETCH = 0.3;
-const SPACE_SHRINK = 0.2;
-const MAX_TRACKING_EM = 0.02;
-/** Beyond the engine's own limit we still pull a too-wide line in, rather than let the frame clip it. */
-const MAX_SQUEEZE_EM = 0.06;
+/** Residual tracking limit, as a fraction of the font size (engine Tier 3 allows 2%). */
+const MAX_RESIDUAL_EM = 0.06;
 const AHALTERM = new Set(['א', 'ה', 'ל', 'ת', 'ר', 'ם', 'ד', 'ך']);
 const IS_MARK = /[\u0591-\u05C7]/;
 
-function unwrapLetters(line: HTMLElement): void {
-  line.style.wordSpacing = '';
+function resetLine(line: HTMLElement): void {
   line.style.letterSpacing = '';
-  const spans = line.querySelectorAll<HTMLElement>('span.tok-ah');
-  if (spans.length === 0) return;
-  spans.forEach((s) => s.replaceWith(document.createTextNode(s.textContent || '')));
-  line.normalize();
+  line.style.wordSpacing = '';
+  const spaces = line.querySelectorAll<HTMLElement>('span.tok-sp');
+  spaces.forEach((s) => s.replaceWith(document.createTextNode(' ')));
+  const letters = line.querySelectorAll<HTMLElement>('span.tok-ah');
+  letters.forEach((s) => s.replaceWith(document.createTextNode(s.textContent || '')));
+  if (spaces.length > 0 || letters.length > 0) line.normalize();
 }
 
 function textNodes(line: HTMLElement): Text[] {
@@ -37,6 +39,11 @@ function textNodes(line: HTMLElement): Text[] {
   const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n as Text);
   return out;
+}
+
+function parseList(raw: string | undefined): number[][] {
+  if (!raw) return [];
+  return raw.split(';').map((item) => item.split(',').map(Number));
 }
 
 function naturalWidthPx(line: HTMLElement): number {
@@ -49,86 +56,103 @@ function naturalWidthPx(line: HTMLElement): number {
   return rect.width / (scale || 1);
 }
 
-/** Wraps each Ahalterm letter (with its niqqud/te'amim) in a span and returns the spans. */
-function wrapAhalterm(line: HTMLElement): HTMLElement[] {
-  const spans: HTMLElement[] = [];
-  for (const node of textNodes(line)) {
-    const text = node.data;
-    if (![...text].some((ch) => AHALTERM.has(ch))) continue;
+/** Replaces each space, in logical order, by a box as wide as the engine's justified space. */
+function applySpaces(line: HTMLElement, widthsPt: number[][]): void {
+  const nodes = textNodes(line);
+  const total = nodes.reduce((n, node) => n + (node.data.match(/ /g) || []).length, 0);
+  if (total !== widthsPt.length) return;
+  let i = 0;
+  for (const node of nodes) {
+    if (!node.data.includes(' ')) continue;
+    const frag = document.createDocumentFragment();
+    node.data.split(/( )/).forEach((part) => {
+      if (part === ' ') {
+        const span = document.createElement('span');
+        span.className = 'tok-sp';
+        span.textContent = ' ';
+        span.style.display = 'inline-block';
+        span.style.whiteSpace = 'pre';
+        span.style.letterSpacing = '0';
+        span.style.width = `${widthsPt[i++][0]}pt`;
+        frag.appendChild(span);
+      } else if (part) {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+    node.replaceWith(frag);
+  }
+}
+
+/** Widens each Ahalterm letter (with its niqqud/te'amim) by the engine's factor, from its origin. */
+function applyLetters(line: HTMLElement, letters: number[][]): void {
+  const nodes = textNodes(line).filter((n) => !n.parentElement?.closest('span.tok-sp'));
+  const total = nodes.reduce((n, node) => n + [...node.data].filter((ch) => AHALTERM.has(ch)).length, 0);
+  if (total !== letters.length) return;
+  let i = 0;
+  for (const node of nodes) {
+    const chars = [...node.data];
+    if (!chars.some((ch) => AHALTERM.has(ch))) continue;
     const frag = document.createDocumentFragment();
     let plain = '';
-    const chars = [...text];
-    for (let i = 0; i < chars.length; i++) {
-      if (AHALTERM.has(chars[i])) {
-        let cluster = chars[i];
-        while (i + 1 < chars.length && IS_MARK.test(chars[i + 1])) cluster += chars[++i];
-        if (plain) {
-          frag.appendChild(document.createTextNode(plain));
-          plain = '';
-        }
-        const span = document.createElement('span');
-        span.className = 'tok-ah';
-        span.textContent = cluster;
-        frag.appendChild(span);
-        spans.push(span);
-      } else {
-        plain += chars[i];
+    for (let k = 0; k < chars.length; k++) {
+      if (!AHALTERM.has(chars[k])) {
+        plain += chars[k];
+        continue;
       }
+      let cluster = chars[k];
+      while (k + 1 < chars.length && IS_MARK.test(chars[k + 1])) cluster += chars[++k];
+      if (plain) {
+        frag.appendChild(document.createTextNode(plain));
+        plain = '';
+      }
+      const [widthPt, stretch] = letters[i++];
+      // The outer box is as wide as the engine's advance; the glyph sits at its left origin
+      // (the engine lays glyphs out left to right) and is widened from there.
+      const outer = document.createElement('span');
+      outer.className = 'tok-ah';
+      outer.style.display = 'inline-block';
+      outer.style.width = `${widthPt}pt`;
+      outer.style.direction = 'ltr';
+      outer.style.textAlign = 'left';
+      outer.style.whiteSpace = 'nowrap';
+      outer.style.letterSpacing = '0';
+      const inner = document.createElement('span');
+      inner.style.display = 'inline-block';
+      inner.style.transformOrigin = '0 50%';
+      inner.style.transform = `scaleX(${(1 + stretch).toFixed(4)})`;
+      inner.textContent = cluster;
+      outer.appendChild(inner);
+      frag.appendChild(outer);
     }
     if (plain) frag.appendChild(document.createTextNode(plain));
     node.replaceWith(frag);
   }
-  return spans;
 }
 
 function fitLine(line: HTMLElement): void {
-  unwrapLetters(line);
+  resetLine(line);
   const targetPt = Number(line.dataset.lineWidth);
   if (!Number.isFinite(targetPt) || targetPt <= 0) return;
+
+  const spaces = parseList(line.dataset.sp);
+  if (spaces.length > 0) applySpaces(line, spaces);
+  const letters = parseList(line.dataset.ah);
+  if (letters.length > 0) applyLetters(line, letters);
+
+  // Residual: micro-tracking or sub-point differences in font metrics.
   const fontPx = parseFloat(getComputedStyle(line).fontSize) || 12;
-  const target = targetPt * PT_TO_PX;
-  const natural = naturalWidthPx(line);
-  if (!Number.isFinite(natural) || natural <= 0) return;
-  const deficit = target - natural;
-  if (Math.abs(deficit) < 0.3) return;
-
-  const text = line.textContent || '';
-  const spaceCount = (text.match(/ /g) || []).length;
-  const spaceW = fontPx * SPACE_EM;
-  const maxStretch = spaceCount * spaceW * SPACE_STRETCH;
-  const maxShrink = spaceCount * spaceW * SPACE_SHRINK;
-
-  // Tier 1: word spacing.
-  let remaining = deficit;
-  if (spaceCount > 0) {
-    const used = Math.max(-maxShrink, Math.min(maxStretch, deficit));
-    line.style.wordSpacing = `${(used / spaceCount).toFixed(3)}px`;
-    remaining = deficit - used;
-  }
-  if (Math.abs(remaining) < 0.3) return;
-
-  if (remaining > 0) {
-    // Tier 2: widen the Ahalterm letters.
-    const spans = wrapAhalterm(line);
-    if (spans.length > 0) {
-      const each = remaining / spans.length;
-      spans.forEach((s) => {
-        s.style.letterSpacing = `${each.toFixed(3)}px`;
-      });
-      return;
-    }
-  }
-
-  // Tier 3: micro-tracking over every letter.
-  const letters = [...text].filter((ch) => ch !== ' ' && !IS_MARK.test(ch)).length;
-  if (letters > 1) {
-    const limit = (remaining > 0 ? MAX_TRACKING_EM : MAX_SQUEEZE_EM) * fontPx;
-    const each = Math.max(-limit, Math.min(limit, remaining / letters));
-    line.style.letterSpacing = `${each.toFixed(3)}px`;
-  }
+  const residual = targetPt * PT_TO_PX - naturalWidthPx(line);
+  if (!Number.isFinite(residual) || Math.abs(residual) < 0.3) return;
+  const loose = textNodes(line)
+    .filter((n) => !n.parentElement?.closest('span.tok-sp, span.tok-ah'))
+    .reduce((n, node) => n + [...node.data].filter((ch) => ch !== ' ' && !IS_MARK.test(ch)).length, 0);
+  if (loose < 2) return;
+  const limit = MAX_RESIDUAL_EM * fontPx;
+  const each = Math.max(-limit, Math.min(limit, residual / loose));
+  line.style.letterSpacing = `${each.toFixed(3)}px`;
 }
 
-/** Fits every justified line below `root` (a page body) to the width the engine computed. */
+/** Fits every justified line below `root` (a page body) to the widths the engine computed. */
 export function fitJustifiedLines(root: HTMLElement): void {
   const lines = root.querySelectorAll<HTMLElement>('.tok-line-box[data-justify="1"]');
   lines.forEach((line) => {

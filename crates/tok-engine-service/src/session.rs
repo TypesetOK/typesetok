@@ -138,6 +138,8 @@ pub struct WorkspaceSession {
     plugin_host: PluginHost,
     last_pages: Vec<Arc<PageLayoutBox>>,
     last_document_id: Option<NodeId>,
+    /// Standard and bleed the post-typeset print check is evaluated against (the export settings).
+    preflight_request: PreflightRequest,
 }
 
 const _: fn() = || {
@@ -164,7 +166,14 @@ impl WorkspaceSession {
             plugin_host: PluginHost::with_builtin_plugins(),
             last_pages: Vec::new(),
             last_document_id: None,
+            preflight_request: PreflightRequest::default(),
         }
+    }
+
+    /// Sets the standard and bleed used by the print check that runs after typesetting,
+    /// so it matches the export settings instead of the built-in defaults.
+    pub fn set_preflight_request(&mut self, req: PreflightRequest) {
+        self.preflight_request = req;
     }
 
     pub fn document(&self) -> Option<&DocumentModel> {
@@ -261,7 +270,7 @@ impl WorkspaceSession {
                 &pages,
                 &self.engine.font_manager,
                 self.assets_package.as_ref(),
-                &PreflightRequest::default(),
+                &self.preflight_request,
             ))
         } else {
             None

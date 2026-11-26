@@ -29,6 +29,8 @@ use tok_typeset::geometry::{GlyphBox, LineBox, PageLayoutBox, PhysicalRect};
 pub enum PdfXStandard {
     PdfX1a2001,
     PdfX4,
+    /// Regular PDF 1.6 without any PDF/X conformance claim (screen / office use).
+    Plain,
 }
 
 pub struct PdfExportOptions {
@@ -609,12 +611,13 @@ impl PdfPrePressEngine {
                 PdfXStandard::PdfX4 => {
                     info.pair(Name(b"GTS_PDFXVersion"), TextStr("PDF/X-4"));
                 }
+                PdfXStandard::Plain => {}
             }
         }
         // PDF/X-1a:2001 is based on PDF 1.3, PDF/X-4 on PDF 1.6.
         match options.standard {
             PdfXStandard::PdfX1a2001 => pdf.set_version(1, 3),
-            PdfXStandard::PdfX4 => pdf.set_version(1, 6),
+            PdfXStandard::PdfX4 | PdfXStandard::Plain => pdf.set_version(1, 6),
         }
 
         // 4. Font objects
@@ -1215,7 +1218,20 @@ impl PdfPrePressEngine {
                         .get(usize::from(cid))
                         .copied()
                         .unwrap_or(0.0);
-                    writer.push(gx, cid, advance_1000, size);
+                    if g.stretch > 0.0 && g.stretch.is_finite() {
+                        // Justification Tier 2: draw the Ahalterm letter horizontally widened.
+                        // The widening is the text matrix's x scale, applied from the glyph
+                        // origin, so the layout advance (already in `g.width`) is untouched;
+                        // the next glyph starts a fresh, unscaled matrix.
+                        writer.flush(&mut content);
+                        content.set_text_matrix([1.0 + g.stretch, 0.0, 0.0, 1.0, gx, base_y]);
+                        writer.pen = Some(gx);
+                        writer.push(gx, cid, advance_1000, size);
+                        writer.flush(&mut content);
+                        writer.pen = None;
+                    } else {
+                        writer.push(gx, cid, advance_1000, size);
+                    }
                 }
                 writer.flush(&mut content);
                 if writer.rise != 0.0 {
@@ -2003,6 +2019,7 @@ mod tests {
             color_index: 1,
             underline: true,
             italic: false,
+            stretch: 0.0,
         };
         let line = LineBox {
             line_index: 0,

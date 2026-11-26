@@ -7,7 +7,7 @@ import {
   GrepRuleData
 } from '../types';
 import { getBuiltinGrepRules, getDefaultMultiApparatusConfigs } from '../engine/documentBridge';
-import type { PreflightReport, PreflightStatus } from '../engine/typesetBridge';
+import type { PreflightReport } from '../engine/typesetBridge';
 import { IconName } from '../icons';
 import { t, tf, i18n } from '../i18n';
 import { el, icon, button, iconButton, switchRow, segmented, selectField } from '../ui';
@@ -199,9 +199,6 @@ export class ContextualInspector {
           : report.overall_status === 'Warning'
           ? 'warning'
           : 'clean';
-    }
-    if (this.mode === 'zero') {
-      this.render();
     }
   }
 
@@ -502,27 +499,6 @@ export class ContextualInspector {
     this.appendLiveGrepCard(c);
 
     c.appendChild(el('div', 'tok-insp-spacer'));
-
-    // 4. Continuous print check (strictly populated from Rust PreflightEngine)
-    if (this.preflightReport) {
-      const pfItems = [
-        {
-          label: t('inspColorProfile'),
-          value: `${this.preflightReport.profile_name} · ${this.preflightReport.pdfx_standard}`,
-          status: this.preflightReport.overall_status
-        },
-        ...this.preflightReport.checks.map((ck) => ({
-          label: ck.title,
-          value: ck.summary,
-          status: ck.status
-        }))
-      ];
-      c.appendChild(this.createCheckCard(t('inspPreflight'), pfItems));
-    } else {
-      c.appendChild(this.createCheckCard(t('inspPreflight'), [
-        { label: t('inspProdStatus'), value: t('inspPreflightWaiting'), status: 'Warning' }
-      ]));
-    }
   }
 
   // =========================================================================
@@ -1178,42 +1154,6 @@ export class ContextualInspector {
     header.appendChild(titleRow);
     header.appendChild(el('span', 'tok-insp-sub', undefined, subtitle));
     return header;
-  }
-
-  /** Bottom card with a status badge and a list of checks. */
-  private createCheckCard(
-    title: string,
-    items: { label: string; value: string; ok?: boolean; status?: PreflightStatus }[]
-  ): HTMLElement {
-    const card = el('div', 'tok-check-card');
-    const head = el('div', 'tok-check-head');
-    head.appendChild(el('span', undefined, undefined, title));
-    const resolveStatus = (i: { ok?: boolean; status?: PreflightStatus }): PreflightStatus =>
-      i.status ?? (i.ok === false ? 'Warning' : 'Pass');
-    const hasFail = items.some((i) => resolveStatus(i) === 'Fail');
-    const hasWarn = items.some((i) => resolveStatus(i) === 'Warning');
-    const badgeCls = hasFail ? 'tok-badge-error' : hasWarn ? 'tok-badge-warning' : 'tok-badge-success';
-    const badgeLabel = hasFail ? t('inspPreflightFail') : hasWarn ? t('inspPreflightWarn') : t('inspReadyForPrint');
-    const badge = el('span', `tok-badge ${badgeCls}`);
-    badge.appendChild(el('span', 'tok-dot', { 'aria-hidden': 'true' }));
-    badge.appendChild(el('span', undefined, undefined, badgeLabel));
-    head.appendChild(badge);
-    card.appendChild(head);
-    const list = el('ul', 'tok-check-list');
-    for (const item of items) {
-      const st = resolveStatus(item);
-      const li = el('li');
-      const markCls = st === 'Fail' ? 'tok-err' : st === 'Warning' ? 'tok-warn' : 'tok-ok';
-      const iconName: IconName = st === 'Fail' ? 'close' : st === 'Warning' ? 'warning' : 'check';
-      const mark = el('span', markCls);
-      mark.appendChild(icon(iconName, 15));
-      li.appendChild(mark);
-      li.appendChild(el('span', undefined, { style: 'flex:1' }, item.label));
-      li.appendChild(el('span', undefined, { style: 'color:var(--tok-text-primary)' }, item.value));
-      list.appendChild(li);
-    }
-    card.appendChild(list);
-    return card;
   }
 
   private createStatusRow(label: string, value: string, color: string): HTMLElement {

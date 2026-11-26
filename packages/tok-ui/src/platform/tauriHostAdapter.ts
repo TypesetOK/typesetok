@@ -314,7 +314,17 @@ export class TauriHostAdapter implements TokHostBridge {
     return this.invokeCmd('tok_clear_draft_recovery');
   }
   public typesetDocument(
-    payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown
+    payload:
+      | {
+          document?: unknown;
+          inputPath?: string;
+          assetsFrom?: string;
+          withPreflight?: boolean;
+          /** Export format id ('pdfx1a' | 'pdfx4' | 'pdf') the print check is evaluated against. */
+          preflightStandard?: string;
+          preflightBleed?: boolean;
+        }
+      | unknown
   ): Promise<{ success: boolean; layoutJson?: string; pages?: any[]; preflight?: any }> {
     return this.invokeCmd('tok_typeset_document', { payload });
   }

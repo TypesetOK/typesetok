@@ -160,7 +160,10 @@ export class TypesetOkApp {
   private preflightModalInstance?: PreflightModal;
   private pdfPreviewModalInstance?: PdfPreviewModal;
   private pdfPreviewRequestId = 0;
+  private preflightReturnToExport = false;
   private lastPreviewOptions: ExportOptions | null = null;
+  /** Export format and bleed the print check is evaluated against (follows the export dialog). */
+  private exportPreflight: { standard: string; bleed: boolean } = { standard: 'pdfx1a', bleed: true };
   private importTemplateModalInstance?: ImportTemplateModal;
   private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
@@ -1131,7 +1134,15 @@ export class TypesetOkApp {
 
   private get preflightModal(): PreflightModal {
     if (!this.preflightModalInstance) {
-      this.preflightModalInstance = new PreflightModal({ onClose: () => {} });
+      this.preflightModalInstance = new PreflightModal({
+        onClose: () => {
+          // Opened from the export dialog: go back to it.
+          if (this.preflightReturnToExport) {
+            this.preflightReturnToExport = false;
+            this.openExportDialog();
+          }
+        }
+      });
       this.root.appendChild(this.preflightModalInstance.element);
     }
     return this.preflightModalInstance;
@@ -1151,7 +1162,8 @@ export class TypesetOkApp {
     this.canvas.scrollToPage(this.activePageIndex);
   }
 
-  private openPreflightDialog(): void {
+  private openPreflightDialog(fromExportDialog = false): void {
+    this.preflightReturnToExport = fromExportDialog;
     this.preflightModal.show(this.latestPreflightReport);
   }
 
@@ -1432,7 +1444,12 @@ export class TypesetOkApp {
     if (!this.exportDialogInstance) {
       this.exportDialogInstance = new ExportDialog({
         onExport: (options) => this.runExport(options),
-        onPreviewPdf: (options) => this.runPdfPreview(options)
+        onPreviewPdf: (options) => this.runPdfPreview(options),
+        onShowPreflight: () => this.openPreflightDialog(true),
+        onSettingsChange: (s) => {
+          this.exportPreflight = { standard: s.format, bleed: s.bleed };
+          this.scheduleRepaginate(400);
+        }
       });
       this.root.appendChild(this.exportDialogInstance.element);
     }
@@ -1450,8 +1467,15 @@ export class TypesetOkApp {
         return `${p ? p.gematriaNumber : toHebrewGematria(pos + 1)} ${isRectoPage(pos) ? 'ע״א' : 'ע״ב'}`;
       }),
       preflightStatus: this.statusBar.getPreflightStatus(),
-      preflightReport: this.latestPreflightReport
+      preflightReport: this.latestPreflightReport,
+      previewSheets: this.spreadPreviewSheets(spread)
     });
+  }
+
+  /** Copies of the spread's pages as the page viewer draws them; empty unless every page is drawn. */
+  private spreadPreviewSheets(spread: number[]): HTMLElement[] {
+    const sheets = spread.map((pos) => this.canvas.cloneRenderedSheet(this.pages[pos]?.pageIndex ?? pos));
+    return sheets.every((s): s is HTMLElement => s !== null) ? sheets : [];
   }
 
   private get pdfPreviewModal(): PdfPreviewModal {
@@ -1469,6 +1493,18 @@ export class TypesetOkApp {
       this.root.appendChild(this.pdfPreviewModalInstance.element);
     }
     return this.pdfPreviewModalInstance;
+  }
+
+  /** First/last page (1-based) chosen in the export dialog; no bounds means every page. */
+  private exportPageWindow(options: ExportOptions): { pageFrom?: number; pageTo?: number } {
+    const total = this.pages.length;
+    if (total === 0 || options.range === 'all') return {};
+    if (options.range === 'spread') {
+      const spread = groupIntoSpreads(total).find((sp) => sp.includes(this.activePageIndex)) ?? [];
+      if (spread.length === 0) return {};
+      return { pageFrom: Math.min(...spread) + 1, pageTo: Math.max(...spread) + 1 };
+    }
+    return { pageFrom: options.fromPage, pageTo: options.toPage };
   }
 
   /** Renders the real PDF with the chosen export options and shows it before exporting. */
@@ -1490,7 +1526,11 @@ export class TypesetOkApp {
     const requestId = ++this.pdfPreviewRequestId;
     this.pdfPreviewModal.showLoading(options.fileName);
     host
-      .renderPdfPreview({ document: docRoot, options, assetsFrom: this.currentFilePath || undefined })
+      .renderPdfPreview({
+        document: docRoot,
+        options: { ...options, ...this.exportPageWindow(options) },
+        assetsFrom: this.currentFilePath || undefined
+      })
       .then((base64) => {
         if (requestId !== this.pdfPreviewRequestId) return;
         this.pdfPreviewModal.setPdf(base64);
@@ -1517,7 +1557,12 @@ export class TypesetOkApp {
       console.log('[TOK] Exporting real document to PDF:', { title: docRoot.metadata.title, options });
 
       this.statusBar?.setBusy(true, 'מייצא ל-PDF...');
-      host.renderPdf({ document: docRoot, outputPath: options.fileName, options, assetsFrom: this.currentFilePath || undefined })
+      host.renderPdf({
+        document: docRoot,
+        outputPath: options.fileName,
+        options: { ...options, ...this.exportPageWindow(options) },
+        assetsFrom: this.currentFilePath || undefined
+      })
         .then(() => {
           this.statusBar?.setBusy(false);
           this.showToast(t('toastExportDone'));
@@ -2470,7 +2515,12 @@ export class TypesetOkApp {
       if (host.has('typesetDocument')) {
         try {
           const docRoot = documentStateToDocumentRoot(this.documentState);
-          const res = await host.typesetDocument({ document: docRoot, assetsFrom: this.currentFilePath || undefined });
+          const res = await host.typesetDocument({
+            document: docRoot,
+            assetsFrom: this.currentFilePath || undefined,
+            preflightStandard: this.exportPreflight.standard,
+            preflightBleed: this.exportPreflight.bleed
+          });
           // Discard stale response if a newer typeset request was dispatched while this was in flight
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
             return;

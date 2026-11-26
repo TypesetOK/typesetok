@@ -718,6 +718,10 @@ impl TypesettingEngine {
             .or_else(|| base_style.map(|s| s.alignment))
             .unwrap_or(tok_core::styles::TextAlignment::Justified);
 
+        // The paragraph style's Ahalterm setting: `Off` keeps letters at their natural width.
+        let allow_ahalterm_stretch = base_style
+            .is_none_or(|s| s.ahalterm_stretch != tok_core::styles::AhaltermStretchMode::Off);
+
         let llc_opt = paragraph
             .style_patches
             .iter()
@@ -1120,12 +1124,20 @@ impl TypesettingEngine {
                 );
 
             let justified = if is_justified_line {
-                HebrewJustifier::justify_line(line_glyphs, justified_target, font_size, false)
+                HebrewJustifier::justify_line_opts(
+                    line_glyphs,
+                    justified_target,
+                    font_size,
+                    false,
+                    allow_ahalterm_stretch,
+                )
             } else {
                 HebrewJustifier::justify_line(line_glyphs, target_w, font_size, true)
             };
 
             let line_width: f32 = justified.glyphs.iter().map(|g| g.x_advance).sum();
+            let justify_tier = justified.tier_used;
+            let justify_stretch_pt = justified.stretch_per_ahalterm_pt;
             let base_start_x = match align {
                 tok_core::styles::TextAlignment::Center => {
                     span.x_offset + (target_w - line_width) * 0.5
@@ -1170,6 +1182,11 @@ impl TypesettingEngine {
                         color_index,
                         underline,
                         italic,
+                        stretch: HebrewJustifier::glyph_stretch(
+                            justify_tier,
+                            justify_stretch_pt,
+                            &g,
+                        ),
                     };
                     current_x += g.x_advance;
                     b
@@ -3612,6 +3629,8 @@ impl TypesettingEngine {
                                 false,
                             );
                             let new_w: f32 = justified.glyphs.iter().map(|g| g.x_advance).sum();
+                            let justify_tier = justified.tier_used;
+                            let justify_stretch_pt = justified.stretch_per_ahalterm_pt;
                             let mut curr_x = HebrewJustifier::calculate_line_start_x(
                                 new_w,
                                 alloc.allocated_width_pt,
@@ -3636,6 +3655,11 @@ impl TypesettingEngine {
                                         color_index: orig_g.color_index,
                                         underline: orig_g.underline,
                                         italic: orig_g.italic,
+                                        stretch: HebrewJustifier::glyph_stretch(
+                                            justify_tier,
+                                            justify_stretch_pt,
+                                            &jg,
+                                        ),
                                     };
                                     curr_x += jg.x_advance;
                                     b

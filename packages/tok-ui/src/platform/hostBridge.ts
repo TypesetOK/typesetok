@@ -91,7 +91,17 @@ export interface TokHostMethods {
   loadDraftRecovery: () => Promise<unknown | null>;
   clearDraftRecovery: () => Promise<{ success: boolean }>;
   typesetDocument: (
-    payload: { document?: unknown; inputPath?: string; assetsFrom?: string; withPreflight?: boolean } | unknown
+    payload:
+      | {
+          document?: unknown;
+          inputPath?: string;
+          assetsFrom?: string;
+          withPreflight?: boolean;
+          /** Export format id ('pdfx1a' | 'pdfx4' | 'pdf') the print check is evaluated against. */
+          preflightStandard?: string;
+          preflightBleed?: boolean;
+        }
+      | unknown
   ) => Promise<{ success: boolean; layoutJson?: string; pages?: any[]; preflight?: any }>;
   runPreflight: (payload: {
     document?: unknown;
