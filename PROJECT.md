@@ -3,18 +3,24 @@
 ## Architecture
 TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית אמיתית המיועדת לספרות עברית, ספרי קודש וטקסטים רב-זרימתיים מורכבים (כדוגמת דפי תלמוד ומפרשים).
 המערכת מבוססת על הפרדה מוחלטת בין מנוע הליבה (Core Engine) למעטפת הממשק (Desktop UI):
-1. **ליבת ה-Rust (Core Engine):**
+1. **ליבת ה-Rust (Core Engine — 9 חבילות):**
    - `tok-core`: מודל מסמך היררכי קפדני (`DocumentRoot`, `Flow`, `ParagraphNode`), אלגוריתמי עברית קנוניים, גימטריה, מספור דפי קודש ומחסנית Undo/Redo טרנזקציונית.
    - `tok-typeset`: מנוע טיפוגרפי ועימוד מתקדם מבוסס Knuth-Plass Dynamic Programming, שלושת עמודי התווך של היישור העברי (רווחי מילים, אותיות אהלתר"ם מתרחבות ו-micro-tracking), פותר אילוצים גאומטריים Cassowary Simplex, ועימוד רב-זרימות קו-פגינציה (Co-Pagination) עם קפיצים אנכיים ועיגון פירושים.
-   - `tok-pdf`: הפקת דפוס מקצועית לפי תקני ISO PDF/X-1a ו-PDF/X-4, הגדרת תיבות עמוד (MediaBox, BleedBox, TrimBox), גזירת גופנים (Subsetting) וטבלאות יוניקוד CMap.
+   - `tok-pdf`: הפקת דפוס מקצועית לפי תקני ISO PDF/X-1a ו-PDF/X-4, הגדרת תיבות עמוד (MediaBox, BleedBox, TrimBox), גזירת גופנים (Subsetting), קידוד תמונות PNG/JPEG (`image_xobject`) וטבלאות יוניקוד CMap.
    - `tok-storage`: חבילות `.tok` אטומיות מוגנות Zip-Bomb, וניהול נתונים ACID באמצעות `redb`.
-   - `tok-cli`: ממשק שורת הפקודה המשמש כגשר המבצעי המרכזי (`typeset-document`, `render-pdf`, `render-html`, `save-package`, `open-package`, `verify-determinism`, `benchmark-typeset`).
-2. **מעטפת הממשק וה-Renderer (Desktop UI):**
-   - `packages/tok-electron`: מעטפת שולחנית Electron מאובטחת (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), תהליך Main שמפעיל את `tok-cli` ישירות כ-Subprocess עם ארגומנטים מבודדים, ו-Preload החושף את ה-API המוגן.
-   - `packages/tok-ui`: ממשק שולחני מהיר (Vanilla TypeScript נקי מ-React/Vue), רינדור נאמן ב-DOM של תוצאות הפריסה מ-Rust במיקום אבסולוטי מדויק בנקודות (pt).
+   - `tok-plugin-host`: מארח תוספי ליבה מבודד עם בקרת הרשאות (`PluginCapability`).
+   - `tok-engine-service`: שכבת תיאום מאוחדת המשותפת ל-`tok-desktop` ול-`tok-cli`.
+   - `tok-ipc`: פרוטוקול מסגור ו-Worker לתקשורת בין-תהליכית.
+   - `tok-cli`: ממשק שורת הפקודה (`typeset-document`, `render-pdf`, `render-html`, `save-package`, `open-package`, `verify-determinism`, `benchmark-typeset`, `worker`).
+   - `tok-desktop`: מעטפת שולחן העבודה הראשית ב-Tauri v2 הקוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך.
+2. **מעטפת הממשק וה-Renderer (Desktop UI — 5 חבילות TypeScript):**
+   - `packages/tok-ui`: ממשק שולחני מהיר (Vanilla TypeScript נקי מ-React/Vue), רינדור נאמן ב-DOM של תוצאות הפריסה מ-Rust במיקום אבסולוטי מדויק בנקודות (pt), ומתאם `tauriHostAdapter.ts` מול Tauri v2.
+   - `packages/tok-electron`: מעטפת Electron משנית/אופציונלית מאובטחת (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`) המפעילה את `tok-cli` כ-Subprocess.
    - `packages/tok-story-editor`: עורך טקסט עשיר בסגנון Story Editor של InDesign, היסטוריית שינויים, וחיפוש/החלפה עמידי ניקוד.
+   - `packages/tok-viewer`: וירטואליזציית עמודים (`PageDomVirtualizer`).
+   - `packages/tok-canvas`: שכבת כיסוי גרפית (`CanvasInteractionOverlay`).
 3. **ערוצי התקשורת (IPC & Data Flow):**
-   - מעבר נתונים חד-כיווני ודטרמיניסטי: UI Event -> State Update -> Serialize to JSON -> Exec `tok-cli` -> Parse Layout Boxes (pt) -> Render to Screen / Output PDF.
+   - מעבר נתונים חד-כיווני ודטרמיניסטי: UI Event -> State Update -> Tauri v2 IPC (`tok-desktop` -> `tok-engine-service`) או `tok-cli` (ב-Electron) -> `PageLayoutBox` (pt) -> Render to Screen / Output PDF.
 
 ---
 
@@ -93,15 +99,20 @@ TypesetOK הינה תוכנת DTP (עימוד וסדר דפוס) שולחנית 
 
 ## Code Layout
 - `crates/`
-  - `tok-core/`: Document model, Hebrew text normalization, Gematria, Undo/Redo
-  - `tok-typeset/`: Knuth-Plass, Hebrew justification, Cassowary solver, Co-pagination
-  - `tok-pdf/`: PDF/X-1a, PageBoxes, Font subsetter, ToUnicode CMap
-  - `tok-storage/`: TokPackage ZIP, atomic file operations, redb workspace
-  - `tok-cli/`: CLI binary entry point and benchmarks
+  - `tok-core/`: Document model, Hebrew text normalization, numbering, Undo/Redo
+  - `tok-typeset/`: Knuth-Plass, Hebrew justification, Cassowary solver, Co-pagination, Gematria, HTML projection
+  - `tok-pdf/`: PDF/X-1a & PDF/X-4, PageBoxes, Font subsetter, Image XObject, ToUnicode CMap, Preflight
+  - `tok-storage/`: TokPackage ZIP, atomic file operations, `redb` workspace
+  - `tok-plugin-host/`: Sandboxed core plugins (`divine-shield`, `hebrew-grep-acronym`)
+  - `tok-engine-service/`: Unified typesetting, export, storage, and plugin service layer
+  - `tok-ipc/`: IPC framing and worker protocol
+  - `tok-cli/`: CLI binary entry point, worker mode, and benchmarks
+  - `tok-desktop/`: Primary Tauri v2 desktop shell
 - `packages/`
-  - `tok-electron/`: Electron main process and preload script
-  - `tok-ui/`: Desktop UI renderer and components
+  - `tok-ui/`: Desktop UI renderer, `SpreadCanvas`, `tauriHostAdapter`, and components
+  - `tok-electron/`: Optional Electron main process and preload script
   - `tok-story-editor/`: Text editor component and DOM converter
-  - `tok-viewer/`: Viewport and pagination helpers
+  - `tok-viewer/`: Viewport virtualization (`PageDomVirtualizer`)
+  - `tok-canvas/`: Interactive canvas overlay (`CanvasInteractionOverlay`)
 - `test/`: Integration and E2E test suites
-- `docs/`: Architectural documentation and specifications
+- `docs/`: Architectural documentation, file index (`PROJECT_FILES.md`), and specifications

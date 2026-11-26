@@ -13,7 +13,7 @@
 
 ### 📋 עקרונות יסוד ומשמעת טיפוגרפית (Invariants)
 כל תרומת קוד למערכת מחויבת לציית לחוקי הברזל הבאים:
-1. **נרמול עברי לפי ת״י 6100 (SI 6100):** כל טקסט עברי המוזן למערכת עובר נרמול דטרמיניסטי:  
+1. **נרמול עברי קנוני (Canonical Hebrew Normalization — Unicode NFC + סדר מסורה/SBL):** כל טקסט עברי המוזן למערכת עובר נרמול דטרמיניסטי:  
    `אות בסיס ← נקודת שין/שין ← דגש/מפיק ← ניקוד ← מתג ← טעמי מקרא`.
 2. **איסור מוחלט על כשידה ערבית (`Tatweel U+0640`):** יישור עברי נעשה אך ורק לפי מדרג 3 השלבים: רווחי מילים $\rightarrow$ מתיחת אותיות אהלתר״ם (א, ה, ל, ת, ר, ם) $\rightarrow$ מיקרו-טרקינג.
 3. **מגן שמות קדושים:** חל איסור מוחלט על שבירת שורה או פיצול אותיות בשמות הוי"ה, אדנות ושמות קודש.
@@ -29,7 +29,7 @@
 #### בדיקות חובה לפני הגשת Pull Request:
 לפני יצירת PR יש לוודא כי כל הבדיקות עוברות באופן נקי:
 ```bash
-# 1. בדיקות ליבת Rust (65 בדיקות)
+# 1. בדיקות ליבת Rust
 cargo test --workspace
 
 # 2. בדיקת עיצוב קוד Rust
@@ -38,7 +38,8 @@ cargo fmt --check
 # 3. בדיקת Clippy ללא אזהרות
 cargo clippy --workspace --all-targets -- -D warnings
 
-# 4. בדיקות מעטפת Frontend (15 בדיקות)
+# 4. בדיקת טיפוסים ובדיקות Frontend ואינטגרציה
+npm run lint
 npm test
 
 # 5. קומפילציית TypeScript וחבילת UI
@@ -68,7 +69,7 @@ We welcome contributions from Rust developers, frontend engineers, font designer
 
 ### 📋 Core Typography Invariants
 All contributions must adhere to the following strict invariants:
-1. **SI 6100 Hebrew Unicode Normalization:** Mandatory canonical order:  
+1. **Canonical Hebrew Unicode Normalization (NFC + Masoretic/SBL Ordering):** Mandatory canonical order:  
    `Base Consonant -> Shin/Sin Dot -> Dagesh/Mapiq -> Niqqud -> Meteg -> Te'amim`.
 2. **Strict Rejection of Arabic Tatweel (`U+0640`):** Hebrew line justification uses only the 3-Tier engine: Word Spacing $\rightarrow$ Ahalterm Letter Stretching (Alef, He, Lamed, Tav, Resh, Final Mem) $\rightarrow$ Micro-tracking.
 3. **Holy Names Protection:** No hyphenation or word-breaking across divine Hebrew names.
@@ -77,14 +78,15 @@ All contributions must adhere to the following strict invariants:
 
 ### 🛠️ Verification Steps Before Submitting
 ```bash
-# Rust test suite (65 passing tests)
+# Rust test suite
 cargo test --workspace
 
 # Formatting & Clippy linter
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 
-# TypeScript tests & compilation (15 passing tests)
+# TypeScript type-check, tests & build
+npm run lint
 npm test
 npm run build
 ```

@@ -32,7 +32,7 @@
 ### עקרונות תכנון מרכזיים:
 * **אפס פגיעה בביצועים (Zero Performance Overhead):** כל הכלים הטיפוגרפיים ב-`tok.hebrew` פועלים כפונקציות טהורות נטולות DOM או קריאות IPC, בזמן ביצוע של מיקרו-שניות ($O(n)$).
 * **טרנזקציות אטומיות ומקבצים (`batch`):** שינויי טקסט של אלפי פסקאות מבוצעים במקבץ אטומי אחד (`tok.document.batch()`), תוך השהיית עדכוני DOM מיותרים וחישובי ספירת מילים עד לסיום הפעולה.
-* **ארגז חול מבודד (Security Sandbox):** קוד התוסף מבודד לחלוטין מגישה ישירה לרכיבי Electron פנימיים (`tokIpc` מוצלל), ואין אפשרות לזליגת מידע או גישה לאחסון מקומי רגיש.
+* **ארגז חול מבודד (Security Sandbox):** קוד התוסף מבודד לחלוטין (ב-WebWorker מבודד ב-Tauri v2 או עם הצללת `window.tokIpc` ב-Electron) ופועל מעל `getHostBridge()` ללא גישה ישירה למערכת הקבצים או לאחסון מקומי רגיש.
 * **תאימות לשפות פיתוח:** תמיכה מלאה הן ב-TypeScript (`.ts`) והן ב-JavaScript מודרני (`.js`).
 
 ---
@@ -83,6 +83,7 @@ my-hebrew-plugin/
 | `ui:modals` | פתיחת חלונות מודאליים | `openModal()` להצגת דיאלוגים מותאמים אישית |
 | `canvas:read` | קריאת תצוגת הקנבס | `getPageCount()`, `getActivePageIndex()`, `getZoom()`, `getViewMode()` |
 | `canvas:navigate` | ניווט ושליטה בקנבס | `scrollToPage()`, `setZoom()`, `toggleMarginsGuide()`, `toggleBaselineGuide()` |
+| `storage:export` | ייצוא קבצים | הפעלת ייצוא PDF או HTML |
 | `network:fetch` | גישה לרשת החיצונית | פניות HTTP/HTTPS (חסום לחלוטין כברירת מחדל ובמצב סייפר) |
 
 ### שכבות ההגנה בארגז החול:

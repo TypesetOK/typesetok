@@ -1,5 +1,5 @@
 # מפת קוד ויעדי פיתוח — TypesetOK (TOK) Code Map & Roadmap
-**גרסה נוכחית:** v0.35.0  
+**גרסה נוכחית:** v0.37.2  
 **תאריך עדכון:** נובמבר 2026
 
 ---
@@ -14,7 +14,7 @@ crates/
 │   ├── src/anchor.rs            # עוגני טקסט יציבים במרחב הפסקאות
 │   ├── src/id.rs                # מזהי ULID ואינדוקס שברירי ב-O(1) (FractionalIndex)
 │   ├── src/model.rs             # עץ המסמך: DocumentRoot, SectionNode, Flow, ParagraphNode
-│   ├── src/normalizer.rs        # נרמול דטרמיניסטי תקן ישראלי ת״י 6100 (SI 6100)
+│   ├── src/normalizer.rs        # נרמול עברי קנוני (Unicode NFC + סדר מסורה/SBL)
 │   ├── src/styles.rs            # מודל סגנונות פסקה, תו והתקדמות כיוונית
 │   └── src/transaction.rs       # טרנזקציות אטומיות ו-Undo/Redo בלתי מוגבל
 │
@@ -26,6 +26,7 @@ crates/
 │   ├── src/geometry.rs          # תיבות פריסה: PageLayoutBox, TextFrameBox, LineBox, GlyphBox
 │   ├── src/hebrew_justify.rs    # יישור תלת-שלבי: מילים, מתיחת אהלתר״ם ומיקרו-טרקינג
 │   ├── src/hit_test.rs          # מנוע Hit-Testing מרחבי תת-פיקסלי וסימון טווח שורות
+│   ├── src/html_projection.rs   # מחולל Pre-paginated HTML לתצוגת דפדפן
 │   ├── src/knuth_plass.rs       # אלגוריתם שבירת שורות אופטימלי גלובלי (Knuth-Plass)
 │   ├── src/multi_flow.rs        # פותר צורת הדף, פריסות צמודות (Recto/Verso) והערות שוליים
 │   └── src/shaper.rs            # עיצוב גליפים והתאמת רווחים
@@ -34,7 +35,7 @@ crates/
 │   ├── src/boxes.rs             # חישוב תיבות דפוס (MediaBox, BleedBox, TrimBox, SlugBox)
 │   ├── src/color.rs             # תמיכה ב-DeviceCMYK וצבעי ספוט
 │   ├── src/font_subsetter.rs    # גזירת תת-קבוצות גופנים TrueType/OpenType Subsetting
-│   ├── src/html_projection.rs   # מחולל Pre-paginated HTML לתצוגת דפדפן ו-Vivliostyle
+│   ├── src/image_xobject.rs     # פענוח PNG/JPEG וקידוד XObject ל-PDF/X
 │   ├── src/pdf_engine.rs        # פולט PDF/X תקני: דחיסת FlateDecode, תאריכי Manifest דטרמיניסטיים וסימני חיתוך
 │   └── src/tounicode.rs         # מפות CMap /ToUnicode להעתקה וחיפוש של טקסט מנוקד
 │
@@ -42,14 +43,20 @@ crates/
 │   ├── src/book.rs              # מנהל רב-מסמכים (.tokbook) לספרים מרובי כרכים
 │   ├── src/migration.rs         # מיגרציות סכמה עם תאימות לאחור
 │   ├── src/package.rs           # ארכיב ZIP אטומי מוגן (.tok) עם Manifest
-│   └── src/workspace.rs         # סביבת עבודה טרנזקציונית ACID מבוססת WAL
+│   └── src/workspace.rs         # סביבת עבודה טרנזקציונית ACID מבוססת redb
 │
-├── tok-ipc/                     # פרוטוקול תקשורת מהיר בין Rust ל-TypeScript
-│   ├── src/framing.rs           # מסגור הודעות בינאריות (Length-Prefixed Framing)
-│   └── src/protocol.rs          # סכמת פקודות ואירועי IPC (HitTest, InsertText וכו')
+├── tok-ipc/                     # פרוטוקול תקשורת בין Rust ל-TypeScript
+│   └── src/protocol.rs          # סכמת פקודות ואירועי IPC / Worker
 │
 ├── tok-plugin-host/             # מארח הרחבות מבודד
-│   └── src/host.rs              # הרצת תוספים עם הגנת קריסות (catch_unwind)
+│   └── src/lib.rs               # הרצת תוספים עם הגנת קריסות (catch_unwind) והרשאות
+│
+├── tok-engine-service/          # שכבת שירות מאוחדת לעימוד, ייצוא, אחסון ותוספים
+│   └── src/lib.rs               # API מאוחד עבור tok-desktop ו-tok-cli
+│
+├── tok-desktop/                 # מעטפת שולחן העבודה הראשית (Tauri v2)
+│   ├── src/main.rs              # אתחול חלון Tauri, פקודות IPC וניהול עדכונים/גופנים
+│   └── tauri.conf.json          # תצורת Tauri v2 ואבטחה
 │
 └── tok-cli/                     # ממשק שורת פקודה לבדיקות, בנצ'מרק ורינדור
     └── src/main.rs              # הרצת מבדקי דטרמיניזם, בנצ'מרק 1,000 עמודים וייצוא
@@ -73,11 +80,12 @@ packages/
 │   └── src/overlay.ts           # סמן עריכה אופטימי ב-RTL (<16ms), סימון גרירה והקלדה
 │
 ├── tok-story-editor/            # עורך סיפור רציף (Story Editor)
-│   └── src/editor.ts            # עריכת פסקאות טקסט רציף המסונכרן מול הדפים
+│   └── src/story_editor.ts      # עריכת פסקאות טקסט רציף המסונכרן מול הדפים
 │
 └── tok-ui/                      # אפליקציית סביבת העבודה (Desktop Workbench)
     ├── src/app.ts               # מחלקת האפליקציה הראשית TypesetOkApp
     ├── src/renderer.ts          # נקודת כניסה לתצוגה וחיבור אירועים
+    ├── src/platform/tauriHostAdapter.ts # מתאם IPC עבור מעטפת Tauri v2
     └── src/components/          # רכיבי ממשק: סרגל כלים (Toolbar), חלונית עמודים וכו'
 ```
 
@@ -87,13 +95,14 @@ packages/
 
 | גרסה | אבן דרך | תיאור והישגים מרכזיים | סטטוס |
 | :---: | :--- | :--- | :---: |
-| **v0.1** | **ליבת המסמך והעימוד הבסיסי** | מודל AST סמנטי (TDM), אינדוקס שברירי, נרמול ת״י 6100, ואלגוריתם Knuth-Plass. | **הושלם** ✅ |
+| **v0.1** | **ליבת המסמך והעימוד הבסיסי** | מודל AST סמנטי (TDM), אינדוקס שברירי, נרמול עברי קנוני, ואלגוריתם Knuth-Plass. | **הושלם** ✅ |
 | **v0.2** | **מנוע קדם-דפוס ו-PDF/X** | ייצוא PDF/X-1a, צבע שחור K=100%, סימני חיתוך, ותיבות Bleed/Trim. | **הושלם** ✅ |
 | **v0.3** | **מעטפת Electron ווירטואליזציה** | שולחן עבודה Electron, וירטואליזציית DOM של 3 עמודים פעילים (120 FPS). | **הושלם** ✅ |
 | **v0.4** | **גופני עברית מקוריים ו-Subsetting** | שילוב Noto Serif Hebrew ו-David Libre, עיצוב OpenType וגזירת גופנים ב-PDF. | **הושלם** ✅ |
 | **v0.6** | **צורת הדף לש״ס והערות שוליים** | פריסות צמודות (Recto/Verso), שבירת צורה ב-L-Shape מתחת לגמרא, והערות שוליים צפות. | **הושלם** ✅ |
 | **v0.7** | **שילוש ארכיטקטוני וממשק DTP מודרני** | מימוש Action HUD, מפקח הקשרי (Inspector) עם יישור עברי תלת-שלבי (אהלתר"ם), Command Palette (Ctrl+K), סרגל סטטוס ורשת עזרים. | **הושלם** ✅ |
-| **v0.8** | **חוויית שולחן עבודה מלאה, מערכת תוספים והתקנה** | מנגנון עדכונים מתוך התוכנה, לוגים עם מחיקה אוטומטית לפי ימים, מתקין דו-לשוני (עברית/אנגלית), מערכת תוספים (JS/TS), ספלאש מהיר אנטי-ניגודיות, מסך בחירת פרויקטים, כותרת מודרנית ללא סרגל אפרפר, RTL/LTR מלא, והגדרות ואודות. | **הושלם** ✅ *(גרסה נוכחית)* |
+| **v0.8** | **חוויית שולחן עבודה מלאה, מערכת תוספים והתקנה** | מנגנון עדכונים מתוך התוכנה, לוגים עם מחיקה אוטומטית לפי ימים, מתקין דו-לשוני (עברית/אנגלית), מערכת תוספים (JS/TS), ספלאש מהיר אנטי-ניגודיות, מסך בחירת פרויקטים, כותרת מודרנית ללא סרגל אפרפר, RTL/LTR מלא, והגדרות ואודות. | **הושלם** ✅ |
+| **v0.37** | **מעבר למעטפת Tauri v2 ושירות מנוע מאוחד** | הוספת `tok-desktop` (Tauri v2) ו-`tok-engine-service`, בידוד תוספים ב-WebWorker, שרת נכסים `tok-asset://`, והטמעת תמונות PNG/JPEG ב-PDF/X. | **הושלם** ✅ *(גרסה נוכחית)* |
 | **v1.0** | **אריזה רשמית ומוכנות לייצור** | קובץ התקנה חתום דיגיטלית ל-Windows, חנות תוספים מורחבת ומוכנות מלאה למכוני הוצאה לאור. | **היעד הבא** 🎯 |
 
 ---

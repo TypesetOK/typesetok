@@ -63,20 +63,20 @@ All work strictly maintains Rust in core and the rigorous separation between the
 1. **Hierarchical Outline & Book Structure** (`tok_core::outline`):
    - `DocumentOutline` tree structure representing structural book hierarchies: Volume (`Volume`), Part (`Part`), Chapter (`Chapter`), Section (`Section`), and SubSection.
    - Stable hierarchical numbering with depth, title, and target node references.
-2. **Stable Identifiers & Cross-Reference Model** (`tok_core::cross_ref`):
+2. **Stable Identifiers & Cross-Reference Model** (`tok_core::reference`):
    - `TargetAnchor`: Identifies targets by unique `NodeId` or named slug with kind (`Chapter`, `Section`, `Paragraph`, `Footnote`, `Figure`, `Custom`).
    - `CrossReference`: Source-to-target links with format specifiers (`PageNumber`, `GematriaFolio`, `Title`, `Number`, `CustomText`).
    - `ReferenceRegistry`: Resolves targets to page numbers, folio strings, and headings across incremental passes.
 3. **Extensible Numbering Schemes** (`tok_core::numbering`):
    - Supports Arabic, Roman, Gematria simple (טו/טז substitutions, gershayim rules), Gematria with thousand markers, Alphabetical, Daf/Amud folios (דף ב ע״א), and Torah Parasha/Aliyah numbering.
-4. **Running Headers & Folios Specification** (`tok_core::running_headers`):
+4. **Running Headers & Folios Specification** (`tok_core::header`):
    - `RunningHeaderSpec`: Left/center/right header tokens with spread alternation (Recto verso, Verso verso).
    - Dynamic token expansion: `{title}`, `{chapter}`, `{section}`, `{page}`, `{folio}`.
    - Apparatus scope definitions for commentary streams.
-5. **Editorial Manual Locks & Break Constraints** (`tok_core::manual_locks`):
+5. **Editorial Manual Locks & Break Constraints** (`tok_core::overrides`):
    - `ManualLayoutLock`: Enforces editorial decisions that layout engines must not alter (PinToPage, FixFrameBounds, LockLineBreaks, LockColumnBalance).
    - `ManualBreakConstraint`: Enforces `ForcePageBreakBefore`, `ForcePageBreakAfter`, `AvoidBreakBefore`, and `AvoidBreakAfter`.
-6. **Content-to-Page Bidirectional Dependency Tracking** (`tok_core::dependencies`):
+6. **Content-to-Page Bidirectional Dependency Tracking** (`tok_core::dependency`):
    - `ContentDependencyTracker`: Maps paragraph `NodeId` to page index, line ranges, and revision tokens.
    - Marks dirty revisions and computes the minimal invalidation frontier.
 

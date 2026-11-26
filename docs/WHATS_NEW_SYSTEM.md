@@ -14,7 +14,7 @@
 2. **עדכונים קטנים (Minor & Patch Releases):**
    - **אינם מטרידים את המשתמש בפופ-אפ חודרני!**
    - מוצגים בחלונית צד ייעודית (`UpdatesDrawer`) הנפתחת בצורה אלגנטית ומאפשרת שיטוט נוח, סינון וחיפוש.
-   - בסרגל המערכת העליון (`TopSystemBar`) מופיע כפתור פעמון/sparkle עם נקודת התראה כתומה פועמת (`tok-updates-unread-dot`) כשיש עדכון חדש שטרם נקרא. פתיחת החלונית מסמנת את העדכון כנצפה ומעלימה את האינדיקטור.
+   - בסרגל הפנימי (`ContextualInspector`) מופיע כפתור פעמון/sparkle עם נקודת התראה כתומה פועמת (`tok-updates-unread-dot`) כשיש עדכון חדש שטרם נקרא. פתיחת החלונית מסמנת את העדכון כנצפה ומעלימה את האינדיקטור.
 
 3. **דו-לשוניות מלאה (Full Bilingual RTL/LTR Support):**
    - כל הממשק, הכרטיסיות, התגיות, הסינונים והטקסטים מוגדרים במלואם הן בעברית והן באנגלית.
@@ -54,44 +54,14 @@ packages/tok-ui/src/
 
 ## 📝 כיצד להוסיף גרסה חדשה (Adding a New Release)
 
-כדי לתעד גרסה חדשה, עורכים את `packages/tok-ui/src/updates/changelogData.ts` ומוסיפים רשומה בראש המערך `CHANGELOG_ENTRIES`:
+`CHANGELOG.md` בשורש הפרויקט הוא מקור האמת היחיד. הקובץ `packages/tok-ui/src/updates/changelogData.ts` נוצר אוטומטית ממנו — **אין לערוך אותו ידנית**.
 
-```typescript
-{
-  version: '0.31.0',
-  releaseDate: '2026-11-15',
-  importance: 'major', // או 'minor' / 'patch'
-  title: {
-    he: 'כותרת העדכון בעברית',
-    en: 'Update Title in English'
-  },
-  summary: {
-    he: 'תקציר השינויים בעברית...',
-    en: 'English summary of the changes...'
-  },
-  badge: {
-    he: 'עדכון גדול',
-    en: 'Major Release'
-  },
-  // שדה highlights חובה בגרסאות major:
-  highlights: [
-    {
-      id: 'feature-id',
-      title: { he: 'שם היכולת', en: 'Feature Name' },
-      description: { he: 'תיאור מפורט', en: 'Detailed description' },
-      icon: 'sparkle', // שם אייקון מתוך IconName
-      badge: { he: 'חדש', en: 'New' }
-    }
-  ],
-  changes: [
-    {
-      category: 'features', // 'features' | 'improvements' | 'fixes' | 'typography' | 'performance'
-      text: { he: 'פירוט השינוי בעברית', en: 'English change description' },
-      tag: { he: 'תכונה חדשה', en: 'New Feature' }
-    }
-  ]
-}
-```
+1. הוסיפו את רשומת הגרסה החדשה ב-[`CHANGELOG.md`](../../CHANGELOG.md) (כולל שדות דו-לשוניים ותגיות חשיבות).
+2. הריצו סנכרון אוטומטי:
+   ```powershell
+   npm run sync:changelog
+   ```
+הסקריפט `scripts/sync-changelog.mjs` ייצור מחדש את `packages/tok-ui/src/updates/changelogData.ts`, והבדיקה ב-`test/whats_new_system.test.mjs` מאמתת שהקובץ מסונכרן עם `CHANGELOG.md`.
 
 ---
 
