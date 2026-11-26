@@ -409,7 +409,7 @@ export const strings: Translations = {
   aboutCoreLabel: { he: 'מנוע עימוד', en: 'Typesetting engine' },
   aboutRustVersion: { he: 'Rust · שבירת שורות Knuth-Plass ויישור אהלת״ם', en: 'Rust Native (Knuth-Plass & Ahalterm Justifier)' },
   aboutShellLabel: { he: 'מעטפת', en: 'Desktop shell' },
-  aboutShellValue: { he: 'Electron ו-Chromium', en: 'Electron + Chromium Pre-Press Platform' },
+  aboutShellValue: { he: 'Tauri v2 ו-WebView2', en: 'Tauri v2 + WebView2 Native Shell' },
   aboutGithubBtn: { he: 'מאגר הפרויקט ב-GitHub', en: 'Project on GitHub' },
   aboutClose: { he: 'סגירה', en: 'Close' },
   aboutAppDesc: { he: 'מערכת שולחנית מקצועית לסדר ועימוד דפוס עברי, ספרי קודש וספרות עברית.', en: 'A professional desktop typesetting system for Hebrew print, sacred texts and Hebrew literature.' },
