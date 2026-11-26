@@ -620,9 +620,9 @@ impl FontManager {
     /// Registers installed, embeddable system TrueType fonts once per process and
     /// merges them into this manager without overriding embedded or user-installed fonts.
     pub fn load_system_fonts(&mut self) {
-        static SYSTEM_FONTS_CACHE: std::sync::OnceLock<
-            Vec<(String, String, u16, Arc<FontData>, FontInspectionReport)>,
-        > = std::sync::OnceLock::new();
+        type CachedSystemFont = (String, String, u16, Arc<FontData>, FontInspectionReport);
+        static SYSTEM_FONTS_CACHE: std::sync::OnceLock<Vec<CachedSystemFont>> =
+            std::sync::OnceLock::new();
 
         let cached = SYSTEM_FONTS_CACHE.get_or_init(|| {
             let mut dirs: Vec<PathBuf> = Vec::new();

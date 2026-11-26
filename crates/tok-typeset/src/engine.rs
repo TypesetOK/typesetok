@@ -1386,9 +1386,19 @@ impl TypesettingEngine {
 
     fn format_roman(mut n: usize, upper: bool) -> String {
         let table = [
-            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+            (1000, "M"),
+            (900, "CM"),
+            (500, "D"),
+            (400, "CD"),
+            (100, "C"),
+            (90, "XC"),
+            (50, "L"),
+            (40, "XL"),
+            (10, "X"),
+            (9, "IX"),
+            (5, "V"),
+            (4, "IV"),
+            (1, "I"),
         ];
         let mut s = String::new();
         for (val, sym) in table {
@@ -1397,7 +1407,11 @@ impl TypesettingEngine {
                 n -= val;
             }
         }
-        if upper { s } else { s.to_lowercase() }
+        if upper {
+            s
+        } else {
+            s.to_lowercase()
+        }
     }
 
     fn apply_page_numbering_settings(doc: &DocumentRoot, pages: &mut [PageLayoutBox]) {
@@ -1414,17 +1428,46 @@ impl TypesettingEngine {
         if !enabled || method == "none" {
             return;
         }
-        let placement = pn.get("placement").and_then(|v| v.as_str()).unwrap_or("bottom-center");
-        let start_num = pn.get("startNumber").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
-        let font_family = pn.get("fontFamily").and_then(|v| v.as_str()).unwrap_or("Frank Ruhl Libre").to_string();
-        let font_size_pt = pn.get("fontSizePt").and_then(|v| v.as_f64()).unwrap_or(10.0) as f32;
+        let placement = pn
+            .get("placement")
+            .and_then(|v| v.as_str())
+            .unwrap_or("bottom-center");
+        let start_num = pn
+            .get("startNumber")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .max(1) as usize;
+        let font_family = pn
+            .get("fontFamily")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Frank Ruhl Libre")
+            .to_string();
+        let font_size_pt = pn
+            .get("fontSizePt")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(10.0) as f32;
         let prefix = pn.get("prefix").and_then(|v| v.as_str()).unwrap_or("");
         let suffix = pn.get("suffix").and_then(|v| v.as_str()).unwrap_or("");
-        let ornament_id = pn.get("ornamentId").and_then(|v| v.as_str()).unwrap_or("none");
-        let embed_in_ornament = pn.get("ornamentEmbedNumber").and_then(|v| v.as_bool()).unwrap_or(false);
-        let orn_w = pn.get("ornamentWidthPt").and_then(|v| v.as_f64()).unwrap_or(72.0) as f32;
-        let orn_h = pn.get("ornamentHeightPt").and_then(|v| v.as_f64()).unwrap_or(22.0) as f32;
-        let suppress_on_blank = pn.get("suppressOnBlankPages").and_then(|v| v.as_bool()).unwrap_or(true);
+        let ornament_id = pn
+            .get("ornamentId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("none");
+        let embed_in_ornament = pn
+            .get("ornamentEmbedNumber")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let orn_w = pn
+            .get("ornamentWidthPt")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(72.0) as f32;
+        let orn_h = pn
+            .get("ornamentHeightPt")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(22.0) as f32;
+        let suppress_on_blank = pn
+            .get("suppressOnBlankPages")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
         for page in pages.iter_mut() {
             if page.is_blank && suppress_on_blank {
@@ -1436,8 +1479,9 @@ impl TypesettingEngine {
             let ordinal = idx + start_num;
             let core = match method {
                 "hebrew-gematria" => GematriaEngine::to_hebrew_numeral(ordinal),
-                "hebrew-plain" => GematriaEngine::to_hebrew_numeral(ordinal)
-                    .replace(['\u{05F3}', '\u{05F4}'], ""),
+                "hebrew-plain" => {
+                    GematriaEngine::to_hebrew_numeral(ordinal).replace(['\u{05F3}', '\u{05F4}'], "")
+                }
                 "arabic" => ordinal.to_string(),
                 "gemara-daf-amud" => {
                     let daf_offset = idx + start_num.saturating_sub(2) * 2;
@@ -1459,7 +1503,11 @@ impl TypesettingEngine {
             let is_outer = placement == "top-outer" || placement == "bottom-outer";
             // In RTL binding: even page_index (recto) has outer edge on LEFT; odd (verso) has outer edge on RIGHT.
             let is_right_page = idx % 2 == 1;
-            let y_top = if is_top { 10.0 } else { (ph - 10.0 - orn_h).max(0.0) };
+            let y_top = if is_top {
+                10.0
+            } else {
+                (ph - 10.0 - orn_h).max(0.0)
+            };
             let x_left = if !is_outer {
                 (pw - orn_w) / 2.0
             } else if is_right_page {

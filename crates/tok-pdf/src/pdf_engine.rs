@@ -1282,18 +1282,23 @@ impl PdfPrePressEngine {
                     let (left_x, folio_y) = if let Some(spec) = style_spec {
                         if spec.embed_in_ornament {
                             if let Some(ref orn_rect) = spec.ornament_rect {
-                                let cx = origin_x + orn_rect.x + (orn_rect.width - total_width) / 2.0;
+                                let cx =
+                                    origin_x + orn_rect.x + (orn_rect.width - total_width) / 2.0;
                                 // Convert top-down orn_rect.y to PDF bottom-up y, centering text vertically.
-                                let cy = origin_y
-                                    + (page_h - (orn_rect.y + orn_rect.height / 2.0))
+                                let cy = origin_y + (page_h - (orn_rect.y + orn_rect.height / 2.0))
                                     - folio_font_size * 0.35;
                                 (cx, cy)
                             } else {
-                                (origin_x + (p_box.dimensions.width - total_width) / 2.0, origin_y + 25.0)
+                                (
+                                    origin_x + (p_box.dimensions.width - total_width) / 2.0,
+                                    origin_y + 25.0,
+                                )
                             }
                         } else {
-                            let is_top = spec.placement == "top-center" || spec.placement == "top-outer";
-                            let is_outer = spec.placement == "top-outer" || spec.placement == "bottom-outer";
+                            let is_top =
+                                spec.placement == "top-center" || spec.placement == "top-outer";
+                            let is_outer =
+                                spec.placement == "top-outer" || spec.placement == "bottom-outer";
                             let is_right_page = p_box.page_index % 2 == 1;
                             let x = if !is_outer {
                                 origin_x + (p_box.dimensions.width - total_width) / 2.0
