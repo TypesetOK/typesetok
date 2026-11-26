@@ -46,8 +46,10 @@ pub mod polygon;
 pub mod polygon_engine;
 pub mod polygon_flow;
 pub mod shaper;
+pub mod sidenotes;
 pub mod solver;
 pub mod template_synthesizer;
+pub mod toc;
 
 pub use bidi::{BidiEngine, BidiRun};
 pub use co_pagination::{
@@ -107,6 +109,7 @@ pub use polygon_flow::{
     CommentaryAbsorptionSpec, MultiColumnPolygonFlowSynthesizer, SynthesizedPolygonFlow,
 };
 pub use shaper::{PositionedGlyph, ShapedRun, TextShaper};
+pub use sidenotes::{attach_sidenotes_to_pages, resolve_sidenote_positions};
 pub use solver::{
     AbsorptionKind, ColumnFrameVariables, ColumnSpec, ColumnWidthDistribution,
     CommentaryAbsorptionConfig, CommentaryAbsorptionVariables, ConstraintRelation,
@@ -116,3 +119,4 @@ pub use solver::{
     PageGeometryConfig, RectVariables, SolvedColumnAllocation, SolvedRect, SolverError,
 };
 pub use template_synthesizer::TemplateSynthesizer;
+pub use toc::{DynamicPageRefResolver, TocConfig, TocEntry, TocLayoutEngine, TocLayoutMode};

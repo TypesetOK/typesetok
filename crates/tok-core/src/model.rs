@@ -103,6 +103,10 @@ pub struct ParagraphNode {
     pub image: Option<ImageAttachment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ornament: Option<OrnamentRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inline_notes: Vec<crate::notes::InlineNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sidenotes: Vec<crate::notes::Sidenote>,
 }
 
 impl ParagraphNode {
@@ -121,7 +125,19 @@ impl ParagraphNode {
             number_label: None,
             image: None,
             ornament: None,
+            inline_notes: Vec::new(),
+            sidenotes: Vec::new(),
         }
+    }
+
+    pub fn with_inline_note(mut self, note: crate::notes::InlineNote) -> Self {
+        self.inline_notes.push(note);
+        self
+    }
+
+    pub fn with_sidenote(mut self, sidenote: crate::notes::Sidenote) -> Self {
+        self.sidenotes.push(sidenote);
+        self
     }
 
     pub fn with_image(mut self, image: ImageAttachment) -> Self {
@@ -368,6 +384,9 @@ pub struct SectionNode {
     /// Whether to draw vertical column separator rules between columns.
     #[serde(default)]
     pub draw_column_rule: bool,
+    /// Optional sidenote / marginalia layout configuration for this section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidenote_config: Option<crate::notes::SidenoteConfig>,
 }
 
 impl SectionNode {
@@ -388,7 +407,13 @@ impl SectionNode {
             column_gutter_pt: None,
             column_distribution: crate::styles::ColumnDistributionMode::default(),
             draw_column_rule: false,
+            sidenote_config: None,
         }
+    }
+
+    pub fn with_sidenote_config(mut self, config: crate::notes::SidenoteConfig) -> Self {
+        self.sidenote_config = Some(config);
+        self
     }
 
     pub fn with_columns(mut self, count: usize, gutter_pt: f32) -> Self {
