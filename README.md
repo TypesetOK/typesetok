@@ -31,18 +31,19 @@
 
 ## 1. Architecture Overview
 
-The project is organized as a Monorepo that strictly separates the Rust typesetting and document core from the TypeScript presentation and interaction layers:
+The project is organized as a Monorepo that strictly separates the Rust typesetting and document core from the TypeScript presentation and interaction layers. For a complete file-by-file directory index and explanation of every file in the repository, see [`docs/PROJECT_FILES.md`](./docs/PROJECT_FILES.md).
 
 ### End-to-End Deterministic Data Flow
 
 ```text
 [UI / Story Editor / SpreadCanvas (TypeScript)]
        │
-       ▼  (JSON Document Snapshot / Incremental Edit)
-[tok-cli (Rust Binary Bridge)]
+       ▼  (Tauri v2 IPC Commands  —  or tok-cli Bridge in Electron)
+[tok-desktop (Tauri v2) / tok-cli (Rust Binary Bridge)]
        │
-       ├──► [tok-core]      Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
-       ├──► [tok-typeset]   Unicode Bidi (UAX #9) + Masoretic Shaper + Knuth-Plass + Multi-Apparatus + Cassowary + Co-Pagination
+       ├──► [tok-engine-service]  Unified Typesetting, Pre-Press, Storage & Plugin Orchestration
+       ├──► [tok-core]            Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
+       ├──► [tok-typeset]         Unicode Bidi (UAX #9) + Masoretic Shaper + Knuth-Plass + Multi-Apparatus + Cassowary + Co-Pagination
        │
        ▼
 [PageLayoutBox Geometry Tree (in DTP Points / pt)]
@@ -50,27 +51,29 @@ The project is organized as a Monorepo that strictly separates the Rust typesett
        ├──────────────────────────────────────────────────────────┐
        ▼                                                          ▼
 [Screen & Interaction Pipeline]                         [Native Pre-Press Pipeline]
-- tok-ui: SpreadCanvas (Deterministic DOM Projection)   - tok-pdf: Direct PDF/X-1a:2001 Generator
+- tok-ui: SpreadCanvas (Deterministic DOM Projection)   - tok-pdf: Direct PDF/X-1a:2001 & PDF/X-4 Generator
 - tok-viewer: PageDomVirtualizer ([K-1, K, K+1] Window)   (DeviceCMYK, Spot Colors, TrimBox/BleedBox,
 - tok-canvas: CanvasInteractionOverlay (120fps Caret)      Embedded Font Subsets & /ToUnicode CMap)
 - tok-story-editor: Unpaginated Lossless Story Editor
 ```
 
-> **Mandatory Engineering Principle:** The browser (Chromium) **does not** decide where lines break or where pages split, and the system **does not** use external browser polyfill libraries (such as `@vivliostyle/core` or `Paged.js`). All geometry is computed in Rust (`tok-typeset`), exported as `PageLayoutBox` structures in exact `pt` units, and projected onto a rigid DOM projection (`SpreadCanvas`) or directly into a `PDF/X-1a` file.
+> **Mandatory Engineering Principle:** The browser/webview **does not** decide where lines break or where pages split, and the system **does not** use external browser polyfill libraries (such as `@vivliostyle/core` or `Paged.js`). All geometry is computed in Rust (`tok-typeset`), exported as `PageLayoutBox` structures in exact `pt` units, and projected onto a rigid DOM projection (`SpreadCanvas`) or directly into a `PDF/X-1a` / `PDF/X-4` file.
 
 ---
 
-### 7 Core Rust Crates (`crates/`)
+### 9 Core Rust Crates (`crates/`)
 
 | Crate | Primary Role & Responsibilities |
 | :--- | :--- |
-| **`tok-core`** | Canonical Document Model (TDM): immutable document tree, `ropey` B-Tree Rope for long texts, `ULID` identifiers, `FractionalIndex`, transaction stack and delta Undo/Redo, multi-layered apparatus configurations (`ApparatusConfig`), typographic style patches, Hebrew gematria engine (including taboo table: ט״ו, ט״ז, ע״ר, ער״ב, ער״ה, רח״צ, שי״ד, נט״ש, תשי״ד and `U+05F3`/`U+05F4` characters), and canonical Hebrew typographic input normalizer ($\text{Base} \rightarrow \text{Shin/Sin Dot} \rightarrow \text{Dagesh/Mapiq} \rightarrow \text{Niqqud} \rightarrow \text{Meteg} \rightarrow \text{Te'amim}$). |
-| **`tok-typeset`** | Typesetting & typography engine: dedicated Masoretic and biblical cantillation (*Te'amim*) shaper (`MasoreticShaper`, inverted Nun, Paseq, upper/lower Meteg, and biblical OpenType features), `unicode-bidi` (UAX #9) directionality resolution, pure-Rust font shaping (`rustybuzz` including GPOS `mark`/`mkmk`), global **Knuth-Plass** line-breaking algorithm, three-tier Hebrew justification hierarchy (controlled word spacing $\rightarrow$ letter elongation / *Ahaltaram* $\rightarrow$ micro-tracking $\pm 2\%$), linear constraint solver (**Cassowary**), dynamic width-ratio distribution for rabbinic streams (2, 3, and 4 columns in *Shas* and *Mikraot Gedolot* with exact Recto/Verso tracking), parallel multi-layered footnote layout engine (`FootnotePaginator`), Hebrew drop caps, and polygon/scanline clipping engine for L-shaped commentary wrapping. |
-| **`tok-pdf`** | Native pre-press engine (`pdf-writer`): direct generation of `PDF/X-1a:2001` (ISO 15930-1) and PDF/X-4 modes, `DeviceCMYK` color space and spot colors (`Separation`), standard print boxes (`MediaBox`, `CropBox`, `BleedBox`, `TrimBox`), crop & registration marks, font subsetting and `/ToUnicode` CMap tables for Hebrew text search and copy, and a `Preflight` engine. |
-| **`tok-storage`** | Dual storage engine: crash-resilient workspace in **SQLite WAL** (`rusqlite`) + atomic saving to `.tok` package files (ZIP archive with **Zstandard** compression containing `manifest.json`, `document.json`, `styles.json`, and SHA-256 verified assets). |
-| **`tok-plugin-host`** | Deterministic extension & plugin engine: executes core plugins based on atomic transactions under resource limits (`Fuel` / `Memory` / `Capabilities`), including built-in plugins for stripping double spaces, applying *Dibbur HaMatchil* (opening words) styling in Rashi and Tosafot, and enforcing the Hebrew maqaf (`U+05BE`). |
-| **`tok-ipc`** | Binary framing protocol library (`TOKB` Binary Framing) for inter-process command and response messages. |
-| **`tok-cli`** | Main system CLI binary, serving both for headless batch processing & CI and as the typesetting and storage bridge for the Electron shell. |
+| **`tok-core`** | Canonical Document Model (TDM): immutable document tree, `ropey` B-Tree Rope for long texts, `ULID` identifiers, `FractionalIndex`, transaction stack and delta Undo/Redo, multi-layered apparatus configurations (`FootnoteApparatus`), typographic style patches, outline/gematria numbering (`ט״ו`, `ט״ז`), and canonical Hebrew typographic input normalizer ($\text{Shin/Sin Dot} \rightarrow \text{Dagesh/Mapiq} \rightarrow \text{Niqqud} \rightarrow \text{Meteg} \rightarrow \text{Te'amim}$). |
+| **`tok-typeset`** | Typesetting & typography engine: dedicated Masoretic and biblical cantillation (*Te'amim*) shaper (`MasoreticShaper`, inverted Nun, Paseq, upper/lower Meteg, and biblical OpenType features), `unicode-bidi` (UAX #9) directionality resolution, pure-Rust font shaping (`rustybuzz` including GPOS `mark`/`mkmk`), global **Knuth-Plass** line-breaking algorithm, three-tier Hebrew justification hierarchy (controlled word spacing $\rightarrow$ letter elongation / *Ahaltaram* $\rightarrow$ micro-tracking $\pm 2\%$), linear constraint solver (**Cassowary**), Hebrew gematria engine with taboo table (`ט״ו`, `ט״ז`, `ע״ר`, `ער״ב`, `ער״ה`, `חר״צ`, `ד״ש`, `שי״ד`, `שד״מ`, `נט״ש`, `תרח״צ`, `תשד״מ` and `U+05F3`/`U+05F4`), dynamic width-ratio distribution for rabbinic streams (2, 3, and 4 columns in *Shas* and *Mikraot Gedolot* with exact Recto/Verso tracking), parallel multi-layered footnote layout engine (`FootnotePaginator`), Hebrew drop caps, and polygon/scanline clipping engine for L-shaped commentary wrapping. |
+| **`tok-pdf`** | Native pre-press engine (`pdf-writer`): direct generation of `PDF/X-1a:2001` (ISO 15930-1) and `PDF/X-4` modes, `DeviceCMYK` color space and spot colors (`Separation`), standard print boxes (`MediaBox`, `CropBox`, `BleedBox`, `TrimBox`), crop & registration marks, PNG/JPEG image XObject encoding (`image_xobject`), font subsetting and `/ToUnicode` CMap tables for Hebrew text search and copy, and a `Preflight` engine. |
+| **`tok-storage`** | Dual storage engine: crash-resilient ACID workspace in **`redb`** + atomic saving to `.tok` package files (ZIP archive with `Deflate` compression containing `manifest.json`, `document.json`, `assets/`, and `previews/`). |
+| **`tok-plugin-host`** | Deterministic extension & plugin engine: executes core plugins based on atomic transactions under capability checks (`PluginCapability`) and panic isolation (`catch_unwind`), including built-in plugins `tok.builtin.divine-shield` and `tok.builtin.hebrew-grep-acronym`. |
+| **`tok-engine-service`** | Unified Rust service layer orchestrating document loading, typesetting, PDF/HTML export, preflight evaluation, package persistence, and built-in plugins for both `tok-desktop` and `tok-cli`. |
+| **`tok-ipc`** | Binary framing & worker protocol library (`TOKB` Binary Framing / JSON `WorkerRequest`) for inter-process command and response messages. |
+| **`tok-cli`** | Main system CLI binary, serving for headless batch processing, CI, persistent `worker` mode, and as the typesetting/storage bridge for the Electron shell. |
+| **`tok-desktop`** | Native **Tauri v2** desktop shell (`src-tauri` equivalent): manages native windows, Tauri IPC commands, Windows system fonts, `.tok` file associations, plugin loading, and Ed25519-verified updates, calling `tok-engine-service` directly in-process. |
 
 ---
 
@@ -78,7 +81,7 @@ The project is organized as a Monorepo that strictly separates the Rust typesett
 
 | Package | Primary Role & Responsibilities |
 | :--- | :--- |
-| **`tok-electron`** | Electron Main process and hardened `preload` bridge (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), strict IPC schema validation, external navigation blocking, and `tok-cli` subprocess management. |
+| **`tok-electron`** | Optional Electron Main process and hardened `preload` bridge (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), strict IPC schema validation, external navigation blocking, and `tok-cli` subprocess management. |
 | **`tok-ui`** | Full desktop workspace: `SpreadCanvas` component for deterministic `PageLayoutBox` DOM projection, live style and typography sync pipeline across the inspector panel, toolbar, and canvas, direct dragging and locking of text frames on the canvas, adding custom streams (including edge-split unconnected blocks flowing by height), template-aware style filtering, guided template selection screen on document creation with continuous-book recommendation, update & changelog ("What's New") system, hardened `PluginEngine`, and live `Preflight` checks. |
 | **`tok-viewer`** | Viewport page virtualization manager (`PageDomVirtualizer`): keeps an active window of only 3 pages in the DOM (`[K-1, K, K+1]`) and represents the rest of the book as lightweight Spacer elements. |
 | **`tok-canvas`** | Transparent graphic overlay (`CanvasInteractionOverlay`): bidirectional caret rendering (`Dual Caret` / `RTL Caret`), optimistic instant caret movement (`<16ms`), non-contiguous visual selection in mixed text, and spatial hit-testing. |
@@ -100,27 +103,30 @@ The project is organized as a Monorepo that strictly separates the Rust typesett
 # 1. Install Node/TypeScript dependencies
 npm install
 
-# 2. Build all Rust crates in the workspace (including the CLI binary required by the desktop shell)
+# 2. Build all Rust crates in the workspace (including tok-desktop and tok-cli)
 cargo build --workspace
 cargo build --bin tok-cli
 
-# 3. Type-check and compile the UI and Electron packages
+# 3. Type-check, compile, and bundle the UI and Electron packages
 npm run lint
 npm run build
 
-# 4. Launch the TypesetOK desktop application in Electron
+# 4. Launch the TypesetOK desktop application (Tauri v2 by default; use start:electron for Electron)
 npm start
+# or for Electron:
+npm run start:electron
 
 # 5. (Optional) Package the desktop bundle and build an installer
 npm run package:desktop
 npm run package:installer
 ```
 
-> **Important Note on Locating `tok-cli.exe`:** The Electron shell (`packages/tok-electron/src/main.ts`) searches for `tok-cli.exe` in the following order:
+> **Note on Locating `tok-cli.exe` (Electron shell only):** `tok-desktop` (Tauri v2) embeds the Rust engine in-process. When running the Electron shell (`packages/tok-electron/src/main.ts`), it searches for `tok-cli.exe` in the following order:
 > 1. The `TOK_CLI_PATH` environment variable (if set).
-> 2. The target directory configured in `.cargo/config.toml` (`%LOCALAPPDATA%\tok_target\debug\tok-cli.exe` or `release\tok-cli.exe`).
-> 3. `target/debug/tok-cli.exe` or `target/release/tok-cli.exe` at the repository root.
-> Therefore, you must run `cargo build --bin tok-cli` before running `npm start`.
+> 2. `CARGO_TARGET_DIR` (`release` then `debug`), if set.
+> 3. The target directory configured in `.cargo/config.toml` (`%LOCALAPPDATA%\tok_target\release\tok-cli.exe` or `debug\tok-cli.exe`).
+> 4. `target/release/tok-cli.exe` or `target/debug/tok-cli.exe` at the repository root.
+> Therefore, run `cargo build --bin tok-cli` before running `npm run start:electron`.
 
 ---
 
@@ -130,17 +136,21 @@ The `tok-cli` binary allows running all core operations directly from the comman
 
 | Subcommand | Syntax & Parameters | Description |
 | :--- | :--- | :--- |
-| **`typeset-document`** | `tok-cli typeset-document <input.json> [output.layout.json]` | Full typesetting of a JSON document (including Knuth-Plass, Cassowary, and Co-Pagination), returning a detailed `PageLayoutBox` tree in `pt` units (including glyphs, lines, frames, footnotes, and Preflight report). |
-| **`incremental-typeset`** | `tok-cli incremental-typeset <input.json> <dirty_paragraph_index> [output.json]` | Convergence-based incremental typesetting (`Convergence Paginator`) starting from the modified paragraph until the convergence point. |
-| **`diagnose-recompute`** | `tok-cli diagnose-recompute <base.json> <edited.json> <dirty_idx>` | Compares and diagnoses how many pages were recomputed versus fetched from cache during an incremental edit. |
-| **`render-pdf`** | `tok-cli render-pdf <input.json\|.tok> <output.pdf>` | Generates a print-standard `PDF/X-1a:2001` file directly from the document (including CMYK, print boxes, and font subsetting). |
-| **`render-html`** | `tok-cli render-html <input.json\|.tok> <output.html>` | Generates a standalone pre-paginated HTML/CSS file for preview and inspection. |
-| **`save-package`** | `tok-cli save-package <input.json> <output.tok>` | Atomically packs and saves a JSON document into the `.tok` package format (ZIP + Zstandard + SHA-256 manifest). |
-| **`open-package`** | `tok-cli open-package <input.tok> [output.json]` | Opens a `.tok` file, verifies package and asset integrity, and restores the canonical document JSON. |
-| **`inspect-package`** | `tok-cli inspect-package <input.tok>` | Verifies `.tok` archive integrity and prints a metadata summary (title, section count, paragraphs, and schema version). |
-| **`run-plugins`** | `tok-cli run-plugins <input.json> <plugin_id[,plugin_id...]> [output.json]` | Runs sandboxed deterministic core plugins (`builtin.strip-double-spaces`, `builtin.apply-dibbur-hamatchil`, `builtin.enforce-hebrew-maqaf`) on the document. |
-| **`verify-determinism`** | `tok-cli verify-determinism <input.json> [iterations]` | Runs typesetting and PDF/HTML generation multiple times and verifies bit-for-bit identity (SHA-256 Bit-for-Bit Determinism). |
-| **`benchmark-typeset`** | `tok-cli benchmark-typeset <paragraphs_count>` | Runs a stress and performance benchmark on a large synthetic document and prints layout timing and per-page speed metrics. |
+| **`typeset-document`** | `tok-cli typeset-document <INPUT.json\|.tok\|--demo> <OUTPUT.json> [--fonts-dir <DIR>] [--assets-from <TOK>]` | Full typesetting of a document (including Knuth-Plass, Cassowary, and Co-Pagination), returning a detailed `PageLayoutBox` tree in `pt` units. |
+| **`incremental-typeset`** | `tok-cli incremental-typeset <INPUT.json\|--demo> <OUTPUT.json> [--node-id <ID>]` | Convergence-based incremental typesetting (`Convergence Paginator`) with recompute diagnostics. |
+| **`diagnose-recompute`** | `tok-cli diagnose-recompute <INPUT.json\|.tok\|--demo>` | Runs a 3-position invalidation & cache diagnostic report comparing recomputed vs. cached pages. |
+| **`render-pdf`** | `tok-cli render-pdf <INPUT.json\|.tok\|--demo> <OUTPUT.pdf> [--standard pdfx4] [--profile <ID>] [--no-bleed] [--no-crop-marks] [--registration-marks]` | Generates a print-standard `PDF/X-1a:2001` or `PDF/X-4` file directly from the document (including CMYK, print boxes, and font subsetting). |
+| **`render-html`** | `tok-cli render-html <INPUT.json\|.tok\|--demo> <OUTPUT.html>` | Generates a standalone pre-paginated HTML/CSS file for preview and inspection. |
+| **`save-package`** | `tok-cli save-package <INPUT.json> <OUTPUT.tok> [--fonts-dir <DIR>] [--assets-from <TOK>]` | Atomically packs and saves a JSON document into the `.tok` package format (ZIP + Deflate). |
+| **`open-package`** | `tok-cli open-package <INPUT.tok> <OUTPUT.json>` | Opens a `.tok` file and restores the canonical document JSON. |
+| **`inspect-package`** | `tok-cli inspect-package <INPUT.tok>` | Verifies `.tok` archive structure and prints a metadata summary (title, schema version, and embedded assets). |
+| **`inspect-font`** | `tok-cli inspect-font <PATH.ttf>` | Validates an external font (`glyf`/OS2 `fsType`/Hebrew coverage) and emits a JSON report. |
+| **`preflight`** | `tok-cli preflight <INPUT.json\|.tok\|--demo> [OUTPUT.json] [--fonts-dir <DIR>] [--assets-from <TOK>]` | Runs real pre-press preflight evaluation and emits a `PreflightReport` JSON. |
+| **`run-plugins`** | `tok-cli run-plugins <INPUT.json\|.tok\|--demo> <OUTPUT.json>` | Runs the built-in deterministic pre-typeset plugins (`tok.builtin.divine-shield`, `tok.builtin.hebrew-grep-acronym`) on the document. |
+| **`sync-heading-numbers`** | `tok-cli sync-heading-numbers <INPUT.json\|.tok\|--demo> <OUTPUT.json> [--plain]` | Synchronizes outline/chapter heading numbers using Hebrew gematria formatting. |
+| **`verify-determinism`** | `tok-cli verify-determinism` | Runs typesetting and PDF/HTML generation across single-flow and multi-flow pipelines and verifies bit-for-bit SHA-256 identity. |
+| **`benchmark-typeset`** | `tok-cli benchmark-typeset [--pages N]` | Runs a stress and performance benchmark (default `1000` pages) and prints layout timing and cascade latency metrics. |
+| **`worker`** | `tok-cli worker` | Runs `tok-cli` in persistent stdin/stdout JSON line worker mode with layout cache reuse. |
 
 ---
 
@@ -168,10 +178,10 @@ cargo run -p tok-cli -- verify-determinism
 
 In accordance with the project's engineering discipline (zero false claims and zero mock implementations), the following are the known limitations in the current release:
 
-1. **Raster Image Placement:** The layout engine (`tok-typeset`) and PDF generator (`tok-pdf`) currently support text frames, vector ornaments, divider rules, and asset management in `.tok` packages, but do not yet lay out bitmap images (TIFF/JPEG/PNG) embedded inline within the text flow.
-2. **Inter-Process Communication (`tok-ipc` vs. `tok-cli`):** The `crates/tok-ipc` crate implements the binary framing protocol (`TOKB`) intended for Persistent Daemon Mode. In the current version, the Electron Main process communicates with the Rust core via deterministic, controlled invocations of the `tok-cli` subprocess.
+1. **TIFF Image Support:** The layout engine (`tok-typeset`) and PDF generator (`tok-pdf`) support text frames, vector ornaments, divider rules, and inline PNG/JPEG bitmap images (`image_xobject`), but do not yet decode or place TIFF images.
+2. **Inter-Process Communication (`tok-ipc` vs. `tok-cli`):** `tok-desktop` (Tauri v2) invokes `tok-engine-service` directly in-process. The optional Electron shell (`tok-electron`) communicates with the Rust core via controlled invocations of the `tok-cli` subprocess, while `crates/tok-ipc` provides the framing/worker protocol types.
 3. **PDF/X-4 Export & External ICC Profile Management:** The PDF generator produces `PDF/X-1a:2001` and `PDF/X-4` files with real `DeviceCMYK` and `Separation` (Spot Colors) operators and a built-in `OutputIntent` dictionary (ISO Coated v2 / Fogra39), without dynamically linking an external C library such as `LittleCMS`.
-4. **Repository Electron Version (`electron@29.4.6`):** The desktop shell is fully hardened (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, strict CSP, and navigation blocking), though upgrading to a newer major Electron version (v32+) requires downloading the Electron binary in an online environment.
+4. **Repository Electron Version (`electron@29.4.6`):** The optional Electron shell is fully hardened (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, strict CSP, and navigation blocking), though upgrading to a newer major Electron version (v32+) requires downloading the Electron binary in an online environment.
 
 ---
 
@@ -209,18 +219,19 @@ For contribution guidelines and community standards, see [`CONTRIBUTING.md`](./C
 
 ## 1. סקירה ארכיטקטונית (Architecture Overview)
 
-הפרויקט מאורגן כ-Monorepo המפריד באופן מוחלט בין ליבת העימוד והמסמך ב-Rust לבין שכבות התצוגה והאינטראקציה ב-TypeScript:
+הפרויקט מאורגן כ-Monorepo המפריד באופן מוחלט בין ליבת העימוד והמסמך ב-Rust לבין שכבות התצוגה והאינטראקציה ב-TypeScript. לאינדקס מלא המפנה לכל קובץ בפרויקט ומסביר את תפקידו ראו: [`docs/PROJECT_FILES.md`](./docs/PROJECT_FILES.md).
 
 ### תרשים זרימת נתונים דטרמיניסטי (End-to-End Deterministic Data Flow)
 
 ```text
 [UI / Story Editor / SpreadCanvas (TypeScript)]
        │
-       ▼  (JSON Document Snapshot / Incremental Edit)
-[tok-cli (Rust Binary Bridge)]
+       ▼  (פקודות IPC של Tauri v2  —  או גשר tok-cli ב-Electron)
+[tok-desktop (Tauri v2) / tok-cli (Rust Binary Bridge)]
        │
-       ├──► [tok-core]      Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
-       ├──► [tok-typeset]   Unicode Bidi (UAX #9) + Masoretic Shaper + Knuth-Plass + Multi-Apparatus + Cassowary + Co-Pagination
+       ├──► [tok-engine-service]  שכבת תיאום מאוחדת לעימוד, קדם-דפוס, אחסון ותוספים
+       ├──► [tok-core]            Canonical Document Model (TDM), Multi-Apparatus, B-Tree Rope, ULID, Hebrew Normalizer
+       ├──► [tok-typeset]         Unicode Bidi (UAX #9) + Masoretic Shaper + Knuth-Plass + Multi-Apparatus + Cassowary + Co-Pagination
        │
        ▼
 [PageLayoutBox Geometry Tree (in DTP Points / pt)]
@@ -228,27 +239,29 @@ For contribution guidelines and community standards, see [`CONTRIBUTING.md`](./C
        ├──────────────────────────────────────────────────────────┐
        ▼                                                          ▼
 [Screen & Interaction Pipeline]                         [Native Pre-Press Pipeline]
-- tok-ui: SpreadCanvas (Deterministic DOM Projection)   - tok-pdf: Direct PDF/X-1a:2001 Generator
+- tok-ui: SpreadCanvas (Deterministic DOM Projection)   - tok-pdf: Direct PDF/X-1a:2001 & PDF/X-4 Generator
 - tok-viewer: PageDomVirtualizer ([K-1, K, K+1] Window)   (DeviceCMYK, Spot Colors, TrimBox/BleedBox,
 - tok-canvas: CanvasInteractionOverlay (120fps Caret)      Embedded Font Subsets & /ToUnicode CMap)
 - tok-story-editor: Unpaginated Lossless Story Editor
 ```
 
-> **עיקרון הנדסי מחייב:** הדפדפן (Chromium) **אינו** מחליט היכן נשברות שורות או היכן מתפצלים עמודים, והמערכת **אינה** משתמשת בספריות Polyfill חיצוניות בדפדפן (כגון `@vivliostyle/core` או `Paged.js`). כל הגיאומטריה מחושבת ב-Rust (`tok-typeset`), מיוצאת כמבני `PageLayoutBox` ביחידות `pt` מדויקות, ומוקרנת להיטל DOM קשיח (`SpreadCanvas`) או ישירות לקובץ `PDF/X-1a`.
+> **עיקרון הנדסי מחייב:** הדפדפן/WebView **אינו** מחליט היכן נשברות שורות או היכן מתפצלים עמודים, והמערכת **אינה** משתמשת בספריות Polyfill חיצוניות בדפדפן (כגון `@vivliostyle/core` או `Paged.js`). כל הגיאומטריה מחושבת ב-Rust (`tok-typeset`), מיוצאת כמבני `PageLayoutBox` ביחידות `pt` מדויקות, ומוקרנת להיטל DOM קשיח (`SpreadCanvas`) או ישירות לקובץ `PDF/X-1a` / `PDF/X-4`.
 
 ---
 
-### 7 חבילות הליבה ב-Rust (`crates/`)
+### 9 חבילות הליבה ב-Rust (`crates/`)
 
 | חבילה (Crate) | תפקיד ואחריות מרכזית |
 | :--- | :--- |
-| **`tok-core`** | מודל המסמך הקנוני (TDM): עץ מסמך אי-מוטבילי, `ropey` B-Tree Rope לטקסטים ארוכים, מזהי `ULID`, אינדוקס שברירי (`FractionalIndex`), מחסנית טרנזקציות ו-Undo/Redo דלתא, תצורות מערך הערות רב-שכבתי (`ApparatusConfig`), טלאי עיצוב טיפוגרפיים, מנוע גימטריה עברית (כולל טבלת טאבו: ט״ו, ט״ז, ע״ר, ער״ב, ער״ה, רח״צ, שי״ד, נט״ש, תשי״ד ותווי `U+05F3`/`U+05F4`), ושער נרמול קלט טיפוגרפי עברי קנוני ($\text{Base} \rightarrow \text{Shin/Sin Dot} \rightarrow \text{Dagesh/Mapiq} \rightarrow \text{Niqqud} \rightarrow \text{Meteg} \rightarrow \text{Te'amim}$). |
-| **`tok-typeset`** | מנוע העימוד והטיפוגרפיה: שייפר מסורה וטעמי מקרא ייעודי (`MasoreticShaper`, נון הפוכה, פסיק, מתג עליון ותחתון ותכונות OpenType מקראיות), פירוק כיווניות `unicode-bidi` (UAX #9), עיצוב גופנים ב-Rust טהור (`rustybuzz` כולל GPOS `mark`/`mkmk`), אלגוריתם שבירת שורות גלובלי **Knuth-Plass**, מדרג יישור עברי תלת-שלבי (רווחי מילים מבוקרים $\rightarrow$ מתיחת אותיות אהלתר"ם $\rightarrow$ מיקרו-טרקינג $\pm 2\%$), פותר אילוצים ליניארי (**Cassowary**), חלוקת יחסי רוחב דינמיים לתזרימים רבניים (2, 3 ו-4 טורים בש"ס ומקראות גדולות תוך מעקב Recto/Verso מדויק), מנוע פריסת הערות שוליים רב-שכבתי מקבילי (`FootnotePaginator`), אותיות פתיחה עבריות (Drop Caps), ומנוע מצולעים וחיתוך Scanline לספיגת פירושים בצורת L. |
-| **`tok-pdf`** | מנוע קדם-דפוס נייטיבי (`pdf-writer`): הפקה ישירה של קובצי `PDF/X-1a:2001` (ISO 15930-1) ומצבי PDF/X-4, מרחב צבע `DeviceCMYK` וצבעי ספוט (`Separation`), תיבות דפוס תקניות (`MediaBox`, `CropBox`, `BleedBox`, `TrimBox`), סימני חיתוך ורישום (Crop & Registration Marks), שיבוץ גופנים וטבלאות `/ToUnicode` לחיפוש והעתקת טקסט עברי, ומנוע בדיקות קדם-דפוס (`Preflight`). |
-| **`tok-storage`** | מנוע אחסון כפול: סביבת עבודה חסינת-קריסות ב-**SQLite WAL** (`rusqlite`) + שמירה אטומית לקובץ חבילה `.tok` (ארכיב ZIP בדחיסת **Zstandard** הכולל `manifest.json`, `document.json`, `styles.json` ונכסים מאומתים בחתימת SHA-256). |
-| **`tok-plugin-host`** | מנוע הרחבות ותוספים דטרמיניסטי: הרצת תוספי ליבה מבוססי טרנזקציות אטומיות תחת מגבלות משאבים (`Fuel` / `Memory` / `Capabilities`), כולל תוספים מובנים לניקוי רווחים כפולים, החלת סגנון דיבור המתחיל (ד"ה) ברש"י ותוספות, ואכיפת מקף עברי (`U+05BE`). |
-| **`tok-ipc`** | ספריית פרוטוקול תקשורת בינארי (`TOKB` Binary Framing) להודעות פקודה ותגובה בין תהליכים. |
-| **`tok-cli`** | בינארי ה-CLI הראשי של המערכת, המשמש הן להרצה באצווה (Headless Batch Processing & CI) והן כגשר העימוד והאחסון של מעטפת ה-Electron. |
+| **`tok-core`** | מודל המסמך הקנוני (TDM): עץ מסמך אי-מוטבילי, `ropey` B-Tree Rope לטקסטים ארוכים, מזהי `ULID`, אינדוקס שברירי (`FractionalIndex`), מחסנית טרנזקציות ו-Undo/Redo דלתא, תצורות מערך הערות רב-שכבתי (`FootnoteApparatus`), טלאי עיצוב טיפוגרפיים, מספור כותרות וגימטריה בסיסית (`ט״ו`, `ט״ז`), ושער נרמול קלט טיפוגרפי עברי קנוני ($\text{Shin/Sin Dot} \rightarrow \text{Dagesh/Mapiq} \rightarrow \text{Niqqud} \rightarrow \text{Meteg} \rightarrow \text{Te'amim}$). |
+| **`tok-typeset`** | מנוע העימוד והטיפוגרפיה: שייפר מסורה וטעמי מקרא ייעודי (`MasoreticShaper`, נון הפוכה, פסיק, מתג עליון ותחתון ותכונות OpenType מקראיות), פירוק כיווניות `unicode-bidi` (UAX #9), עיצוב גופנים ב-Rust טהור (`rustybuzz` כולל GPOS `mark`/`mkmk`), אלגוריתם שבירת שורות גלובלי **Knuth-Plass**, מדרג יישור עברי תלת-שלבי (רווחי מילים מבוקרים $\rightarrow$ מתיחת אותיות אהלתר"ם $\rightarrow$ מיקרו-טרקינג $\pm 2\%$), פותר אילוצים ליניארי (**Cassowary**), מנוע גימטריה עברית עם טבלת טאבו (`ט״ו`, `ט״ז`, `ע״ר`, `ער״ב`, `ער״ה`, `חר״צ`, `ד״ש`, `שי״ד`, `שד״מ`, `נט״ש`, `תרח״צ`, `תשד״מ` ותווי `U+05F3`/`U+05F4`), חלוקת יחסי רוחב דינמיים לתזרימים רבניים (2, 3 ו-4 טורים בש"ס ומקראות גדולות תוך מעקב Recto/Verso מדויק), מנוע פריסת הערות שוליים רב-שכבתי מקבילי (`FootnotePaginator`), אותיות פתיחה עבריות (Drop Caps), ומנוע מצולעים וחיתוך Scanline לספיגת פירושים בצורת L. |
+| **`tok-pdf`** | מנוע קדם-דפוס נייטיבי (`pdf-writer`): הפקה ישירה של קובצי `PDF/X-1a:2001` (ISO 15930-1) ומצבי `PDF/X-4`, מרחב צבע `DeviceCMYK` וצבעי ספוט (`Separation`), תיבות דפוס תקניות (`MediaBox`, `CropBox`, `BleedBox`, `TrimBox`), סימני חיתוך ורישום (Crop & Registration Marks), קידוד תמונות PNG/JPEG ל-XObject (`image_xobject`), שיבוץ גופנים וטבלאות `/ToUnicode` לחיפוש והעתקת טקסט עברי, ומנוע בדיקות קדם-דפוס (`Preflight`). |
+| **`tok-storage`** | מנוע אחסון כפול: סביבת עבודה חסינת-קריסות ב-**`redb`** (ACID) + שמירה אטומית לקובץ חבילה `.tok` (ארכיב ZIP בדחיסת `Deflate` הכולל `manifest.json`, `document.json`, `assets/` ו-`previews/`). |
+| **`tok-plugin-host`** | מנוע הרחבות ותוספים דטרמיניסטי: הרצת תוספי ליבה מבוססי טרנזקציות אטומיות עם בדיקות הרשאות (`PluginCapability`) ובידוד קריסות (`catch_unwind`), כולל התוספים המובנים `tok.builtin.divine-shield` ו-`tok.builtin.hebrew-grep-acronym`. |
+| **`tok-engine-service`** | שכבת שירות מאוחדת ב-Rust המרכזת טעינת מסמכים, עימוד, ייצוא PDF/HTML, בדיקות `Preflight`, שמירת חבילות והרצת תוספים עבור `tok-desktop` ו-`tok-cli`. |
+| **`tok-ipc`** | ספריית פרוטוקול תקשורת (`TOKB` Binary Framing ו-`WorkerRequest` ב-JSON) להודעות פקודה ותגובה בין תהליכים. |
+| **`tok-cli`** | בינארי ה-CLI הראשי של המערכת, המשמש להרצה באצווה (Headless Batch Processing & CI), למצב `worker` מתמיד, וכגשר העימוד והאחסון של מעטפת ה-Electron. |
+| **`tok-desktop`** | מעטפת שולחן העבודה הראשית ב-**Tauri v2**: מנהלת חלונות מקומיים, פקודות IPC של Tauri, גופני מערכת ב-Windows, שיוך קובצי `.tok`, טעינת תוספים ועדכונים מאומתי Ed25519, וקוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך. |
 
 ---
 
@@ -256,7 +269,7 @@ For contribution guidelines and community standards, see [`CONTRIBUTING.md`](./C
 
 | חבילה (Package) | תפקיד ואחריות מרכזית |
 | :--- | :--- |
-| **`tok-electron`** | תהליך ה-Main של Electron וגשר `preload` מוקשח (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), אימות סכמת IPC קפדני, חסימת ניווט חיצוני, וניהול קריאות תהליכי משנה אל `tok-cli`. |
+| **`tok-electron`** | מעטפת Electron אופציונלית וגשר `preload` מוקשח (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`), אימות סכמת IPC קפדני, חסימת ניווט חיצוני, וניהול קריאות תהליכי משנה אל `tok-cli`. |
 | **`tok-ui`** | סביבת העבודה השולחנית המלאה: רכיב `SpreadCanvas` להקרנת `PageLayoutBox` להיטל DOM דטרמיניסטי, צינור סנכרון סגנונות וטיפוגרפיה חי בין סרגל המאפיינים, סרגל הכלים והקנבס, גרירה ישירה ונעילת תיבות טקסט על גבי הקנבס, הוספת תזרימים מותאמים אישית (כולל פריסת בלוקים מפוצלים בקצוות ללא חיבור ביניהם הזורמים לפי גובה), סינון סגנונות מותאם לתבנית הפעילה, מסך בחירת תבנית מודרך בפתיחת מסמך עם המלצה על ספר רציף, מערכת עדכונים ויומן שינויים ("מה חדש"), מנוע תוספים מוקשח (`PluginEngine`), ובדיקות קדם-דפוס חיות (`Preflight`). |
 | **`tok-viewer`** | מנהל הווירטואליזציה של עמודי התצוגה (`PageDomVirtualizer`): שומר ב-DOM חלון פעיל של 3 עמודים בלבד (`[K-1, K, K+1]`) ומייצג את שאר עמודי הספר כאלמנטי Spacer קלי-משקל. |
 | **`tok-canvas`** | שכבת הכיסוי הגרפית השקופה (`CanvasInteractionOverlay`): ציור סמן דו-כיווני (`Dual Caret` / `RTL Caret`), תנועת סמן אופטימית מיידית (`<16ms`), בחירה ויזואלית לא-רציפה בטקסט מעורב, ובדיקת פגיעה מרחבית (`Hit-Testing`). |
@@ -278,47 +291,54 @@ For contribution guidelines and community standards, see [`CONTRIBUTING.md`](./C
 # 1. התקנת תלויות ה-Node/TypeScript
 npm install
 
-# 2. בניית כל חבילות ה-Rust במאגר (כולל בינארי ה-CLI החיוני למעטפת השולחנית)
+# 2. בניית כל חבילות ה-Rust במאגר (כולל tok-desktop ו-tok-cli)
 cargo build --workspace
 cargo build --bin tok-cli
 
-# 3. בדיקת תקינות הטיפוסים והידור חבילות ה-UI וה-Electron
+# 3. בדיקת תקינות הטיפוסים, הידור ואריזת ממשק המשתמש ו-Electron
 npm run lint
 npm run build
 
-# 4. הפעלת תוכנת השולחן TypesetOK ב-Electron
+# 4. הפעלת תוכנת השולחן TypesetOK (ברירת מחדל: Tauri v2; להרצת Electron השתמשו ב-start:electron)
 npm start
+# או להרצה ב-Electron:
+npm run start:electron
 
 # 5. (אופציונלי) אריזת גרסה שולחנית ובניית קובץ התקנה (Installer)
 npm run package:desktop
 npm run package:installer
 ```
 
-> **הערה חשובה לגבי איתור `tok-cli.exe`:** מעטפת ה-Electron (`packages/tok-electron/src/main.ts`) מחפשת את הקובץ `tok-cli.exe` לפי הסדר הבא:
+> **הערה לגבי איתור `tok-cli.exe` (מעטפת Electron בלבד):** מעטפת ה-Tauri v2 (`tok-desktop`) מריצה את מנוע ה-Rust ישירות בתוך התהליך. בעת הרצת מעטפת ה-Electron (`packages/tok-electron/src/main.ts`), היא מחפשת את `tok-cli.exe` לפי הסדר הבא:
 > 1. משתנה הסביבה `TOK_CLI_PATH` (אם הוגדר).
-> 2. תיקיית היעד המוגדרת ב-`.cargo/config.toml` (`%LOCALAPPDATA%\tok_target\debug\tok-cli.exe` או `release\tok-cli.exe`).
-> 3. תיקיית `target/debug/tok-cli.exe` או `target/release/tok-cli.exe` בשורש המאגר.
-> לכן חובה להריץ `cargo build --bin tok-cli` לפני הפעלת `npm start`.
+> 2. `CARGO_TARGET_DIR` (`release` ואז `debug`), אם הוגדר.
+> 3. תיקיית היעד המוגדרת ב-`.cargo/config.toml` (`%LOCALAPPDATA%\tok_target\release\tok-cli.exe` או `debug\tok-cli.exe`).
+> 4. תיקיית `target/release/tok-cli.exe` או `target/debug/tok-cli.exe` בשורש המאגר.
+> לכן יש להריץ `cargo build --bin tok-cli` לפני הפעלת `npm run start:electron`.
 
 ---
 
 ## 3. שימוש בבינארי שורת הפקודה (`tok-cli`)
 
-הבינארי `tok-cli` מאפשר הרצת כל פעולות הליבה ישירות משורת הפקודה או מצינורות CI/CD:
+הבינארי `tok-cli` מאפשר הרצה של כל פעולות הליבה ישירות משורת הפקודה או מצינורות CI/CD:
 
 | תת-פקודה (Subcommand) | תחביר ופרמטרים | תיאור הפעולה |
 | :--- | :--- | :--- |
-| **`typeset-document`** | `tok-cli typeset-document <input.json> [output.layout.json]` | עימוד מלא של מסמך JSON (כולל Knuth-Plass, Cassowary ו-Co-Pagination) והחזרת עץ `PageLayoutBox` מפורט ביחידות `pt` (כולל גליפים, שורות, מסגרות, הערות שוליים ודוח Preflight). |
-| **`incremental-typeset`** | `tok-cli incremental-typeset <input.json> <dirty_paragraph_index> [output.json]` | עימוד אינקרמנטלי מבוסס התכנסות (`Convergence Paginator`) החל מהפסקה שהשתנתה ועד לנקודת ההתכנסות. |
-| **`diagnose-recompute`** | `tok-cli diagnose-recompute <base.json> <edited.json> <dirty_idx>` | השוואה ואבחון של מספר העמודים שחושבו מחדש לעומת עמודים שנשלפו מהמטמון בעריכה אינקרמנטלית. |
-| **`render-pdf`** | `tok-cli render-pdf <input.json\|.tok> <output.pdf>` | הפקת קובץ דפוס תקני `PDF/X-1a:2001` ישירות מהמסמך (כולל CMYK, תיבות דפוס ושיבוץ גופנים). |
-| **`render-html`** | `tok-cli render-html <input.json\|.tok> <output.html>` | הפקת קובץ HTML עצמאי בעל עמודים קבועים מראש (Pre-paginated HTML/CSS) לתצוגה ובדיקה. |
-| **`save-package`** | `tok-cli save-package <input.json> <output.tok>` | אריזה ושמירה אטומית של מסמך JSON לפורמט החבילה `.tok` (ZIP + Zstandard + SHA-256 manifest). |
-| **`open-package`** | `tok-cli open-package <input.tok> [output.json]` | פתיחת קובץ `.tok`, אימות שלמות החבילה והנכסים, ושחזור ה-JSON הקנוני של המסמך. |
-| **`inspect-package`** | `tok-cli inspect-package <input.tok>` | בדיקת תקינות ארכיב `.tok` והדפסת סיכום מטא-דאטה (כותרת, מספר מדורים, פסקאות וגרסת סכמה). |
-| **`run-plugins`** | `tok-cli run-plugins <input.json> <plugin_id[,plugin_id...]> [output.json]` | הרצת תוספי ליבה דטרמיניסטיים ב-Sandbox (`builtin.strip-double-spaces`, `builtin.apply-dibbur-hamatchil`, `builtin.enforce-hebrew-maqaf`) על המסמך. |
-| **`verify-determinism`** | `tok-cli verify-determinism <input.json> [iterations]` | הרצת עימוד והפקת PDF/HTML מספר רב של פעמים ואימות זהות מוחלטת ברמת הבייט (SHA-256 Bit-for-Bit Determinism). |
-| **`benchmark-typeset`** | `tok-cli benchmark-typeset <paragraphs_count>` | בדיקת עומס וביצועים על מסמך סינתטי גדול והדפסת מדדי זמן עימוד ומהירות לעמוד. |
+| **`typeset-document`** | `tok-cli typeset-document <INPUT.json\|.tok\|--demo> <OUTPUT.json> [--fonts-dir <DIR>] [--assets-from <TOK>]` | עימוד מלא של מסמך (כולל Knuth-Plass, Cassowary ו-Co-Pagination) והחזרת עץ `PageLayoutBox` מפורט ביחידות `pt`. |
+| **`incremental-typeset`** | `tok-cli incremental-typeset <INPUT.json\|--demo> <OUTPUT.json> [--node-id <ID>]` | עימוד אינקרמנטלי מבוסס התכנסות (`Convergence Paginator`) עם אבחון חישוב מחדש. |
+| **`diagnose-recompute`** | `tok-cli diagnose-recompute <INPUT.json\|.tok\|--demo>` | הרצת דוח אבחון לביטול תקפות ומטמון בשלוש נקודות במסמך. |
+| **`render-pdf`** | `tok-cli render-pdf <INPUT.json\|.tok\|--demo> <OUTPUT.pdf> [--standard pdfx4] [--profile <ID>] [--no-bleed] [--no-crop-marks] [--registration-marks]` | הפקת קובץ דפוס תקני `PDF/X-1a:2001` או `PDF/X-4` ישירות מהמסמך (כולל CMYK, תיבות דפוס ושיבוץ גופנים). |
+| **`render-html`** | `tok-cli render-html <INPUT.json\|.tok\|--demo> <OUTPUT.html>` | הפקת קובץ HTML עצמאי בעל עמודים קבועים מראש (Pre-paginated HTML/CSS) לתצוגה ובדיקה. |
+| **`save-package`** | `tok-cli save-package <INPUT.json> <OUTPUT.tok> [--fonts-dir <DIR>] [--assets-from <TOK>]` | אריזה ושמירה אטומית של מסמך JSON לפורמט החבילה `.tok` (ZIP + Deflate). |
+| **`open-package`** | `tok-cli open-package <INPUT.tok> <OUTPUT.json>` | פתיחת קובץ `.tok` ושחזור ה-JSON הקנוני של המסמך. |
+| **`inspect-package`** | `tok-cli inspect-package <INPUT.tok>` | בדיקת תקינות ארכיב `.tok` והדפסת סיכום מטא-דאטה (כותרת, גרסת סכמה ונכסים מוטמעים). |
+| **`inspect-font`** | `tok-cli inspect-font <PATH.ttf>` | בדיקת גופן חיצוני (`glyf`/OS2 `fsType`/כיסוי עברי) ופליטת דוח JSON. |
+| **`preflight`** | `tok-cli preflight <INPUT.json\|.tok\|--demo> [OUTPUT.json] [--fonts-dir <DIR>] [--assets-from <TOK>]` | הרצת בדיקות קדם-דפוס (`Preflight`) ופליטת דוח `PreflightReport` ב-JSON. |
+| **`run-plugins`** | `tok-cli run-plugins <INPUT.json\|.tok\|--demo> <OUTPUT.json>` | הרצת תוספי הליבה הדטרמיניסטיים המובנים (`tok.builtin.divine-shield`, `tok.builtin.hebrew-grep-acronym`) על המסמך. |
+| **`sync-heading-numbers`** | `tok-cli sync-heading-numbers <INPUT.json\|.tok\|--demo> <OUTPUT.json> [--plain]` | סנכרון מספור כותרות וסימנים לפי ראשי הפרקים והגימטריה העברית. |
+| **`verify-determinism`** | `tok-cli verify-determinism` | הרצת עימוד והפקת PDF/HTML עבור תרחיש פרוזה ותלמוד רב-תזרימי ואימות זהות מוחלטת ברמת הבייט (SHA-256). |
+| **`benchmark-typeset`** | `tok-cli benchmark-typeset [--pages N]` | בדיקת עומס וביצועים (ברירת מחדל `1000` עמודים) והדפסת מדדי זמן עימוד ומהירות לעמוד. |
+| **`worker`** | `tok-cli worker` | הפעלת `tok-cli` במצב תהליך מתמיד דרך stdin/stdout (שורות JSON) עם שמירת מטמון עימוד. |
 
 ---
 
@@ -346,10 +366,10 @@ cargo run -p tok-cli -- verify-determinism
 
 בהתאם למשמעת ההנדסית של הפרויקט (אפס טענות שווא ואפס מצגי דמה), להלן המגבלות הידועות בגרסה הנוכחית:
 
-1. **שיבוץ תמונות רסטר (Raster Image Placement):** מנוע הפריסה (`tok-typeset`) ומחולל ה-PDF (`tok-pdf`) תומכים כיום במסגרות טקסט, עיטורים וקטוריים, קווי הפרדה וניהול נכסים בחבילת `.tok`, אך טרם מממשים פריסת תמונות ביטמאפ (TIFF/JPEG/PNG) משובצות בתוך זרימת הטקסט.
-2. **תקשורת תהליכים (`tok-ipc` לעומת `tok-cli`):** החבילה `crates/tok-ipc` מממשת את פרוטוקול המסגרות הבינארי (`TOKB`) המיועד למצב שרת רקע מתמיד (Persistent Daemon Mode). בגרסה הנוכחית, תהליך ה-Main של Electron מתקשר עם ליבת ה-Rust באמצעות הפעלה דטרמיניסטית ומבוקרת של תהליך המשנה `tok-cli`.
+1. **תמיכה בתמונות TIFF:** מנוע הפריסה (`tok-typeset`) ומחולל ה-PDF (`tok-pdf`) תומכים במסגרות טקסט, עיטורים וקטוריים, קווי הפרדה ושיבוץ תמונות רסטר בפורמטי PNG ו-JPEG (`image_xobject`), אך טרם תומכים בפענוח והטמעה של תמונות TIFF.
+2. **תקשורת תהליכים (`tok-ipc` לעומת `tok-cli`):** מעטפת ה-Tauri v2 (`tok-desktop`) קוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך. מעטפת ה-Electron האופציונלית (`tok-electron`) מתקשרת עם ליבת ה-Rust באמצעות הפעלה מבוקרת של תהליך המשנה `tok-cli`, בעוד `crates/tok-ipc` מספקת את טיפוסי המסגור ופרוטוקול ה-Worker.
 3. **ייצוא PDF/X-4 וניהול פרופילי ICC חיצוניים:** מחולל ה-PDF מפיק קובצי `PDF/X-1a:2001` ו-`PDF/X-4` עם פקודות צבע `DeviceCMYK` וצבעי `Separation` (Spot Colors) אמיתיים ומילון `OutputIntent` מובנה (ISO Coated v2 / Fogra39), ללא קישור דינמי לספריית C חיצונית דוגמת `LittleCMS`.
-4. **גרסת Electron במאגר (`electron@29.4.6`):** המעטפת השולחנית מוקשחת במלואה (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, CSP קפדני וחסימת ניווט), אך שדרוג לגרסת Electron ראשית חדשה יותר (v32+) דורש הורדת בינארי Electron בסביבה מקוונת.
+4. **גרסת Electron במאגר (`electron@29.4.6`):** מעטפת ה-Electron האופציונלית מוקשחת במלואה (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, CSP קפדני וחסימת ניווט), אך שדרוג לגרסת Electron ראשית חדשה יותר (v32+) דורש הורדת בינארי Electron בסביבה מקוונת.
 
 ---
 
