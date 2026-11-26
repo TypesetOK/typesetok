@@ -10,6 +10,7 @@ import { ModalController } from './ModalController';
 import { fillAppVersion, getAppVersion } from '../appInfo';
 import { getHostBridge } from '../platform/hostBridge.js';
 import { hostSettings } from '../platform/hostSettings.js';
+import { getAvailableFonts, registerFontFamily, discoverSystemFonts } from '../fonts';
 
 export interface SettingsModalCallbacks {
   onLanguageChange: (lang: Language) => void;
@@ -24,7 +25,7 @@ export interface SettingsModalCallbacks {
   onOpenWhatsNew?: () => void;
 }
 
-type SettingsTab = 'appearance' | 'accessibility' | 'logs' | 'updates' | 'plugins';
+type SettingsTab = 'appearance' | 'fonts' | 'accessibility' | 'logs' | 'updates' | 'plugins';
 
 /**
  * Preset names are stored bilingually as "עברית (English)". Show the half that matches
@@ -148,8 +149,10 @@ export class SettingsModal {
 
     // Category navigation (without language tab)
     const nav = el('nav', 'tok-settings-nav', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': t('settingsCategories') });
+    const isEn = i18n.getLanguage() === 'en';
     const tabs: { id: SettingsTab; label: string; icon: IconName }[] = [
       { id: 'appearance', label: t('settingsTabAppearance'), icon: 'appearance' },
+      { id: 'fonts', label: isEn ? 'Fonts' : 'גופנים', icon: 'typography' },
       { id: 'accessibility', label: t('settingsTabAccessibility'), icon: 'accessibility' },
       { id: 'plugins', label: t('settingsTabPlugins'), icon: 'plugin' },
       { id: 'updates', label: t('settingsTabUpdates'), icon: 'refresh' },
@@ -215,6 +218,7 @@ export class SettingsModal {
     scroll.replaceChildren();
     switch (this.activeTab) {
       case 'appearance': this.renderAppearanceTab(scroll); break;
+      case 'fonts': this.renderFontsTab(scroll); break;
       case 'accessibility': this.renderAccessibilityTab(scroll); break;
       case 'logs': this.renderLogsTab(scroll); break;
       case 'updates': this.renderUpdatesTab(scroll); break;
@@ -354,6 +358,132 @@ export class SettingsModal {
       this.callbacks.showToast(`${t('settingsDocAutosave')}: ${onOff(val)}`);
     }, { description: t('settingsDocAutosaveHelp'), focusKey: 'doc-autosave' }));
     container.appendChild(group(t('settingsDocAutosave'), autosaveBox));
+  }
+
+  // --- Fonts ---
+  private fontInstallStatus: { message: string; isError: boolean } | null = null;
+
+  private renderFontsTab(container: HTMLElement): void {
+    const isEn = i18n.getLanguage() === 'en';
+    container.appendChild(el('h2', undefined, undefined, isEn ? 'Fonts Management' : 'ניהול והתקנת גופנים'));
+
+    const installCard = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:12px;' });
+    installCard.appendChild(el('div', undefined, { style: 'font-size:13px;color:var(--tok-text-secondary);line-height:1.5;' },
+      isEn
+        ? 'Install custom TrueType (.ttf) or OpenType (.otf) fonts into TypesetOK so they are available across all documents and PDF exports.'
+        : 'התקינו גופנים מותאמים אישית (.ttf או .otf) לתוך TypesetOK כדי שיהיו זמינים בכל המסמכים ובייצוא ל-PDF.'
+    ));
+
+    const actionsRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' });
+    actionsRow.appendChild(button(isEn ? 'Install Font (.ttf / .otf)...' : 'התקן גופן מהמחשב (.ttf / .otf)...', {
+      className: 'tok-btn tok-btn-primary',
+      icon: 'plus',
+      iconSize: 15,
+      onClick: () => { void this.installFontFromSettings(); }
+    }));
+    actionsRow.appendChild(button(isEn ? 'Refresh System Fonts' : 'רענן גופני מערכת', {
+      className: 'tok-btn',
+      icon: 'refresh',
+      iconSize: 14,
+      onClick: async () => {
+        await discoverSystemFonts();
+        if (this.scrollPanel) this.renderTabContent(this.scrollPanel);
+        this.callbacks.showToast(isEn ? 'System fonts refreshed' : 'רשימת גופני המערכת רועננה');
+      }
+    }));
+    installCard.appendChild(actionsRow);
+
+    if (this.fontInstallStatus) {
+      installCard.appendChild(el('div', undefined, {
+        style: `font-size:12px;font-weight:600;color:${this.fontInstallStatus.isError ? 'var(--tok-status-error)' : '#10B981'};`
+      }, this.fontInstallStatus.message));
+    }
+    container.appendChild(installCard);
+
+    const avail = getAvailableFonts();
+    const listWrap = el('div', 'tok-card', { style: 'display:flex;flex-direction:column;gap:8px;' });
+    listWrap.appendChild(el('strong', undefined, { style: 'font-size:13px;' },
+      isEn ? `Available Fonts (${avail.length})` : `גופנים זמינים (${avail.length})`
+    ));
+    const chips = el('div', undefined, { style: 'display:flex;flex-wrap:wrap;gap:6px;max-height:260px;overflow-y:auto;' });
+    for (const f of avail) {
+      const tag = el('span', 'tok-tag', {
+        style: f.isCustom
+          ? 'background:rgba(16,185,129,0.14);color:#10B981;font-size:12px;padding:4px 10px;'
+          : 'font-size:12px;padding:4px 10px;'
+      }, f.label);
+      chips.appendChild(tag);
+    }
+    listWrap.appendChild(chips);
+    container.appendChild(listWrap);
+  }
+
+  private async installFontFromSettings(): Promise<void> {
+    const isEn = i18n.getLanguage() === 'en';
+    const host = getHostBridge();
+    if (host.has('showOpenDialog') && host.has('installFont')) {
+      const filePath: string | null = await host.showOpenDialog({
+        filters: [{ name: 'Fonts (.ttf, .otf)', extensions: ['ttf', 'otf'] }]
+      });
+      if (!filePath) return;
+      const res = await host.installFont(filePath);
+      if (!res?.success || !res?.report) {
+        const msg = res?.message || res?.error || (isEn ? 'Invalid font file' : 'קובץ גופן לא תקין');
+        this.fontInstallStatus = {
+          message: isEn ? `Font rejected: ${msg}` : `הגופן נדחה: ${msg}`,
+          isError: true
+        };
+        if (this.scrollPanel) this.renderTabContent(this.scrollPanel);
+        return;
+      }
+      const installedName: string = res.report.family_name || 'Custom Font';
+      if (res.base64Data) {
+        this.injectBrowserFontFace(installedName, res.base64Data);
+      }
+      registerFontFamily(installedName);
+      this.fontInstallStatus = {
+        message: isEn ? `Font "${installedName}" installed successfully.` : `הגופן "${installedName}" הותקן בהצלחה.`,
+        isError: false
+      };
+      this.callbacks.showToast(this.fontInstallStatus.message);
+      if (this.scrollPanel) this.renderTabContent(this.scrollPanel);
+      return;
+    }
+
+    // Browser fallback without desktop host bridge
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.ttf,.otf';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const fam = file.name.replace(/\.(ttf|otf)$/i, '').trim() || 'Custom Font';
+      this.injectBrowserFontFace(fam, btoa(bin));
+      registerFontFamily(fam);
+      this.fontInstallStatus = {
+        message: isEn ? `Font "${fam}" installed successfully.` : `הגופן "${fam}" הותקן בהצלחה.`,
+        isError: false
+      };
+      this.callbacks.showToast(this.fontInstallStatus.message);
+      if (this.scrollPanel) this.renderTabContent(this.scrollPanel);
+    };
+    input.click();
+  }
+
+  private injectBrowserFontFace(family: string, base64Font: string): void {
+    try {
+      const styleId = `tok-custom-font-${family.replace(/[^a-z0-9_-]/gi, '_')}`;
+      if (document.getElementById(styleId)) return;
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `@font-face { font-family: '${family.replace(/'/g, "\\'")}'; src: url(data:font/ttf;base64,${base64Font}) format('truetype'); font-display: swap; }`;
+      document.head.appendChild(style);
+    } catch {
+      // ignore CSS injection errors in non-DOM test environments
+    }
   }
 
   // --- Accessibility ---
