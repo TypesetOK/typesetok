@@ -17,22 +17,17 @@
     "build": "npm run contributors && npm run build:ts && npm run bundle:ui && npm run bundle:ui:tauri",
     "package:desktop": "node scripts/build-desktop-bundle.mjs",
     "package:desktop:tauri": "node scripts/build-desktop-bundle.mjs --tauri",
-    "package:desktop:electron": "node scripts/build-desktop-bundle.mjs --electron",
     "package:installer": "node scripts/build-installer.mjs",
     "package:installer:tauri": "node scripts/build-installer.mjs --tauri --dual",
-    "package:installer:electron": "node scripts/build-installer.mjs --electron",
     "test:desktop": "cargo test -p tok-desktop",
     "test": "node --test test/frontend.test.mjs test/host_bridge.test.mjs test/milestone_features.test.mjs test/story_editor.test.mjs test/outcome_validation.test.mjs test/importer.test.mjs test/lifecycle_flow.test.mjs test/geometric_fidelity.test.mjs test/phase3_integration.test.mjs test/issue20_regression.test.mjs test/whats_new_system.test.mjs test/release_notes.test.mjs",
     "start": "cargo run --release -p tok-desktop",
     "start:tauri": "cargo run --release -p tok-desktop",
-    "start:electron": "electron packages/tok-electron/dist/main.js",
     "perf:startup": "node scripts/measure-startup.mjs"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.12.5",
-    "electron": "^29.4.6",
     "esbuild": "^0.28.2",
-    "rcedit": "^5.0.2",
     "typescript": "^5.4.0"
   }
 }

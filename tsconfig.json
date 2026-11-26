@@ -12,7 +12,6 @@
     { "path": "packages/tok-viewer" },
     { "path": "packages/tok-canvas" },
     { "path": "packages/tok-story-editor" },
-    { "path": "packages/tok-ui" },
-    { "path": "packages/tok-electron" }
+    { "path": "packages/tok-ui" }
   ]
 }
