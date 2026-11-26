@@ -19,6 +19,7 @@ export const PERSISTED_SETTING_KEYS = [
   'tok_log_retention',
   'tok_updates_state_v1',
   'tok_import_templates',
+  'tok_custom_templates',
 ] as const;
 
 interface StorageLike {

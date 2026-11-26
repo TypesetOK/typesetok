@@ -9,6 +9,21 @@ export interface RecentProject {
   lastClosedAt?: string;
   pages: number;
   template: number;
+  templateId?: string;
+  templateName?: string;
+}
+
+const TEMPLATE_ID_TO_INDEX: Record<string, number> = {
+  gemara: 0,
+  mikraot: 1,
+  prose: 2,
+  notes: 3,
+  bulletin: 4,
+};
+
+export function resolveTemplateIndex(templateId?: string): number {
+  if (!templateId) return 0;
+  return TEMPLATE_ID_TO_INDEX[templateId] ?? 2; // default to 'prose' (index 2) if unknown/blank
 }
 
 const DUMMY_PROJECT_NAMES = new Set([
@@ -169,6 +184,8 @@ export function addRecentProject(entry: {
   path?: string;
   pages?: number;
   template?: number;
+  templateId?: string;
+  templateName?: string;
   lastSavedAt?: string;
   lastClosedAt?: string;
 }): void {
@@ -179,6 +196,7 @@ export function addRecentProject(entry: {
     const nowIso = new Date().toISOString();
     const saved = entry.lastSavedAt || nowIso;
     const list = getRecentProjects().filter((p) => p.name !== entry.name && p.path !== entry.path);
+    const resolvedIdx = entry.template ?? (entry.templateId ? resolveTemplateIndex(entry.templateId) : 0);
     list.unshift({
       name: entry.name,
       path: entry.path,
@@ -186,7 +204,9 @@ export function addRecentProject(entry: {
       lastClosedAt: entry.lastClosedAt,
       time: formatProjectTimestamp(saved),
       pages: entry.pages ?? 1,
-      template: entry.template ?? 0
+      template: resolvedIdx,
+      ...(entry.templateId ? { templateId: entry.templateId } : {}),
+      ...(entry.templateName ? { templateName: entry.templateName } : {})
     });
     hostSettings.set('tok_recent_projects', JSON.stringify(list.slice(0, 50)));
   } catch (err) {

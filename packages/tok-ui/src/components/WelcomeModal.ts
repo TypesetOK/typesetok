@@ -252,13 +252,17 @@ export class WelcomeModal {
           style: 'display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;position:relative;'
         });
 
-        const tpl = TEMPLATES[rec.template] || TEMPLATES[0];
+        const tpl = (rec.templateId ? TEMPLATES.find((x) => x.id === rec.templateId) : undefined)
+          || TEMPLATES[rec.template]
+          || TEMPLATES[2]
+          || TEMPLATES[0];
         row.appendChild(pageArt(tpl.art, 32, 44));
 
         const info = el('div', 'tok-recent-main', { style: 'flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;' });
         const nameSpan = el('span', 'tok-recent-name', { title: rec.name, style: 'font-weight:600;font-size:13px;' }, rec.name.replace(/\.tok$/i, ''));
         info.appendChild(nameSpan);
-        info.appendChild(el('span', 'tok-recent-sub', undefined, `${t(tpl.titleKey)} · ${tf('welcomePagesCount', { n: rec.pages })}`));
+        const tplLabel = rec.templateName || t(tpl.titleKey);
+        info.appendChild(el('span', 'tok-recent-sub', undefined, `${tplLabel} · ${tf('welcomePagesCount', { n: rec.pages })}`));
         row.appendChild(info);
 
         const timeSpan = el('span', 'tok-recent-when', { style: 'font-size:11px;color:var(--tok-text-muted);white-space:nowrap;margin-inline-end:4px;' }, rec.time || '');
