@@ -2,7 +2,7 @@
 
 מסמך זה מרכז את כל קבצי המקור, התצורה, הנכסים, הבדיקות והתיעוד בפרויקט (ללא תיקיות תלויות ותוצרי בנייה כגון `node_modules`, `target`, `dist`), עם הפניה ישירה והסבר על תפקידו של כל קובץ.
 
-> חזרה ל-[README.md](../README.md)
+> חזרה ל-[README.md (אנגלית)](../README.md) • [README.he.md (עברית)](../README.he.md)
 
 ---
 
@@ -18,7 +18,8 @@
 | [`package.json`](../package.json) | מניפסט Monorepo של Node/TypeScript, סקריפטי בנייה, בדיקות, אריזה והרצת Tauri/Electron |
 | [`package-lock.json`](../package-lock.json) | נעילת גרסאות מדויקת של תלויות npm |
 | [`tsconfig.json`](../tsconfig.json) | תצורת הידור TypeScript ראשית המקשרת בין 5 חבילות `packages/` |
-| [`README.md`](../README.md) | התיעוד הראשי של הפרויקט (אנגלית ועברית) |
+| [`README.md`](../README.md) | התיעוד הראשי של הפרויקט (באנגלית) |
+| [`README.he.md`](../README.he.md) | התיעוד הראשי של הפרויקט (בעברית) |
 | [`CHANGELOG.md`](../CHANGELOG.md) | יומן השינויים הרשמי של הגרסאות (מקור האמת שממנו נוצר `changelogData.ts`) |
 | [`PROJECT.md`](../PROJECT.md) | סקירת ארכיטקטורה, מפת תכונות, אבני דרך וחוזי ממשק |
 | [`ROADMAP.md`](../ROADMAP.md) | מפת קוד, יעדי פיתוח ורעיונות עתידיים |
@@ -61,6 +62,8 @@
 | [`scripts/build-desktop-bundle.mjs`](../scripts/build-desktop-bundle.mjs) | בניית חבילת ההפצה השולחנית (Tauri או Electron) ב-`dist/` |
 | [`scripts/build-installer.mjs`](../scripts/build-installer.mjs) | בניית קובץ ההתקנה (`Setup.exe`) באמצעות NSIS/Inno Setup |
 | [`scripts/installer.iss`](../scripts/installer.iss) | סקריפט מתקין Inno Setup ל-Windows |
+| [`scripts/HebrewNoNiqqud.isl`](../scripts/HebrewNoNiqqud.isl) | קובץ תרגום לעברית (ללא ניקוד) עבור מתקין Inno Setup |
+| [`scripts/LICENSE.rtf`](../scripts/LICENSE.rtf) | נוסח הרישיון בפורמט RTF עבור אשף ההתקנה |
 | [`scripts/installer.nsi`](../scripts/installer.nsi) | סקריפט מתקין NSIS דו-לשוני ל-Windows |
 | [`scripts/generate-installer-assets.ps1`](../scripts/generate-installer-assets.ps1) | יצירת תמונות הרקע והכותרת למתקין Windows |
 | [`scripts/build-engine-fonts.py`](../scripts/build-engine-fonts.py) | עיבוד והטמעת נכסי גופנים עבור מנוע ה-Rust |
@@ -91,6 +94,9 @@
 | [`crates/tok-core/src/numbering.rs`](../crates/tok-core/src/numbering.rs) | סכמות מספור (`Arabic`, `HebrewGematria`, `TorahSiman`, `TorahDafAmud`, `Roman`) |
 | [`crates/tok-core/src/outline.rs`](../crates/tok-core/src/outline.rs) | עץ ראשי הפרקים (`DocumentOutline`) ומספור היררכי |
 | [`crates/tok-core/src/header.rs`](../crates/tok-core/src/header.rs) | כותרות רצות (`RunningHeaderSpec`) והגדרות מערכי הערות (`FootnoteApparatus`) |
+| [`crates/tok-core/src/notes.rs`](../crates/tok-core/src/notes.rs) | מודל הערות משולבות בשורה (`InlineNote`) והערות שוליים צידיות (`Sidenote` / Marginalia) |
+| [`crates/tok-core/src/tanakh.rs`](../crates/tok-core/src/tanakh.rs) | קטלוג ספרי התנ"ך ומנוע שליפת פסוקים מקומי (Offline Tanakh Lookup) |
+| [`crates/tok-core/src/torah_index.rs`](../crates/tok-core/src/torah_index.rs) | אינדקס מראי מקומות תורני וחילוץ ציטוטים קנוני (תנ"ך, בבלי, רמב"ם, שו"ע) |
 | [`crates/tok-core/src/reference.rs`](../crates/tok-core/src/reference.rs) | הפניות צולבות (`TargetAnchor`, `CrossReference`, `ReferenceRegistry`) |
 | [`crates/tok-core/src/spans.rs`](../crates/tok-core/src/spans.rs) | טווחי עיצוב תווים (`CharacterSpan`) בתוך פסקה |
 | [`crates/tok-core/src/styles.rs`](../crates/tok-core/src/styles.rs) | סגנונות פסקה ותו, צבעים, יישור ומרווחים |
@@ -118,6 +124,8 @@
 | [`crates/tok-typeset/src/gematria.rs`](../crates/tok-typeset/src/gematria.rs) | מנוע גימטריה עברית דטרמיניסטי כולל טבלת הטאבו המלאה (`ט״ו` עד `תשד״מ`) |
 | [`crates/tok-typeset/src/column_flow.rs`](../crates/tok-typeset/src/column_flow.rs) | זרימת טורים מרובים ומספורם |
 | [`crates/tok-typeset/src/footnote_paginator.rs`](../crates/tok-typeset/src/footnote_paginator.rs) | פריסת הערות שוליים מקבילית רב-שכבתית |
+| [`crates/tok-typeset/src/sidenotes.rs`](../crates/tok-typeset/src/sidenotes.rs) | מנוע פריסת הערות שוליים צידיות (Marginalia) עם מניעת התנגשויות אנכית |
+| [`crates/tok-typeset/src/toc.rs`](../crates/tok-typeset/src/toc.rs) | מנוע תוכן עניינים היררכי ורציף (`LineByLine` / `InlineRunIn`) עם פתרון הפניות עמוד דינמי |
 | [`crates/tok-typeset/src/multi_flow.rs`](../crates/tok-typeset/src/multi_flow.rs) | פריסת רב-תזרימים, תבניות Recto/Verso ומפרשים |
 | [`crates/tok-typeset/src/polygon.rs`](../crates/tok-typeset/src/polygon.rs) | מבני מצולעים לגיאומטריית צורת הדף |
 | [`crates/tok-typeset/src/polygon_engine.rs`](../crates/tok-typeset/src/polygon_engine.rs) | מנוע חישוב וחיתוך מצולעים |
@@ -136,8 +144,8 @@
 | [`crates/tok-typeset/src/template_synthesizer.rs`](../crates/tok-typeset/src/template_synthesizer.rs) | יצירה אוטומטית של תבניות מתוך מאפיינים |
 | [`crates/tok-typeset/src/mpt.rs`](../crates/tok-typeset/src/mpt.rs) | מבנה Multi-Page Tree / כלי עזר לעימוד |
 | [`crates/tok-typeset/src/diagnostics.rs`](../crates/tok-typeset/src/diagnostics.rs) | דוחות אבחון (`RecomputeReport`) |
-| [`crates/tok-typeset/src/diagnostics.rs`](../crates/tok-typeset/src/fixtures.rs) / `fixtures.rs` | גנרטור מסמכי דמה לבדיקות ובנצ'מרק (תחת feature `fixtures`) |
-| `crates/tok-typeset/tests/*.rs` | 13 קובצי בדיקות אינטגרציה ורגרסיה לטיפוגרפיה, Co-Pagination, דטרמיניזם ו-RTL |
+| [`crates/tok-typeset/src/fixtures.rs`](../crates/tok-typeset/src/fixtures.rs) | גנרטור מסמכי דמה לבדיקות ובנצ'מרק (תחת feature `fixtures`) |
+| `crates/tok-typeset/tests/*.rs` | 14 קובצי בדיקות אינטגרציה ורגרסיה לטיפוגרפיה, Co-Pagination, דטרמיניזם ו-RTL |
 | [`crates/tok-typeset/benches/incremental_benchmark.rs`](../crates/tok-typeset/benches/incremental_benchmark.rs) | בנצ'מרק ביצועים לעימוד אינקרמנטלי |
 
 ### `crates/tok-pdf/` — מנוע קדם-דפוס והפקת PDF/X
@@ -150,11 +158,14 @@
 | [`crates/tok-pdf/src/color.rs`](../crates/tok-pdf/src/color.rs) | ניהול צבע `DeviceCMYK`, צבעי ספוט `Separation` ופרופילי `OutputIntent` |
 | [`crates/tok-pdf/src/font_subsetter.rs`](../crates/tok-pdf/src/font_subsetter.rs) | גזירת תת-קבוצות גופנים (Font Subsetting) להקטנת קובץ ה-PDF |
 | [`crates/tok-pdf/src/tounicode.rs`](../crates/tok-pdf/src/tounicode.rs) | יצירת טבלאות `/ToUnicode` CMap לחיפוש והעתקת טקסט עברי מנוקד |
-| [`crates/tok-pdf/src/image_xobject.rs`](../crates/tok-pdf/src/image_xobject.rs) | פענוח PNG/JPEG (כולל `/SMask` ל-PDF/X-4) וקידוד ל-PDF Image XObject |
+| [`crates/tok-pdf/src/image_xobject.rs`](../crates/tok-pdf/src/image_xobject.rs) | פענוח PNG/JPEG/TIFF (כולל `/SMask` ל-PDF/X-4) וקידוד ל-PDF Image XObject |
+| [`crates/tok-pdf/src/tiff.rs`](../crates/tok-pdf/src/tiff.rs) | מפענח TIFF 6.0 ב-Rust טהור (RGB, CMYK, LZW, Deflate, PackBits, ריבוי עמודים ו-ICC) |
+| [`crates/tok-pdf/src/imposition.rs`](../crates/tok-pdf/src/imposition.rs) | מנוע אימפוזיציה (חוברות, קונטרסים / Signatures ופיצוי עובי נייר / Creep) |
 | [`crates/tok-pdf/src/ornament.rs`](../crates/tok-pdf/src/ornament.rs) | רינדור עיטורים וקטוריים וקווי הפרדה ב-PDF |
 | [`crates/tok-pdf/src/preflight.rs`](../crates/tok-pdf/src/preflight.rs) | מנוע בדיקות קדם-דפוס (`PreflightReport`) לזיהוי שגיאות ואזהרות דפוס |
 | `crates/tok-pdf/assets/icc/*` | טבלאות LUT בינאריות (`a2b.bin`, `b2a.bin`, `gamt.bin`) וסקריפט יצירה `gen_icc_luts.py` |
 | [`crates/tok-pdf/tests/e2e_pipeline_trace_test.rs`](../crates/tok-pdf/tests/e2e_pipeline_trace_test.rs) | בדיקת E2E למעקב אחר צינור הפקת ה-PDF |
+| [`crates/tok-pdf/tests/tiff_printshop_compat.rs`](../crates/tok-pdf/tests/tiff_printshop_compat.rs) | בדיקות תאימות בתי דפוס למפענח ה-TIFF וייצוא PDF/X |
 
 ### `crates/tok-storage/`, `tok-plugin-host/`, `tok-engine-service/`, `tok-ipc/`, `tok-cli/`, `tok-desktop/`
 | קובץ / תיקייה | תפקיד |
@@ -190,15 +201,15 @@
 ### `packages/tok-ui/` — ממשק שולחן העבודה
 | קובץ | תפקיד |
 | :--- | :--- |
-| [`packages/tok-ui/src/index.html`](../packages/tok-ui/src/index.html) ו-[`renderer.ts`](../packages/tok-ui/src/renderer.ts) | נקודת הכניסה ל-WebView/Renderer |
+| [`packages/tok-ui/src/index.html`](../packages/tok-ui/src/index.html), [`index.ts`](../packages/tok-ui/src/index.ts) ו-[`renderer.ts`](../packages/tok-ui/src/renderer.ts) | נקודת הכניסה וייצוא המודולים ל-WebView/Renderer |
 | [`packages/tok-ui/src/app.ts`](../packages/tok-ui/src/app.ts) | מחלקת היישום הראשית `TypesetOkApp` וניהול זרימת העבודה |
 | [`packages/tok-ui/src/ui.ts`](../packages/tok-ui/src/ui.ts), [`theme.ts`](../packages/tok-ui/src/theme.ts), [`i18n.ts`](../packages/tok-ui/src/i18n.ts), [`icons.ts`](../packages/tok-ui/src/icons.ts), [`fonts.ts`](../packages/tok-ui/src/fonts.ts), [`gematria.ts`](../packages/tok-ui/src/gematria.ts), [`types.ts`](../packages/tok-ui/src/types.ts), [`appInfo.ts`](../packages/tok-ui/src/appInfo.ts), [`textStats.ts`](../packages/tok-ui/src/textStats.ts), [`contributors.generated.ts`](../packages/tok-ui/src/contributors.generated.ts) | עיצוב, תרגומים דו-לשוניים (`he`/`en`), אייקונים, גימטריה, סטטיסטיקות וטיפוסים |
 | `packages/tok-ui/src/components/*.ts` | רכיבי UI: `SpreadCanvas.ts`, `ContextualInspector.ts`, `ActionHud.ts`, `CommandPalette.ts`, `TopSystemBar.ts`, `StatusBar.ts`, `StructureBar.ts`, `SettingsModal.ts`, `ExportDialog.ts`, `PdfPreviewModal.ts`, `PreflightModal.ts`, `WelcomeModal.ts`, `ImportTemplateModal.ts`, `CustomFlowModal.ts`, `MissingFontsModal.ts`, `TextCleanupModal.ts`, `TextStatsModal.ts`, `UserGuideModal.ts`, `AboutModal.ts`, `ConfirmDialog.ts`, `ModalController.ts`, `UpdatesDrawer.ts`, `MajorUpdateModal.ts`, `baselineGuides.ts` |
-| `packages/tok-ui/src/engine/*.ts` | גשרי עימוד ותוכן: `typesetBridge.ts`, `documentBridge.ts`, `FlowPaginator.ts`, `lineFit.ts`, `lineRuns.ts`, `textCleanup.ts`, `textImporter.ts` |
+| `packages/tok-ui/src/engine/*.ts` | גשרי עימוד ותוכן: `typesetBridge.ts`, `documentBridge.ts`, `FlowPaginator.ts`, `lineFit.ts`, `lineRuns.ts`, `textCleanup.ts`, `textImporter.ts`, `tagImporter.ts` |
 | `packages/tok-ui/src/platform/*.ts` | הפשטת פלטפורמה: `hostBridge.ts`, `tauriHostAdapter.ts`, `hostSettings.ts` |
 | `packages/tok-ui/src/plugins/*.ts` | מערכת התוספים בצד ה-UI: `PluginEngine.ts`, `plugin-types.ts`, `hebrew-utils.ts` |
 | `packages/tok-ui/src/updates/*.ts` | מערכת "מה חדש": `changelogData.ts`, `updatesManager.ts`, `ChangelogEntryCard.ts`, `UpdatesBellButton.ts`, `updatePills.ts`, `types.ts` |
-| `packages/tok-ui/src/services/recentProjectsStore.ts` ו-`utils/frameAlignment.ts` | ניהול פרויקטים אחרונים ויישור מסגרות |
+| `packages/tok-ui/src/services/recentProjectsStore.ts`, `services/customTemplatesStore.ts` ו-`utils/frameAlignment.ts` | ניהול פרויקטים אחרונים, תבניות מותאמות אישית ויישור מסגרות |
 
 ### `packages/tok-story-editor/`, `tok-viewer/`, `tok-canvas/`
 | קובץ | תפקיד |
@@ -212,7 +223,7 @@
 ## 6. בדיקות ותיעוד (`test/`, `docs/`)
 
 ### `test/`
-- **בדיקות יחידה ואינטגרציה (`test/*.test.mjs`)**: `frontend.test.mjs`, `host_bridge.test.mjs`, `milestone_features.test.mjs`, `story_editor.test.mjs`, `outcome_validation.test.mjs`, `importer.test.mjs`, `lifecycle_flow.test.mjs`, `geometric_fidelity.test.mjs`, `phase3_integration.test.mjs`, `issue20_regression.test.mjs`, `offline_updater.test.mjs`, `whats_new_system.test.mjs`, `release_notes.test.mjs`.
+- **בדיקות יחידה ואינטגרציה (`test/*.test.mjs`)**: `frontend.test.mjs`, `host_bridge.test.mjs`, `milestone_features.test.mjs`, `story_editor.test.mjs`, `outcome_validation.test.mjs`, `importer.test.mjs`, `architectural_completion.test.mjs`, `lifecycle_flow.test.mjs`, `geometric_fidelity.test.mjs`, `phase3_integration.test.mjs`, `issue20_regression.test.mjs`, `offline_updater.test.mjs`, `whats_new_system.test.mjs`, `release_notes.test.mjs`.
 - **בדיקות E2E (`test/e2e/` + [`test/run_e2e_suite.mjs`](../test/run_e2e_suite.mjs))**: `cli_helper.mjs`, `tier1_feature_coverage.test.mjs`, `tier2_boundary_corner.test.mjs`, `tier3_pairwise_combinations.test.mjs`, `tier4_real_world_scenarios.test.mjs`.
 - **דוגמאות תזרימים (`test/fixtures/multi_flow_anchors/*.json`)**: 33 דפי תלמוד מייצגים לאימות עיגון רב-תזרימי.
 
