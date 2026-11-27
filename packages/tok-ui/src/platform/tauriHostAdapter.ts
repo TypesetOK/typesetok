@@ -81,6 +81,9 @@ const ALL_TAURI_HOST_METHODS: ReadonlySet<keyof TokHostMethods> = new Set<keyof 
   'showSaveDialog',
   'showOpenDialog',
   'showImportDialog',
+  'showImportManyDialog',
+  'showImportFolderDialog',
+  'scanImportFolder',
   'getStartupFile',
   'readImportFile',
   'decompressRaw',
@@ -403,6 +406,17 @@ export class TauriHostAdapter implements TokHostBridge {
     filters?: { name: string; extensions: string[] }[];
   }): Promise<string | null> {
     return this.invokeCmd('tok_show_import_dialog', { options });
+  }
+  public showImportManyDialog(options?: {
+    filters?: { name: string; extensions: string[] }[];
+  }): Promise<string[]> {
+    return this.invokeCmd('tok_show_import_many_dialog', { options });
+  }
+  public showImportFolderDialog(): Promise<string | null> {
+    return this.invokeCmd('tok_show_import_folder_dialog');
+  }
+  public scanImportFolder(folderPath: string, recursive = true) {
+    return this.invokeCmd('tok_scan_import_folder', { folderPath, recursive });
   }
   public getStartupFile(): Promise<string | null> {
     if (!this.has('getStartupFile')) {

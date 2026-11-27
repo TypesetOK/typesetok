@@ -29,6 +29,15 @@ export interface TokUpdateDownloadProgress {
   etaSeconds: number;
 }
 
+export interface ScannedImportFile {
+  fileName: string;
+  filePath: string;
+  relativePath: string;
+  size: number;
+  modifiedMs: number;
+  ext: string;
+}
+
 export interface TokHostMethods {
   sendCommand: (cmd: unknown) => Promise<unknown>;
   onEvent: (callback: (event: unknown) => void) => () => void;
@@ -149,6 +158,11 @@ export interface TokHostMethods {
   showImportDialog: (options?: {
     filters?: { name: string; extensions: string[] }[];
   }) => Promise<string | null>;
+  showImportManyDialog?: (options?: {
+    filters?: { name: string; extensions: string[] }[];
+  }) => Promise<string[]>;
+  showImportFolderDialog?: () => Promise<string | null>;
+  scanImportFolder?: (folderPath: string, recursive?: boolean) => Promise<ScannedImportFile[]>;
   getStartupFile: () => Promise<string | null>;
   readImportFile: (filePath: string) => Promise<{
     fileName: string;
@@ -390,6 +404,21 @@ export class ElectronHostAdapter implements TokHostBridge {
   public showImportDialog(options?: { filters?: { name: string; extensions: string[] }[] }): Promise<string | null> {
     return this.call('showImportDialog', options);
   }
+  public showImportManyDialog(options?: { filters?: { name: string; extensions: string[] }[] }): Promise<string[]> {
+    return typeof this.raw.showImportManyDialog === 'function'
+      ? this.call('showImportManyDialog', options)
+      : Promise.resolve([]);
+  }
+  public showImportFolderDialog(): Promise<string | null> {
+    return typeof this.raw.showImportFolderDialog === 'function'
+      ? this.call('showImportFolderDialog')
+      : Promise.resolve(null);
+  }
+  public scanImportFolder(folderPath: string, recursive = true): Promise<ScannedImportFile[]> {
+    return typeof this.raw.scanImportFolder === 'function'
+      ? this.call('scanImportFolder', folderPath, recursive)
+      : Promise.resolve([]);
+  }
   public getStartupFile(): Promise<string | null> {
     return typeof this.raw.getStartupFile === 'function'
       ? this.call('getStartupFile')
@@ -593,6 +622,15 @@ export class WebPreviewAdapter implements TokHostBridge {
   }
   public showImportDialog(): Promise<string | null> {
     return Promise.resolve(null);
+  }
+  public showImportManyDialog(): Promise<string[]> {
+    return Promise.resolve([]);
+  }
+  public showImportFolderDialog(): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+  public scanImportFolder(): Promise<ScannedImportFile[]> {
+    return Promise.resolve([]);
   }
   public getStartupFile(): Promise<string | null> {
     return Promise.resolve(this.getBootstrap().startupFile ?? null);
