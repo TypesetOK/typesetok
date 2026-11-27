@@ -1,4 +1,5 @@
 pub mod boxes;
+pub mod cmm;
 pub mod color;
 pub mod font_subsetter;
 pub mod icc;
@@ -11,6 +12,10 @@ pub mod tiff;
 pub mod tounicode;
 
 pub use boxes::PrePressPageBoxes;
+pub use cmm::{
+    bradford_adapt, lab_to_pcs_norm, lab_to_xyz, pcs_norm_to_lab, pcs_norm_to_xyz, xyz_to_lab,
+    xyz_to_pcs_norm, IccColorTransform,
+};
 pub use color::{CmykColor, ColorManagementEngine, IccProfileId};
 pub use icc::{IccColorSpace, IccDeviceClass, IccError, IccHeader, IccProfile, RenderingIntent};
 pub use font_subsetter::{FontSubsetter, SubsetFontResult};

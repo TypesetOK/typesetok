@@ -561,6 +561,18 @@ pub fn encode_image_xobject_data_for_page(
     is_pdf_x1a: bool,
     profile: IccProfileId,
 ) -> Result<PreparedImageXObject, ImageDecodeError> {
+    encode_image_xobject_data_with_transform(bytes, page_index, is_pdf_x1a, profile, None)
+}
+
+/// Converts a specific 0-based `page_index` of an image into compressed PDF XObject
+/// payloads, optionally using an ICC [`crate::cmm::IccColorTransform`] for RGB->CMYK.
+pub fn encode_image_xobject_data_with_transform(
+    bytes: &[u8],
+    page_index: usize,
+    is_pdf_x1a: bool,
+    profile: IccProfileId,
+    transform: Option<&crate::cmm::IccColorTransform>,
+) -> Result<PreparedImageXObject, ImageDecodeError> {
     let decoded = decode_image_page(bytes, page_index)?;
     let dpi_x = decoded.dpi_x;
     let dpi_y = decoded.dpi_y;
@@ -657,7 +669,10 @@ pub fn encode_image_xobject_data_for_page(
                         b = b * a + (1.0 - a);
                     }
                 }
-                let conv = ColorManagementEngine::rgb_to_cmyk_managed(r, g, b, profile);
+                let conv = match transform {
+                    Some(xform) => xform.rgb_to_cmyk(r, g, b),
+                    None => ColorManagementEngine::rgb_to_cmyk_managed(r, g, b, profile),
+                };
                 cmyk.push((conv.c.clamp(0.0, 1.0) * 255.0).round() as u8);
                 cmyk.push((conv.m.clamp(0.0, 1.0) * 255.0).round() as u8);
                 cmyk.push((conv.y.clamp(0.0, 1.0) * 255.0).round() as u8);

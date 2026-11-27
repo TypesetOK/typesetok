@@ -266,6 +266,38 @@ impl ColorManagementEngine {
         }
     }
 
+    /// Converts sRGB `[0.0 ..= 1.0]` to `CmykColor` using a parsed [`crate::icc::IccProfile`]
+    /// and [`crate::icc::RenderingIntent`].
+    pub fn rgb_to_cmyk_with_profile(
+        r: f32,
+        g: f32,
+        b: f32,
+        target: &crate::icc::IccProfile,
+        intent: crate::icc::RenderingIntent,
+        max_tac_percent: Option<f32>,
+    ) -> CmykColor {
+        let mut xform = crate::cmm::IccColorTransform::srgb_to_target(target.clone(), intent);
+        if let Some(tac) = max_tac_percent {
+            xform = xform.with_max_tac(tac);
+        }
+        xform.rgb_to_cmyk(r, g, b)
+    }
+
+    /// Converts a `tok_core::styles::Color` using a parsed [`crate::icc::IccProfile`]
+    /// and [`crate::icc::RenderingIntent`].
+    pub fn convert_color_with_profile(
+        color: &Color,
+        target: &crate::icc::IccProfile,
+        intent: crate::icc::RenderingIntent,
+        max_tac_percent: Option<f32>,
+    ) -> CmykColor {
+        let mut xform = crate::cmm::IccColorTransform::srgb_to_target(target.clone(), intent);
+        if let Some(tac) = max_tac_percent {
+            xform = xform.with_max_tac(tac);
+        }
+        xform.convert_color(color)
+    }
+
     /// Generates a binary ICC v2.4 `prtr` `CMYK -> Lab` Output Profile for embedding in the
     /// PDF/X `DestOutputProfile` stream (`N = 4`).
     ///

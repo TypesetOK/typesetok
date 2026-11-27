@@ -9,11 +9,12 @@
 //! produced them.
 
 use crate::boxes::PrePressPageBoxes;
+use crate::cmm::IccColorTransform;
 use crate::color::{CmykColor, ColorManagementEngine, IccProfileId};
 use crate::font_subsetter::{fnv1a, FontSubsetter, SubsetFontResult, FNV_OFFSET};
 use crate::icc::{IccError, IccProfile, RenderingIntent};
 use crate::image_xobject::{
-    encode_image_xobject_data_for_page, parse_asset_page_suffix, PreparedColorSpace,
+    encode_image_xobject_data_with_transform, parse_asset_page_suffix, PreparedColorSpace,
 };
 use crate::ornament::{BuiltinOrnaments, SvgVectorCompiler};
 use crate::tounicode::ToUnicodeCMap;
@@ -707,6 +708,15 @@ impl PdfPrePressEngine {
             sep.finish();
         }
 
+        let target_icc = if let Some(ext_bytes) = options.external_icc_profile.as_ref() {
+            IccProfile::from_bytes(ext_bytes.clone())?
+        } else {
+            IccProfile::from_builtin(options.color_profile)?
+        };
+        let color_transform =
+            IccColorTransform::srgb_to_target(target_icc.clone(), options.rendering_intent)
+                .with_max_tac(options.color_profile.max_tac_percent());
+
         // 4c. Collect and emit Image XObjects (+ /SMask in PDF/X-4)
         let is_pdf_x1a = matches!(options.standard, PdfXStandard::PdfX1a2001);
         let lookup_image_bytes = |asset_path: &str| -> Option<&[u8]> {
@@ -731,11 +741,12 @@ impl PdfPrePressEngine {
                 }
                 let (base_asset_path, page_index) = parse_asset_page_suffix(&placed_img.asset_path);
                 if let Some(raw_bytes) = lookup_image_bytes(base_asset_path) {
-                    if let Ok(prep) = encode_image_xobject_data_for_page(
+                    if let Ok(prep) = encode_image_xobject_data_with_transform(
                         raw_bytes,
                         page_index,
                         is_pdf_x1a,
                         options.color_profile,
+                        Some(&color_transform),
                     ) {
                         let smask_ref = prep.smask_flate_data.as_ref().map(|smask_bytes| {
                             let s_ref = alloc();
@@ -890,16 +901,16 @@ impl PdfPrePressEngine {
 
         // 7. Embedded ICC DestOutputProfile Stream (N = 4 CMYK components) & Catalog OutputIntent
         let icc_profile_id = alloc();
-        let (intent_info, icc_raw) = if let Some(ext_bytes) = options.external_icc_profile.as_ref()
-        {
-            let parsed = IccProfile::from_bytes(ext_bytes.clone())?;
-            let desc = parsed.description().to_string();
-            (desc, parsed.raw_bytes().to_vec())
+        let (intent_info, icc_raw) = if options.external_icc_profile.is_some() {
+            (
+                target_icc.description().to_string(),
+                target_icc.raw_bytes().to_vec(),
+            )
         } else {
             let profile_info = options.color_profile.info();
             (
                 format!("TypesetOK approximation of {profile_info}"),
-                ColorManagementEngine::generate_icc_profile_bytes(options.color_profile),
+                target_icc.raw_bytes().to_vec(),
             )
         };
         if options.compress_streams {
