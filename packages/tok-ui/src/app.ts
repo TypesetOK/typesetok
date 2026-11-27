@@ -22,6 +22,8 @@ import { TextStatsModal } from './components/TextStatsModal';
 import { PreflightModal } from './components/PreflightModal';
 import { PdfPreviewModal } from './components/PdfPreviewModal';
 import { ImportTemplateModal } from './components/ImportTemplateModal';
+import { BatchImportModal, BatchImportLaunchOptions, createQueuedFileFromPath, createQueuedFileFromWebFile } from './components/BatchImportModal';
+import { BatchQueuedFile, isSupportedImportFileName } from './engine/batchFileOrder';
 import { MissingFontsModal } from './components/MissingFontsModal';
 import { CustomFlowModal, CustomFlowData } from './components/CustomFlowModal';
 import { TextCleanupModal } from './components/TextCleanupModal';
@@ -50,7 +52,7 @@ import {
   stripHtmlTags
 } from './engine/documentBridge';
 import type { LineRunLookup, LineRunSource } from './engine/lineRuns';
-import { importDocument, parseDocxXml, ImportResult } from './engine/textImporter';
+import { importDocument, parseDocxXml, importBatchDocumentsAsync, BatchFileInput, BatchImportResult, ImportResult } from './engine/textImporter';
 import { layoutToPageDescriptors, PreflightReport, readTypesetResponse } from './engine/typesetBridge';
 
 import { toHebrewGematria, formatGemaraDafAmud, formatPageNumber } from './gematria';
@@ -169,6 +171,7 @@ export class TypesetOkApp {
   /** Export format and bleed the print check is evaluated against (follows the export dialog). */
   private exportPreflight: { standard: string; bleed: boolean } = { standard: 'pdfx1a', bleed: true };
   private importTemplateModalInstance?: ImportTemplateModal;
+  private batchImportModalInstance?: BatchImportModal;
   private customFlowModalInstance?: CustomFlowModal;
   private textCleanupModalInstance?: TextCleanupModal;
   private missingFontsModalInstance?: MissingFontsModal;
@@ -1331,6 +1334,19 @@ export class TypesetOkApp {
       this.root.appendChild(this.importTemplateModalInstance.element);
     }
     return this.importTemplateModalInstance;
+  }
+
+  private get batchImportModal(): BatchImportModal {
+    if (!this.batchImportModalInstance) {
+      this.batchImportModalInstance = new BatchImportModal({
+        onStartImport: (options) => this.executeBatchImport(options),
+        onCancel: () => {
+          if (!this.hasOpenDocument) this.welcomeModal.show();
+        }
+      });
+      this.root.appendChild(this.batchImportModalInstance.element);
+    }
+    return this.batchImportModalInstance;
   }
 
   private get textCleanupModal(): TextCleanupModal {
@@ -3334,6 +3350,153 @@ export class TypesetOkApp {
     this.checkMissingFontsAfterImport(result.referencedFonts);
   }
 
+  public promptBatchImport(initialFiles?: BatchQueuedFile[]): void {
+    this.batchImportModal.show({
+      initialFiles,
+      hasOpenDocument: this.hasOpenDocument
+    });
+  }
+
+  private async executeBatchImport(options: BatchImportLaunchOptions): Promise<void> {
+    const host = getHostBridge();
+    const queued = options.files;
+    const total = queued.length;
+    const inputs: (BatchFileInput | null)[] = new Array(total).fill(null);
+    let readDone = 0;
+
+    const CONCURRENCY = 8;
+    let cursor = 0;
+
+    const readOne = async (idx: number): Promise<void> => {
+      const item = queued[idx];
+      try {
+        if (item.filePath && host.has('readImportFile')) {
+          const fileInfo = await host.readImportFile(item.filePath);
+          if (fileInfo.docxXml) {
+            inputs[idx] = {
+              fileName: fileInfo.fileName || item.fileName,
+              relativePath: item.relativePath,
+              content: fileInfo.docxXml,
+              options: {
+                fileName: fileInfo.fileName || item.fileName,
+                format: 'docx',
+                docxXml: fileInfo.docxXml,
+                footnotesXml: fileInfo.footnotesXml,
+                endnotesXml: fileInfo.endnotesXml,
+                numberingXml: fileInfo.numberingXml,
+                stylesXml: fileInfo.stylesXml
+              }
+            };
+          } else if (fileInfo.isBinary) {
+            const binStr = atob(fileInfo.dataBase64);
+            const bytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) {
+              bytes[i] = binStr.charCodeAt(i);
+            }
+            inputs[idx] = {
+              fileName: fileInfo.fileName || item.fileName,
+              relativePath: item.relativePath,
+              content: bytes
+            };
+          } else {
+            inputs[idx] = {
+              fileName: fileInfo.fileName || item.fileName,
+              relativePath: item.relativePath,
+              content: fileInfo.text || ''
+            };
+          }
+        } else if (item.webFile) {
+          const isDocx = item.ext === 'docx' || item.fileName.toLowerCase().endsWith('.docx');
+          const content = isDocx
+            ? new Uint8Array(await item.webFile.arrayBuffer())
+            : await item.webFile.text();
+          inputs[idx] = {
+            fileName: item.fileName,
+            relativePath: item.relativePath,
+            content
+          };
+        }
+      } catch (err: any) {
+        if (!options.continueOnError) throw err;
+        console.warn(`[TOK] Batch read skipped ${item.fileName}:`, err);
+      } finally {
+        readDone++;
+        if (readDone % 4 === 0 || readDone === total) {
+          this.batchImportModal.setProgress(
+            readDone,
+            total * 2,
+            tf('batchReadingProgress', { processed: readDone, total })
+          );
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, async () => {
+      while (cursor < total) {
+        const nextIdx = cursor++;
+        await readOne(nextIdx);
+      }
+    });
+    await Promise.all(workers);
+
+    const validInputs = inputs.filter((x): x is BatchFileInput => x !== null);
+    if (validInputs.length === 0) {
+      throw new Error('לא ניתן לקרוא אף אחד מהקבצים שנבחרו');
+    }
+
+    const result = await importBatchDocumentsAsync(validInputs, {
+      mode: options.mode,
+      insertFileHeading: options.insertFileHeading,
+      continueOnError: options.continueOnError,
+      chunkSize: 10,
+      onProgress: (p) => {
+        this.batchImportModal.setProgress(
+          total + p.processed,
+          total * 2,
+          tf('batchImportingProgress', {
+            processed: p.processed,
+            total: p.total,
+            name: p.currentFileName
+          })
+        );
+      }
+    });
+
+    if (options.target === 'append' && this.hasOpenDocument) {
+      this.appendBatchResultToCurrentDocument(result);
+      return;
+    }
+
+    this.pendingImportResult = { result, filePath: undefined };
+    this.importTemplateModal.show(result);
+  }
+
+  private appendBatchResultToCurrentDocument(result: BatchImportResult): void {
+    const targetFlow = this.activeFlowId || 'gemara';
+    const existing = this.documentState.flows[targetFlow] || [];
+    this.documentState.flows[targetFlow] = [...existing, ...result.paragraphs];
+    if (result.footnotes && result.footnotes.length > 0) {
+      const existingNotes = this.documentState.flows.notes || [];
+      this.documentState.flows.notes = [...existingNotes, ...result.footnotes];
+    }
+    if (result.multiFlowAnchors && result.multiFlowAnchors.length > 0) {
+      this.documentState.multiFlowAnchors = [
+        ...(this.documentState.multiFlowAnchors || []),
+        ...result.multiFlowAnchors
+      ];
+    }
+    this.storyEditor.loadStory(this.documentState.flows[targetFlow]);
+    this.setDirty(true);
+    this.repaginateAndSync(true);
+    this.showToast(
+      tf('toastBatchImportSuccess', {
+        files: result.importedFileCount,
+        paragraphs: result.paragraphs.length
+      })
+    );
+    this.checkMissingFontsAfterImport(result.referencedFonts);
+  }
+
   /**
    * Opens the template chooser dialog for the currently active document,
    * allowing the user to seamlessly switch between book layouts (prose, talmud, notes, etc.)
@@ -3583,6 +3746,10 @@ export class TypesetOkApp {
       case 'import-document': {
         if (!this.confirmDiscardUnsaved()) return;
         this.promptAndImportDocument(typeof data === 'string' ? data : undefined);
+        break;
+      }
+      case 'batch-import': {
+        this.promptBatchImport();
         break;
       }
       case 'save-document': {
