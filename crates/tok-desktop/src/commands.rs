@@ -341,6 +341,23 @@ pub async fn tok_show_open_dialog(
     }
 }
 
+fn default_import_filters() -> Vec<DialogFilter> {
+    let filter = |name: &str, exts: &[&str]| DialogFilter {
+        name: name.to_string(),
+        extensions: exts.iter().map(|e| e.to_string()).collect(),
+    };
+    vec![
+        filter(
+            "כל המסמכים הנתמכים (*.docx, *.md, *.txt, *.tag)",
+            &["docx", "md", "markdown", "txt", "tag"],
+        ),
+        filter("מסמכי Microsoft Word (*.docx)", &["docx"]),
+        filter("מסמכי Markdown (*.md, *.markdown)", &["md", "markdown"]),
+        filter("קובצי טקסט פשוט (*.txt)", &["txt"]),
+        filter("קובצי תגיות (*.tag)", &["tag"]),
+    ]
+}
+
 #[tauri::command]
 pub async fn tok_show_import_dialog(
     app: AppHandle,
@@ -354,24 +371,187 @@ pub async fn tok_show_import_dialog(
     let options = if has_filters {
         options
     } else {
-        let filter = |name: &str, exts: &[&str]| DialogFilter {
-            name: name.to_string(),
-            extensions: exts.iter().map(|e| e.to_string()).collect(),
-        };
         Some(DialogOptions {
-            filters: Some(vec![
-                filter(
-                    "כל המסמכים הנתמכים (*.docx, *.md, *.txt)",
-                    &["docx", "md", "txt"],
-                ),
-                filter("מסמכי Microsoft Word (*.docx)", &["docx"]),
-                filter("מסמכי Markdown (*.md)", &["md"]),
-                filter("קובצי טקסט פשוט (*.txt)", &["txt"]),
-            ]),
+            filters: Some(default_import_filters()),
             ..options.unwrap_or_default()
         })
     };
     tok_show_open_dialog(app, state, options).await
+}
+
+#[tauri::command]
+pub async fn tok_show_import_many_dialog(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    options: Option<DialogOptions>,
+) -> Result<Vec<String>, String> {
+    let projects_dir = {
+        let guard = state
+            .paths
+            .lock()
+            .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+        guard.projects_dir().to_path_buf()
+    };
+
+    let filters = options
+        .and_then(|o| o.filters)
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(default_import_filters);
+
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = app.dialog().file().set_directory(&projects_dir);
+        for f in filters {
+            let ext_refs: Vec<&str> = f.extensions.iter().map(|s| s.as_str()).collect();
+            builder = builder.add_filter(&f.name, &ext_refs);
+        }
+        builder.blocking_pick_files()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::new();
+    if let Some(files) = picked {
+        let mut guard = state
+            .paths
+            .lock()
+            .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+        for fp in files {
+            if let Ok(path) = fp.into_path() {
+                guard.authorize_path(&path);
+                out.push(path.to_string_lossy().into_owned());
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn tok_show_import_folder_dialog(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let projects_dir = {
+        let guard = state
+            .paths
+            .lock()
+            .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+        guard.projects_dir().to_path_buf()
+    };
+
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_directory(&projects_dir)
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Some(fp) = picked {
+        let path = fp.into_path().map_err(|e| e.to_string())?;
+        let mut guard = state
+            .paths
+            .lock()
+            .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+        guard.authorize_path(&path);
+        Ok(Some(path.to_string_lossy().into_owned()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn tok_scan_import_folder(
+    state: State<'_, AppState>,
+    folder_path: String,
+    recursive: Option<bool>,
+) -> Result<Vec<Value>, String> {
+    let root_dir = authorize_read_path(&state, &folder_path)?;
+    let recurse = recursive.unwrap_or(true);
+    let scanned: Vec<(std::path::PathBuf, String, String, u64, u64, String)> =
+        tauri::async_runtime::spawn_blocking(move || {
+            if !root_dir.is_dir() {
+                return Err(format!("Folder does not exist: {}", root_dir.display()));
+            }
+            const MAX_SCANNED_FILES: usize = 10_000;
+            let mut results = Vec::new();
+            let mut queue = std::collections::VecDeque::new();
+            queue.push_back(root_dir.clone());
+
+            while let Some(dir) = queue.pop_front() {
+                let entries = match fs::read_dir(&dir) {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        if recurse {
+                            queue.push_back(path);
+                        }
+                        continue;
+                    }
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_ascii_lowercase())
+                        .unwrap_or_default();
+                    if !matches!(ext.as_str(), "docx" | "md" | "markdown" | "txt" | "tag") {
+                        continue;
+                    }
+                    let file_name = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    // Skip Office temporary lock files (e.g. ~$document.docx)
+                    if file_name.starts_with("~$") {
+                        continue;
+                    }
+                    let rel = path
+                        .strip_prefix(&root_dir)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    let meta = fs::metadata(&path).ok();
+                    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                    let modified_ms = meta
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+
+                    results.push((path, file_name, rel, size, modified_ms, ext));
+                    if results.len() >= MAX_SCANNED_FILES {
+                        return Ok(results);
+                    }
+                }
+            }
+            Ok(results)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+    let mut guard = state
+        .paths
+        .lock()
+        .map_err(|_| "PathPolicy lock poisoned".to_string())?;
+    let mut out = Vec::with_capacity(scanned.len());
+    for (path, file_name, rel, size, modified_ms, ext) in scanned {
+        guard.authorize_path(&path);
+        out.push(json!({
+            "fileName": file_name,
+            "filePath": path.to_string_lossy().into_owned(),
+            "relativePath": rel,
+            "size": size,
+            "modifiedMs": modified_ms,
+            "ext": ext,
+        }));
+    }
+    Ok(out)
 }
 
 #[tauri::command]
