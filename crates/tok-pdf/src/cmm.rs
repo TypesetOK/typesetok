@@ -421,6 +421,258 @@ impl IccColorTransform {
     }
 }
 
+/// Computes Euclidean CIE76 ΔE*ab between two CIE L*a*b* colors.
+pub fn delta_e_76(lab1: [f32; 3], lab2: [f32; 3]) -> f32 {
+    let dl = lab1[0] - lab2[0];
+    let da = lab1[1] - lab2[1];
+    let db = lab1[2] - lab2[2];
+    (dl * dl + da * da + db * db).sqrt()
+}
+
+/// Computes perceptual CIEDE2000 ΔE00 between two CIE L*a*b* colors (`kL = kC = kH = 1.0`).
+pub fn delta_e_2000(lab1: [f32; 3], lab2: [f32; 3]) -> f32 {
+    let (l1, a1, b1) = (lab1[0] as f64, lab1[1] as f64, lab1[2] as f64);
+    let (l2, a2, b2) = (lab2[0] as f64, lab2[1] as f64, lab2[2] as f64);
+
+    let c1 = (a1 * a1 + b1 * b1).sqrt();
+    let c2 = (a2 * a2 + b2 * b2).sqrt();
+    let c_bar = 0.5 * (c1 + c2);
+    let c_bar7 = c_bar.powi(7);
+    let g = 0.5 * (1.0 - (c_bar7 / (c_bar7 + 25.0_f64.powi(7))).sqrt());
+
+    let a1_p = (1.0 + g) * a1;
+    let a2_p = (1.0 + g) * a2;
+    let c1_p = (a1_p * a1_p + b1 * b1).sqrt();
+    let c2_p = (a2_p * a2_p + b2 * b2).sqrt();
+
+    let hue_angle = |b: f64, a_p: f64| -> f64 {
+        if b.abs() < 1e-12 && a_p.abs() < 1e-12 {
+            0.0
+        } else {
+            b.atan2(a_p).to_degrees().rem_euclid(360.0)
+        }
+    };
+    let h1_p = hue_angle(b1, a1_p);
+    let h2_p = hue_angle(b2, a2_p);
+
+    let dl_p = l2 - l1;
+    let dc_p = c2_p - c1_p;
+
+    let dh_p = if c1_p * c2_p < 1e-12 {
+        0.0
+    } else {
+        let diff = h2_p - h1_p;
+        if diff.abs() <= 180.0 {
+            diff
+        } else if diff > 180.0 {
+            diff - 360.0
+        } else {
+            diff + 360.0
+        }
+    };
+    let d_big_h_p = 2.0 * (c1_p * c2_p).sqrt() * (dh_p.to_radians() * 0.5).sin();
+
+    let l_bar_p = 0.5 * (l1 + l2);
+    let c_bar_p = 0.5 * (c1_p + c2_p);
+    let h_bar_p = if c1_p * c2_p < 1e-12 {
+        h1_p + h2_p
+    } else if (h1_p - h2_p).abs() <= 180.0 {
+        0.5 * (h1_p + h2_p)
+    } else if h1_p + h2_p < 360.0 {
+        0.5 * (h1_p + h2_p + 360.0)
+    } else {
+        0.5 * (h1_p + h2_p - 360.0)
+    };
+
+    let t = 1.0 - 0.17 * (h_bar_p - 30.0).to_radians().cos()
+        + 0.24 * (2.0 * h_bar_p).to_radians().cos()
+        + 0.32 * (3.0 * h_bar_p + 6.0).to_radians().cos()
+        - 0.20 * (4.0 * h_bar_p - 63.0).to_radians().cos();
+
+    let d_theta = 30.0 * (-((h_bar_p - 275.0) / 25.0).powi(2)).exp();
+    let c_bar_p7 = c_bar_p.powi(7);
+    let r_c = 2.0 * (c_bar_p7 / (c_bar_p7 + 25.0_f64.powi(7))).sqrt();
+    let l_term = (l_bar_p - 50.0).powi(2);
+    let s_l = 1.0 + (0.015 * l_term) / (20.0 + l_term).sqrt();
+    let s_c = 1.0 + 0.045 * c_bar_p;
+    let s_h = 1.0 + 0.015 * c_bar_p * t;
+    let r_t = -(2.0 * d_theta).to_radians().sin() * r_c;
+
+    let term_l = dl_p / s_l;
+    let term_c = dc_p / s_c;
+    let term_h = d_big_h_p / s_h;
+
+    (term_l * term_l + term_c * term_c + term_h * term_h + r_t * term_c * term_h).sqrt() as f32
+}
+
+/// Configuration for ICC Soft Proofing.
+#[derive(Debug, Clone)]
+pub struct SoftProofOptions {
+    pub intent: RenderingIntent,
+    pub black_point_compensation: bool,
+    pub simulate_paper_color: bool,
+    pub gamut_warning_color: Option<[u8; 3]>,
+    pub gamut_threshold_de: f32,
+}
+
+impl Default for SoftProofOptions {
+    fn default() -> Self {
+        Self {
+            intent: RenderingIntent::RelativeColorimetric,
+            black_point_compensation: true,
+            simulate_paper_color: false,
+            gamut_warning_color: None,
+            gamut_threshold_de: 2.5,
+        }
+    }
+}
+
+/// Result of soft-proofing a single sRGB color against a target CMYK ICC profile.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SoftProofResult {
+    pub proofed_rgb: (f32, f32, f32),
+    pub cmyk: CmykColor,
+    pub source_lab: [f32; 3],
+    pub proofed_lab: [f32; 3],
+    pub out_of_gamut: bool,
+    pub delta_e_76: f32,
+    pub delta_e_2000: f32,
+}
+
+/// Result of soft-proofing an RGB8 image buffer.
+#[derive(Debug, Clone)]
+pub struct SoftProofImageResult {
+    pub width: u32,
+    pub height: u32,
+    pub proofed_rgb8: Vec<u8>,
+    pub gamut_mask: Vec<bool>,
+    pub out_of_gamut_percent: f32,
+    pub mean_delta_e_2000: f32,
+    pub max_delta_e_2000: f32,
+}
+
+/// ICC Soft Proofing engine simulating print output on an RGB display.
+#[derive(Debug, Clone)]
+pub struct SoftProofer {
+    transform: IccColorTransform,
+    options: SoftProofOptions,
+}
+
+impl SoftProofer {
+    /// Creates a soft proofer using a custom display profile and target CMYK profile.
+    pub fn new(
+        display_profile: IccProfile,
+        target_profile: IccProfile,
+        options: SoftProofOptions,
+    ) -> Self {
+        let intent = if options.simulate_paper_color {
+            RenderingIntent::AbsoluteColorimetric
+        } else {
+            options.intent
+        };
+        let transform = IccColorTransform::new(display_profile, target_profile, intent)
+            .with_black_point_compensation(options.black_point_compensation);
+        Self { transform, options }
+    }
+
+    /// Creates a soft proofer targeting standard sRGB displays.
+    pub fn srgb_to_target(target_profile: IccProfile, options: SoftProofOptions) -> Self {
+        Self::new(IccProfile::srgb_builtin(), target_profile, options)
+    }
+
+    /// Checks whether a CIE L*a*b* (D50) color is out of the target profile's gamut.
+    pub fn is_lab_out_of_gamut(&self, lab: [f32; 3]) -> bool {
+        if let Some(gamt) = self.transform.target().gamut_lut() {
+            let pcs_in = match self.transform.target().header().pcs {
+                IccColorSpace::Xyz => xyz_to_pcs_norm(lab_to_xyz(lab, D50_WHITE)),
+                _ => lab_to_pcs_norm(lab),
+            };
+            let out = gamt.eval(&pcs_in);
+            if let Some(&dist) = out.first() {
+                if dist > 0.01 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Soft-proofs a single sRGB `[0.0, 1.0]` color through the target CMYK profile and back to display sRGB.
+    pub fn proof_srgb(&self, r: f32, g: f32, b: f32) -> SoftProofResult {
+        let source_lab = self.transform.rgb_to_pcs_lab(r, g, b);
+        let cmyk = self.transform.pcs_lab_to_cmyk(source_lab);
+        let proofed_lab = self.transform.cmyk_to_pcs_lab(cmyk);
+        let proofed_rgb = self.transform.pcs_lab_to_rgb(proofed_lab);
+        let de76 = delta_e_76(source_lab, proofed_lab);
+        let de00 = delta_e_2000(source_lab, proofed_lab);
+        let out_of_gamut =
+            self.is_lab_out_of_gamut(source_lab) || de76 > self.options.gamut_threshold_de;
+
+        SoftProofResult {
+            proofed_rgb,
+            cmyk,
+            source_lab,
+            proofed_lab,
+            out_of_gamut,
+            delta_e_76: de76,
+            delta_e_2000: de00,
+        }
+    }
+
+    /// Soft-proofs a target CMYK color directly into display RGB `[0.0, 1.0]`.
+    pub fn proof_cmyk(&self, cmyk: CmykColor) -> (f32, f32, f32) {
+        let lab = self.transform.cmyk_to_pcs_lab(cmyk);
+        self.transform.pcs_lab_to_rgb(lab)
+    }
+
+    /// Soft-proofs an interleaved RGB8 image buffer (`width * height * 3` bytes).
+    pub fn proof_rgb_image(&self, rgb8: &[u8], width: u32, height: u32) -> SoftProofImageResult {
+        let pixel_count = (width as usize).saturating_mul(height as usize);
+        let available = (rgb8.len() / 3).min(pixel_count);
+        let mut proofed_rgb8 = Vec::with_capacity(available * 3);
+        let mut gamut_mask = Vec::with_capacity(available);
+        let mut oog_count = 0usize;
+        let mut sum_de00 = 0.0_f64;
+        let mut max_de00 = 0.0_f32;
+
+        for idx in 0..available {
+            let r = rgb8[idx * 3] as f32 / 255.0;
+            let g = rgb8[idx * 3 + 1] as f32 / 255.0;
+            let b = rgb8[idx * 3 + 2] as f32 / 255.0;
+            let res = self.proof_srgb(r, g, b);
+            gamut_mask.push(res.out_of_gamut);
+            if res.out_of_gamut {
+                oog_count += 1;
+            }
+            sum_de00 += res.delta_e_2000 as f64;
+            if res.delta_e_2000 > max_de00 {
+                max_de00 = res.delta_e_2000;
+            }
+
+            if res.out_of_gamut {
+                if let Some(warn) = self.options.gamut_warning_color {
+                    proofed_rgb8.extend_from_slice(&warn);
+                    continue;
+                }
+            }
+            proofed_rgb8.push((res.proofed_rgb.0.clamp(0.0, 1.0) * 255.0).round() as u8);
+            proofed_rgb8.push((res.proofed_rgb.1.clamp(0.0, 1.0) * 255.0).round() as u8);
+            proofed_rgb8.push((res.proofed_rgb.2.clamp(0.0, 1.0) * 255.0).round() as u8);
+        }
+
+        let denom = available.max(1) as f32;
+        SoftProofImageResult {
+            width,
+            height,
+            proofed_rgb8,
+            gamut_mask,
+            out_of_gamut_percent: (oog_count as f32 / denom) * 100.0,
+            mean_delta_e_2000: (sum_de00 / denom as f64) as f32,
+            max_delta_e_2000: max_de00,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,5 +707,26 @@ mod tests {
                 assert!((lab[i] - back[i]).abs() < 0.02, "lab={lab:?} back={back:?}");
             }
         }
+    }
+
+    #[test]
+    fn soft_proofer_simulates_cmyk_and_computes_gamut_metrics() {
+        let target = IccProfile::from_builtin(IccProfileId::Fogra39).unwrap();
+        let proofer = SoftProofer::srgb_to_target(
+            target,
+            SoftProofOptions {
+                gamut_warning_color: Some([255, 0, 255]),
+                ..Default::default()
+            },
+        );
+        // Neutral mid-gray is well inside gamut
+        let gray = proofer.proof_srgb(0.5, 0.5, 0.5);
+        assert!(gray.delta_e_2000 < 5.0);
+
+        // Batch image proof
+        let pixels = vec![128u8, 128, 128, 0, 255, 0];
+        let img_res = proofer.proof_rgb_image(&pixels, 2, 1);
+        assert_eq!(img_res.proofed_rgb8.len(), 6);
+        assert_eq!(img_res.gamut_mask.len(), 2);
     }
 }

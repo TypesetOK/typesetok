@@ -13,8 +13,9 @@ pub mod tounicode;
 
 pub use boxes::PrePressPageBoxes;
 pub use cmm::{
-    bradford_adapt, lab_to_pcs_norm, lab_to_xyz, pcs_norm_to_lab, pcs_norm_to_xyz, xyz_to_lab,
-    xyz_to_pcs_norm, IccColorTransform,
+    bradford_adapt, delta_e_2000, delta_e_76, lab_to_pcs_norm, lab_to_xyz, pcs_norm_to_lab,
+    pcs_norm_to_xyz, xyz_to_lab, xyz_to_pcs_norm, IccColorTransform, SoftProofImageResult,
+    SoftProofOptions, SoftProofResult, SoftProofer,
 };
 pub use color::{CmykColor, ColorManagementEngine, IccProfileId};
 pub use icc::{IccColorSpace, IccDeviceClass, IccError, IccHeader, IccProfile, RenderingIntent};
