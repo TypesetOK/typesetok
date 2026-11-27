@@ -3447,7 +3447,29 @@ export class TypesetOkApp {
       lastSavedAt: new Date().toISOString()
     });
 
-    this.showToast(tf('toastImportSuccess', { title: result.title, count: result.paragraphs.length }));
+    const batchMeta = result as BatchImportResult;
+    if (typeof batchMeta.importedFileCount === 'number' && batchMeta.importedFileCount > 1) {
+      const skipped = batchMeta.skippedCount || 0;
+      if (skipped > 0) {
+        this.showToast(
+          tf('toastBatchImportPartial', {
+            files: batchMeta.importedFileCount,
+            paragraphs: result.paragraphs.length,
+            skipped
+          }),
+          true
+        );
+      } else {
+        this.showToast(
+          tf('toastBatchImportSuccess', {
+            files: batchMeta.importedFileCount,
+            paragraphs: result.paragraphs.length
+          })
+        );
+      }
+    } else {
+      this.showToast(tf('toastImportSuccess', { title: result.title, count: result.paragraphs.length }));
+    }
     this.checkMissingFontsAfterImport(result.referencedFonts);
   }
 
@@ -3464,6 +3486,7 @@ export class TypesetOkApp {
     const total = queued.length;
     const inputs: (BatchFileInput | null)[] = new Array(total).fill(null);
     let readDone = 0;
+    let readErrors = 0;
 
     const CONCURRENCY = 8;
     let cursor = 0;
@@ -3519,6 +3542,7 @@ export class TypesetOkApp {
         }
       } catch (err: any) {
         if (!options.continueOnError) throw err;
+        readErrors++;
         console.warn(`[TOK] Batch read skipped ${item.fileName}:`, err);
       } finally {
         readDone++;
@@ -3563,6 +3587,10 @@ export class TypesetOkApp {
       }
     });
 
+    if (readErrors > 0) {
+      result.skippedCount = (result.skippedCount || 0) + readErrors;
+    }
+
     if (options.target === 'append' && this.hasOpenDocument) {
       this.appendBatchResultToCurrentDocument(result);
       return;
@@ -3589,12 +3617,24 @@ export class TypesetOkApp {
     this.storyEditor.loadStory(this.documentState.flows[targetFlow]);
     this.setDirty(true);
     this.repaginateAndSync(true);
-    this.showToast(
-      tf('toastBatchImportSuccess', {
-        files: result.importedFileCount,
-        paragraphs: result.paragraphs.length
-      })
-    );
+    const skipped = result.skippedCount || 0;
+    if (skipped > 0) {
+      this.showToast(
+        tf('toastBatchImportPartial', {
+          files: result.importedFileCount,
+          paragraphs: result.paragraphs.length,
+          skipped
+        }),
+        true
+      );
+    } else {
+      this.showToast(
+        tf('toastBatchImportSuccess', {
+          files: result.importedFileCount,
+          paragraphs: result.paragraphs.length
+        })
+      );
+    }
     this.checkMissingFontsAfterImport(result.referencedFonts);
   }
 

@@ -256,6 +256,49 @@ export class BatchImportModal {
     setTimeout(() => input.remove(), 1500);
   }
 
+  private async handleModalDrop(dataTransfer: DataTransfer): Promise<void> {
+    const collected: BatchQueuedFile[] = [];
+    const MAX_DROP_FILES = 10_000;
+    const items = dataTransfer.items ? Array.from(dataTransfer.items) : [];
+    const entries = items
+      .map((item) => (typeof (item as any).webkitGetAsEntry === 'function' ? (item as any).webkitGetAsEntry() : null))
+      .filter(Boolean);
+
+    if (entries.length > 0) {
+      const readEntry = async (entry: any, prefix: string): Promise<void> => {
+        if (collected.length >= MAX_DROP_FILES) return;
+        if (entry.isFile) {
+          const file: File = await new Promise((resolve, reject) => entry.file(resolve, reject));
+          const rel = prefix ? `${prefix}/${file.name}` : file.name;
+          collected.push(createQueuedFileFromWebFile(file, rel));
+        } else if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const readBatch = (): Promise<any[]> =>
+            new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+          let batch: any[] = await readBatch();
+          while (batch.length > 0 && collected.length < MAX_DROP_FILES) {
+            for (const child of batch) {
+              const nextPrefix = prefix ? `${prefix}/${entry.name}` : entry.name;
+              await readEntry(child, nextPrefix);
+              if (collected.length >= MAX_DROP_FILES) break;
+            }
+            batch = await readBatch();
+          }
+        }
+      };
+
+      for (const entry of entries) {
+        await readEntry(entry, '');
+        if (collected.length >= MAX_DROP_FILES) break;
+      }
+      this.addQueuedFiles(collected);
+      return;
+    }
+
+    const flat = Array.from(dataTransfer.files || []).map((f) => createQueuedFileFromWebFile(f));
+    this.addQueuedFiles(flat);
+  }
+
   private getFilteredIndices(): number[] {
     const q = this.filterQuery.trim().toLowerCase();
     if (!q) {
@@ -490,11 +533,10 @@ export class BatchImportModal {
       }
     });
     this.listContainer.addEventListener('drop', (e) => {
-      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      if (e.dataTransfer && (e.dataTransfer.files?.length > 0 || e.dataTransfer.items?.length > 0)) {
         e.preventDefault();
         e.stopPropagation();
-        const dropped = Array.from(e.dataTransfer.files).map((f) => createQueuedFileFromWebFile(f));
-        this.addQueuedFiles(dropped);
+        void this.handleModalDrop(e.dataTransfer);
       }
     });
     dialog.appendChild(this.listContainer);
