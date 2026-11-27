@@ -456,22 +456,255 @@ impl PreflightEngine {
             details: color_details,
         });
 
-        // 3. Trim & Bleed Geometry (>= 3mm = 8.5pt recommended)
+        // 3. TrimBox, BleedBox, & Slug Geometry (>= 3mm = 8.5pt recommended)
         let mut geom_status = PreflightStatus::Pass;
         let mut geom_details = Vec::new();
-        if pages.is_empty()
-            || pages
-                .iter()
-                .any(|p| p.dimensions.width <= 0.0 || p.dimensions.height <= 0.0)
-        {
+        if pages.is_empty() {
             geom_status = PreflightStatus::Fail;
-            geom_details.push("Invalid or empty page TrimBox dimensions".to_string());
-        } else if options.bleed_pt < 8.5 {
-            geom_status = PreflightStatus::Warning;
-            geom_details.push(format!(
-                "Bleed is {:.2}pt (< 8.5pt / 3mm commercial print standard)",
-                options.bleed_pt
-            ));
+            let msg = "Invalid or empty page TrimBox dimensions".to_string();
+            geom_details.push(msg.clone());
+            issues.push(PreflightIssue {
+                code: "TRIMBOX_EMPTY_DOCUMENT".to_string(),
+                check_id: "geometry".to_string(),
+                severity: PreflightStatus::Fail,
+                page_number: None,
+                location: None,
+                message: msg,
+                message_he: "המסמך ריק או שאין עמודים להגדרת TrimBox".to_string(),
+                suggestion: Some("Add at least one page with valid trim dimensions.".to_string()),
+                suggestion_he: Some("הוסיפו לפחות עמוד אחד עם מידות חיתוך תקינות.".to_string()),
+            });
+        } else {
+            let ref_w = pages[0].dimensions.width;
+            let ref_h = pages[0].dimensions.height;
+            let mut mixed_pages_reported = 0usize;
+
+            for (p_idx, page) in pages.iter().enumerate() {
+                let page_num = p_idx + 1;
+                let w = page.dimensions.width;
+                let h = page.dimensions.height;
+                if !w.is_finite() || !h.is_finite() || w <= 0.0 || h <= 0.0 {
+                    geom_status = PreflightStatus::Fail;
+                    let msg = format!(
+                        "Page {}: invalid TrimBox dimensions ({:.2} x {:.2}pt)",
+                        page_num, w, h
+                    );
+                    geom_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "TRIMBOX_INVALID_DIMENSIONS".to_string(),
+                        check_id: "geometry".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: Some(format!("{:.2} x {:.2}pt", w, h)),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: מידות TrimBox אינן תקינות ({:.2} x {:.2} נק')",
+                            page_num, w, h
+                        ),
+                        suggestion: Some("Set positive finite page width and height.".to_string()),
+                        suggestion_he: Some("הגדירו רוחב וגובה חיוביים ותקינים לעמוד.".to_string()),
+                    });
+                    continue;
+                }
+
+                if ((w - ref_w).abs() > 0.5 || (h - ref_h).abs() > 0.5) && mixed_pages_reported < 10
+                {
+                    mixed_pages_reported += 1;
+                    if geom_status == PreflightStatus::Pass {
+                        geom_status = PreflightStatus::Warning;
+                    }
+                    let msg = format!(
+                        "Page {}: TrimBox ({:.1} x {:.1}pt) differs from page 1 ({:.1} x {:.1}pt)",
+                        page_num, w, h, ref_w, ref_h
+                    );
+                    geom_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "TRIMBOX_MIXED_PAGE_SIZES".to_string(),
+                        check_id: "geometry".to_string(),
+                        severity: PreflightStatus::Warning,
+                        page_number: Some(page_num),
+                        location: Some(format!("{:.1} x {:.1}pt", w, h)),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: גודל TrimBox ({:.1} x {:.1} נק') שונה מעמוד 1 ({:.1} x {:.1} נק')",
+                            page_num, w, h, ref_w, ref_h
+                        ),
+                        suggestion: Some("Ensure consistent TrimBox dimensions across the signature.".to_string()),
+                        suggestion_he: Some("ודאו שמידות החיתוך אחידות בכל עמודי הספר.".to_string()),
+                    });
+                }
+
+                let boxes = crate::boxes::PrePressPageBoxes::new(
+                    w,
+                    h,
+                    options.bleed_pt,
+                    options.slug_pt,
+                );
+                if boxes.bleed_box[0] > boxes.trim_box[0]
+                    || boxes.bleed_box[2] < boxes.trim_box[2]
+                    || boxes.media_box[0] > boxes.bleed_box[0]
+                    || boxes.media_box[2] < boxes.bleed_box[2]
+                {
+                    geom_status = PreflightStatus::Fail;
+                    let msg = format!(
+                        "Page {}: BleedBox/MediaBox does not enclose TrimBox",
+                        page_num
+                    );
+                    geom_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "BLEEDBOX_ENCLOSURE_ERROR".to_string(),
+                        check_id: "geometry".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: None,
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: תיבת ה-BleedBox/MediaBox אינה מכילה את ה-TrimBox",
+                            page_num
+                        ),
+                        suggestion: Some("Verify bleed and slug margins are non-negative.".to_string()),
+                        suggestion_he: Some("ודאו ששולי החיתוך וה-Slug אינם שליליים.".to_string()),
+                    });
+                }
+
+                // Check for edge-bleed hazard when bleed < 3mm
+                if options.bleed_pt < 8.5 {
+                    let touches_edge = |r: &tok_typeset::geometry::PhysicalRect| -> bool {
+                        r.x <= 1.0
+                            || r.y <= 1.0
+                            || (r.x + r.width) >= (w - 1.0)
+                            || (r.y + r.height) >= (h - 1.0)
+                    };
+                    for img in &page.images {
+                        if touches_edge(&img.rect) {
+                            let sev = if options.bleed_pt <= 0.0
+                                && options.standard != PdfXStandard::Plain
+                            {
+                                geom_status = PreflightStatus::Fail;
+                                PreflightStatus::Fail
+                            } else {
+                                if geom_status == PreflightStatus::Pass {
+                                    geom_status = PreflightStatus::Warning;
+                                }
+                                PreflightStatus::Warning
+                            };
+                            let msg = format!(
+                                "Page {}: image '{}' reaches trim edge with only {:.2}pt bleed",
+                                page_num, img.asset_path, options.bleed_pt
+                            );
+                            geom_details.push(msg.clone());
+                            issues.push(PreflightIssue {
+                                code: "BLEED_EDGE_HAZARD".to_string(),
+                                check_id: "geometry".to_string(),
+                                severity: sev,
+                                page_number: Some(page_num),
+                                location: Some(img.asset_path.clone()),
+                                message: msg,
+                                message_he: format!(
+                                    "עמוד {}: התמונה '{}' נוגעת בקצה החיתוך עם Bleed של {:.2} נק' בלבד",
+                                    page_num, img.asset_path, options.bleed_pt
+                                ),
+                                suggestion: Some("Enable >= 3mm (8.5pt) bleed and extend edge artwork into the bleed area.".to_string()),
+                                suggestion_he: Some("הגדירו שולי חיתוך של 3 מ\"מ (8.5 נק') לפחות והאריכו את התמונה לאזור ה-Bleed.".to_string()),
+                            });
+                        }
+                    }
+                    for orn in &page.ornaments {
+                        if touches_edge(&orn.rect) {
+                            if geom_status == PreflightStatus::Pass {
+                                geom_status = PreflightStatus::Warning;
+                            }
+                            let msg = format!(
+                                "Page {}: ornament '{}' reaches trim edge with {:.2}pt bleed",
+                                page_num, orn.ornament_id, options.bleed_pt
+                            );
+                            geom_details.push(msg.clone());
+                            issues.push(PreflightIssue {
+                                code: "BLEED_ORNAMENT_EDGE_HAZARD".to_string(),
+                                check_id: "geometry".to_string(),
+                                severity: PreflightStatus::Warning,
+                                page_number: Some(page_num),
+                                location: Some(orn.ornament_id.clone()),
+                                message: msg,
+                                message_he: format!(
+                                    "עמוד {}: העיטור '{}' נוגע בקצה החיתוך עם Bleed של {:.2} נק'",
+                                    page_num, orn.ornament_id, options.bleed_pt
+                                ),
+                                suggestion: Some("Enable >= 3mm (8.5pt) bleed for edge ornaments.".to_string()),
+                                suggestion_he: Some("הגדירו שולי חיתוך של 3 מ\"מ (8.5 נק') לפחות.".to_string()),
+                            });
+                        }
+                    }
+                }
+            }
+
+            if !options.bleed_pt.is_finite() || options.bleed_pt < 0.0 {
+                geom_status = PreflightStatus::Fail;
+                let msg = format!("Invalid Bleed value: {:.2}pt", options.bleed_pt);
+                geom_details.push(msg.clone());
+                issues.push(PreflightIssue {
+                    code: "BLEED_INVALID".to_string(),
+                    check_id: "geometry".to_string(),
+                    severity: PreflightStatus::Fail,
+                    page_number: None,
+                    location: None,
+                    message: msg,
+                    message_he: format!("ערך שולי החיתוך (Bleed) אינו תקין: {:.2} נק'", options.bleed_pt),
+                    suggestion: Some("Set bleed to >= 8.5pt (3mm).".to_string()),
+                    suggestion_he: Some("הגדירו שולי חיתוך ל-8.5 נק' (3 מ\"מ) ומעלה.".to_string()),
+                });
+            } else if options.bleed_pt < 8.5 {
+                if geom_status == PreflightStatus::Pass {
+                    geom_status = PreflightStatus::Warning;
+                }
+                let msg = format!(
+                    "Bleed is {:.2}pt (< 8.5pt / 3mm commercial print standard)",
+                    options.bleed_pt
+                );
+                geom_details.push(msg.clone());
+                issues.push(PreflightIssue {
+                    code: "BLEED_BELOW_STANDARD".to_string(),
+                    check_id: "geometry".to_string(),
+                    severity: PreflightStatus::Warning,
+                    page_number: None,
+                    location: None,
+                    message: msg,
+                    message_he: format!(
+                        "שולי החיתוך (Bleed) הם {:.2} נק' (מתחת לתקן המסחרי של 3 מ\"מ / 8.5 נק')",
+                        options.bleed_pt
+                    ),
+                    suggestion: Some("Increase bleed to at least 3mm (8.5pt) in export settings.".to_string()),
+                    suggestion_he: Some("הגדילו את שולי החיתוך ל-3 מ\"מ (8.5 נק') לפחות בהגדרות הייצוא.".to_string()),
+                });
+            }
+
+            if (options.draw_crop_marks || options.draw_registration_marks)
+                && options.slug_pt < options.bleed_pt + 14.0
+            {
+                if geom_status == PreflightStatus::Pass {
+                    geom_status = PreflightStatus::Warning;
+                }
+                let msg = format!(
+                    "Slug margin ({:.1}pt) is tight for printer marks (recommended >= {:.1}pt)",
+                    options.slug_pt,
+                    options.bleed_pt + 14.0
+                );
+                geom_details.push(msg.clone());
+                issues.push(PreflightIssue {
+                    code: "SLUG_TIGHT_FOR_MARKS".to_string(),
+                    check_id: "geometry".to_string(),
+                    severity: PreflightStatus::Warning,
+                    page_number: None,
+                    location: None,
+                    message: msg,
+                    message_he: format!(
+                        "שולי ה-Slug ({:.1} נק') צפופים מדי לסימני החיתוך והרישום",
+                        options.slug_pt
+                    ),
+                    suggestion: Some("Use default 10mm (28.35pt) slug margin when printer marks are enabled.".to_string()),
+                    suggestion_he: Some("השתמשו בשולי Slug של 10 מ\"מ (28.35 נק') כאשר סימני דפוס פעילים.".to_string()),
+                });
+            }
         }
         let geom_summary = if geom_status == PreflightStatus::Pass {
             format!("TrimBox valid; Bleed {:.1}pt (>= 3mm)", options.bleed_pt)
