@@ -84,6 +84,116 @@ impl PreflightReport {
             .filter(|issue| issue.page_number.is_none())
             .collect()
     }
+
+    /// Formats an organized, human-readable preflight report grouped by document-wide
+    /// and per-page findings.
+    pub fn format_report(&self, hebrew: bool) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        let status_str = |s: PreflightStatus| match (s, hebrew) {
+            (PreflightStatus::Pass, true) => "תקין",
+            (PreflightStatus::Warning, true) => "אזהרה",
+            (PreflightStatus::Fail, true) => "שגיאה",
+            (PreflightStatus::Pass, false) => "PASS",
+            (PreflightStatus::Warning, false) => "WARNING",
+            (PreflightStatus::Fail, false) => "FAIL",
+        };
+
+        if hebrew {
+            let _ = writeln!(
+                out,
+                "=== דוח קדם-דפוס (Preflight) | {} | {} ===",
+                self.profile_name, self.pdfx_standard
+            );
+            let _ = writeln!(
+                out,
+                "סטטוס כללי: {} | עמודים: {} | שגיאות: {} | אזהרות: {}",
+                status_str(self.overall_status),
+                self.total_pages,
+                self.error_count,
+                self.warning_count
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "=== Pre-Press Preflight Report | {} | {} ===",
+                self.profile_name, self.pdfx_standard
+            );
+            let _ = writeln!(
+                out,
+                "Overall: {} | Pages: {} | Errors: {} | Warnings: {}",
+                status_str(self.overall_status),
+                self.total_pages,
+                self.error_count,
+                self.warning_count
+            );
+        }
+
+        let doc_issues = self.document_wide_issues();
+        if !doc_issues.is_empty() {
+            let _ = writeln!(
+                out,
+                "\n{}",
+                if hebrew {
+                    "--- בעיות ברמת המסמך ---"
+                } else {
+                    "--- Document-Wide Issues ---"
+                }
+            );
+            for issue in doc_issues {
+                let msg = if hebrew {
+                    &issue.message_he
+                } else {
+                    &issue.message
+                };
+                let _ = writeln!(
+                    out,
+                    "  [{}] [{}] {}",
+                    status_str(issue.severity),
+                    issue.code,
+                    msg
+                );
+            }
+        }
+
+        for &page_num in &self.affected_pages {
+            let page_issues = self.issues_for_page(page_num);
+            if page_issues.is_empty() {
+                continue;
+            }
+            let _ = writeln!(
+                out,
+                "\n{}",
+                if hebrew {
+                    format!("--- עמוד {} ({} ממצאים) ---", page_num, page_issues.len())
+                } else {
+                    format!("--- Page {} ({} issue(s)) ---", page_num, page_issues.len())
+                }
+            );
+            for issue in page_issues {
+                let msg = if hebrew {
+                    &issue.message_he
+                } else {
+                    &issue.message
+                };
+                let loc = issue
+                    .location
+                    .as_deref()
+                    .map(|l| format!(" ({})", l))
+                    .unwrap_or_default();
+                let _ = writeln!(
+                    out,
+                    "  [{}] [{}]{} {}",
+                    status_str(issue.severity),
+                    issue.code,
+                    loc,
+                    msg
+                );
+            }
+        }
+
+        out
+    }
 }
 
 pub struct PreflightEngine;
@@ -1442,5 +1552,110 @@ mod tests {
         );
         assert_eq!(rep.overall_status, PreflightStatus::Warning);
         assert_eq!(rep.balance_warnings_count, 1);
+    }
+
+    #[test]
+    fn rgb_color_in_pdfx1a_and_tac_exceeded_emit_page_issues() {
+        let mut doc = DocumentRoot::new("Color Test");
+        doc.paragraph_styles.push(ParagraphStyle {
+            id: "rgb-sty".to_string(),
+            name: "RGB Accent".to_string(),
+            color: tok_core::styles::Color::Rgb {
+                r: 0.9,
+                g: 0.1,
+                b: 0.1,
+            },
+            ..Default::default()
+        });
+        doc.paragraph_styles.push(ParagraphStyle {
+            id: "heavy-cmyk".to_string(),
+            name: "Heavy CMYK".to_string(),
+            color: tok_core::styles::Color::DeviceCmyk {
+                c: 0.9,
+                m: 0.9,
+                y: 0.9,
+                k: 0.9,
+            },
+            ..Default::default()
+        });
+        let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
+        let pages = engine.typeset_document(&doc);
+        let opts = PdfExportOptions {
+            standard: PdfXStandard::PdfX1a2001,
+            color_profile: crate::color::IccProfileId::Swop2006,
+            ..PdfExportOptions::default()
+        };
+        let rep = PreflightEngine::evaluate(&doc, &pages, &engine.font_manager, &opts);
+        assert_eq!(rep.overall_status, PreflightStatus::Warning);
+        assert!(rep
+            .issues
+            .iter()
+            .any(|i| i.code == "COLOR_RGB_FOR_PRINT_PROFILE"));
+        assert!(rep.issues.iter().any(|i| i.code == "COLOR_TAC_EXCEEDED"));
+    }
+
+    #[test]
+    fn text_overflow_inside_frame_fails_preflight_with_page_and_frame() {
+        let doc = DocumentRoot::new("Overflow Test");
+        let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
+        let mut pages = engine.typeset_document(&doc);
+        pages[0].frames.push(tok_typeset::geometry::TextFrameBox {
+            frame_id: "main-col".to_string(),
+            flow_id: "body".to_string(),
+            rect: PhysicalRect::new(50.0, 50.0, 200.0, 100.0),
+            lines: vec![tok_typeset::geometry::LineBox {
+                line_index: 5,
+                baseline_y: 125.0,
+                height: 14.0,
+                width: 220.0,
+                ..Default::default()
+            }],
+        });
+        let rep = PreflightEngine::evaluate(
+            &doc,
+            &pages,
+            &engine.font_manager,
+            &PdfExportOptions::default(),
+        );
+        assert_eq!(rep.overall_status, PreflightStatus::Fail);
+        assert!(rep.affected_pages.contains(&1));
+        assert!(rep
+            .issues_for_page(1)
+            .iter()
+            .any(|i| i.code == "TEXT_OVERFLOW_FRAME_BOTTOM"));
+        assert!(rep
+            .issues_for_page(1)
+            .iter()
+            .any(|i| i.code == "TEXT_OVERFLOW_FRAME_WIDTH"));
+    }
+
+    #[test]
+    fn bleed_edge_hazard_and_formatted_report_work() {
+        let doc = DocumentRoot::new("Bleed Test");
+        let engine = TypesettingEngine::new(TypesettingEngineConfig::default());
+        let mut pages = engine.typeset_document(&doc);
+        pages[0].images.push(PlacedImageBox {
+            asset_path: "images/cover.png".to_string(),
+            rect: PhysicalRect::new(0.0, 0.0, 200.0, 200.0),
+            intrinsic_width_px: 1000,
+            intrinsic_height_px: 1000,
+            effective_dpi_x: 360.0,
+            effective_dpi_y: 360.0,
+            paragraph_id: None,
+        });
+        let opts = PdfExportOptions {
+            bleed_pt: 0.0,
+            standard: PdfXStandard::PdfX1a2001,
+            ..PdfExportOptions::default()
+        };
+        let rep = PreflightEngine::evaluate(&doc, &pages, &engine.font_manager, &opts);
+        assert_eq!(rep.overall_status, PreflightStatus::Fail);
+        assert!(rep
+            .issues_for_page(1)
+            .iter()
+            .any(|i| i.code == "BLEED_EDGE_HAZARD"));
+        let he_report = rep.format_report(true);
+        assert!(he_report.contains("עמוד 1"));
+        assert!(he_report.contains("BLEED_EDGE_HAZARD"));
     }
 }
