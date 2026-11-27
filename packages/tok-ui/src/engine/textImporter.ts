@@ -2569,10 +2569,45 @@ export interface BatchDocxFileInput {
   options?: ImportOptions;
 }
 
+export interface BatchFileInput {
+  fileName: string;
+  relativePath?: string;
+  content: string | Uint8Array | ArrayBuffer;
+  options?: ImportOptions;
+}
+
+export interface BatchImportProgress {
+  processed: number;
+  total: number;
+  currentFileName: string;
+  succeeded: number;
+  failed: number;
+}
+
+export interface BatchFileError {
+  fileName: string;
+  relativePath?: string;
+  index: number;
+  error: string;
+}
+
 export interface BatchDocxOptions {
   /** `'stitch_continuous'` merges all paragraphs into one flow; `'split_sections'` preserves per-file sections. */
   mode?: 'stitch_continuous' | 'split_sections';
   title?: string;
+}
+
+export interface BatchImportOptions extends BatchDocxOptions {
+  /** When true, inserts a heading paragraph with each file's clean title before its content. */
+  insertFileHeading?: boolean;
+  /** Style ID used for inserted file headings (defaults to `'heading-1'`). */
+  headingStyleId?: string;
+  /** When true, logs and skips failing files instead of aborting the entire batch. */
+  continueOnError?: boolean;
+  /** Number of files processed per event-loop yield in `importBatchDocumentsAsync` (default: 10). */
+  chunkSize?: number;
+  /** Progress callback invoked during `importBatchDocumentsAsync`. */
+  onProgress?: (progress: BatchImportProgress) => void;
 }
 
 export interface BatchImportedSection {
@@ -2584,6 +2619,270 @@ export interface BatchImportedSection {
 export interface BatchImportResult extends ImportResult {
   sections: BatchImportedSection[];
   importedFileCount: number;
+  totalFileCount?: number;
+  skippedCount?: number;
+  errors?: BatchFileError[];
+}
+
+interface BatchAccumulator {
+  allParagraphs: StoryParagraph[];
+  allFootnotes: StoryParagraph[];
+  allTables: ImportedTableData[];
+  allAnchors: MultiFlowAnchorLink[];
+  allLinks: ImportedFieldLink[];
+  mergedStyles: Record<string, DocxStyleDefinition>;
+  mergedFonts: Set<string>;
+  sections: BatchImportedSection[];
+  errors: BatchFileError[];
+  totalWordCount: number;
+  importedCount: number;
+}
+
+function createBatchAccumulator(): BatchAccumulator {
+  return {
+    allParagraphs: [],
+    allFootnotes: [],
+    allTables: [],
+    allAnchors: [],
+    allLinks: [],
+    mergedStyles: {},
+    mergedFonts: new Set<string>(),
+    sections: [],
+    errors: [],
+    totalWordCount: 0,
+    importedCount: 0
+  };
+}
+
+function importSingleBatchEntry(
+  file: BatchFileInput,
+  fileIdx: number,
+  acc: BatchAccumulator,
+  options?: BatchImportOptions
+): void {
+  const opts: ImportOptions = {
+    ...file.options,
+    fileName: file.fileName
+  };
+  const res = opts.docxXml
+    ? parseDocxXml(opts.docxXml, opts)
+    : importDocument(file.content, opts);
+
+  const sectionName = cleanDocumentTitle(file.fileName);
+  const idRemap = new Map<string, string>();
+  const sectionParagraphs: StoryParagraph[] = [];
+
+  if (options?.insertFileHeading) {
+    const headingPara = createStoryParagraph(
+      sectionName,
+      options.headingStyleId || 'heading-1'
+    );
+    acc.allParagraphs.push(headingPara);
+    sectionParagraphs.push(headingPara);
+  }
+
+  for (const p of res.paragraphs) {
+    const freshId = generateCrockfordUlid();
+    idRemap.set(p.id, freshId);
+    const cloned: StoryParagraph = { ...p, id: freshId };
+    acc.allParagraphs.push(cloned);
+    sectionParagraphs.push(cloned);
+  }
+
+  if (res.footnotes) {
+    for (const fn of res.footnotes) {
+      const freshFnId = generateCrockfordUlid();
+      idRemap.set(fn.id, freshFnId);
+      acc.allFootnotes.push({ ...fn, id: freshFnId });
+    }
+  }
+
+  if (res.multiFlowAnchors) {
+    for (const anchor of res.multiFlowAnchors) {
+      acc.allAnchors.push({
+        ...anchor,
+        anchorId: `${anchor.anchorId}_f${fileIdx}`,
+        primaryNodeId: idRemap.get(anchor.primaryNodeId) || anchor.primaryNodeId,
+        commentaryNodeId: idRemap.get(anchor.commentaryNodeId) || anchor.commentaryNodeId
+      });
+    }
+  }
+
+  if (res.tables) {
+    for (const tbl of res.tables) {
+      acc.allTables.push({ ...tbl, id: `${tbl.id}_f${fileIdx}` });
+    }
+  }
+
+  if (res.links) {
+    for (const link of res.links) {
+      acc.allLinks.push({
+        ...link,
+        paragraphId: link.paragraphId ? (idRemap.get(link.paragraphId) || link.paragraphId) : undefined
+      });
+    }
+  }
+
+  if (res.styles) {
+    for (const [k, v] of Object.entries(res.styles)) {
+      if (!acc.mergedStyles[k]) {
+        acc.mergedStyles[k] = v;
+      }
+    }
+  }
+
+  if (res.referencedFonts) {
+    for (const f of res.referencedFonts) {
+      acc.mergedFonts.add(f);
+    }
+  }
+
+  acc.sections.push({
+    name: sectionName,
+    fileName: file.fileName,
+    paragraphs: sectionParagraphs
+  });
+  acc.totalWordCount += res.wordCount;
+  acc.importedCount += 1;
+}
+
+function finalizeBatchResult(
+  files: BatchFileInput[],
+  acc: BatchAccumulator,
+  options?: BatchImportOptions
+): BatchImportResult {
+  if (acc.importedCount === 0 && acc.errors.length > 0) {
+    throw new DocumentImportError(
+      'CORRUPTED_FILE',
+      `Failed to import any of the ${files.length} files: ${acc.errors[0].error}`,
+      `ייבוא ${files.length} הקבצים נכשל: ${acc.errors[0].error}`
+    );
+  }
+
+  const mode = options?.mode || 'split_sections';
+  const combinedText = acc.allParagraphs.map((p) => p.text).join(' ');
+  const firstFileName = acc.sections[0]?.fileName || files[0].fileName;
+  const resolvedTitle =
+    options?.title ||
+    (files.length === 1
+      ? cleanDocumentTitle(firstFileName)
+      : `${cleanDocumentTitle(firstFileName)} (+${files.length - 1})`);
+
+  return {
+    title: resolvedTitle,
+    paragraphs: acc.allParagraphs,
+    footnotes: acc.allFootnotes.length > 0 ? acc.allFootnotes : undefined,
+    tables: acc.allTables.length > 0 ? acc.allTables : undefined,
+    multiFlowAnchors: acc.allAnchors.length > 0 ? acc.allAnchors : undefined,
+    styles: Object.keys(acc.mergedStyles).length > 0 ? acc.mergedStyles : undefined,
+    links: acc.allLinks.length > 0 ? acc.allLinks : undefined,
+    format: 'docx',
+    detectedLanguage: detectTextLanguage(combinedText),
+    detectedDirection: detectTextDirection(combinedText),
+    wordCount: acc.totalWordCount,
+    paragraphCount: acc.allParagraphs.length,
+    referencedFonts: acc.mergedFonts.size > 0 ? Array.from(acc.mergedFonts) : undefined,
+    sections:
+      mode === 'stitch_continuous'
+        ? [{ name: resolvedTitle, fileName: firstFileName, paragraphs: acc.allParagraphs }]
+        : acc.sections,
+    importedFileCount: acc.importedCount,
+    totalFileCount: files.length,
+    skippedCount: acc.errors.length,
+    errors: acc.errors.length > 0 ? acc.errors : undefined,
+    metadata: {
+      batchMode: mode,
+      fileCount: files.length,
+      importedCount: acc.importedCount,
+      skippedCount: acc.errors.length
+    }
+  };
+}
+
+/**
+ * Batch-imports and stitches any supported documents (DOCX, MD, TXT, TAG) into a unified `BatchImportResult`,
+ * allocating collision-free paragraph IDs, remapping footnote anchors, and merging custom styles.
+ */
+export function importBatchDocuments(
+  files: BatchFileInput[],
+  options?: BatchImportOptions
+): BatchImportResult {
+  if (!files || files.length === 0) {
+    throw new DocumentImportError(
+      'EMPTY_DOCUMENT',
+      'No files provided for batch import',
+      'לא נבחרו קבצים לייבוא אצווה'
+    );
+  }
+
+  const acc = createBatchAccumulator();
+  for (let fileIdx = 0; fileIdx < files.length; fileIdx++) {
+    const file = files[fileIdx];
+    try {
+      importSingleBatchEntry(file, fileIdx, acc, options);
+    } catch (err: any) {
+      if (!options?.continueOnError) throw err;
+      acc.errors.push({
+        fileName: file.fileName,
+        relativePath: file.relativePath,
+        index: fileIdx,
+        error: err?.userMessage || err?.message || String(err)
+      });
+    }
+  }
+
+  return finalizeBatchResult(files, acc, options);
+}
+
+/**
+ * Async batch-import for dozens, hundreds, or thousands of files.
+ * Yields to the browser event loop every `chunkSize` files and emits progress updates.
+ */
+export async function importBatchDocumentsAsync(
+  files: BatchFileInput[],
+  options?: BatchImportOptions
+): Promise<BatchImportResult> {
+  if (!files || files.length === 0) {
+    throw new DocumentImportError(
+      'EMPTY_DOCUMENT',
+      'No files provided for batch import',
+      'לא נבחרו קבצים לייבוא אצווה'
+    );
+  }
+
+  const chunkSize = Math.max(1, options?.chunkSize ?? 10);
+  const acc = createBatchAccumulator();
+
+  for (let fileIdx = 0; fileIdx < files.length; fileIdx++) {
+    const file = files[fileIdx];
+    try {
+      importSingleBatchEntry(file, fileIdx, acc, options);
+    } catch (err: any) {
+      if (!options?.continueOnError) throw err;
+      acc.errors.push({
+        fileName: file.fileName,
+        relativePath: file.relativePath,
+        index: fileIdx,
+        error: err?.userMessage || err?.message || String(err)
+      });
+    }
+
+    if (options?.onProgress && ((fileIdx + 1) % chunkSize === 0 || fileIdx === files.length - 1)) {
+      options.onProgress({
+        processed: fileIdx + 1,
+        total: files.length,
+        currentFileName: file.fileName,
+        succeeded: acc.importedCount,
+        failed: acc.errors.length
+      });
+    }
+
+    if ((fileIdx + 1) % chunkSize === 0 && fileIdx < files.length - 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  return finalizeBatchResult(files, acc, options);
 }
 
 /**
@@ -2601,119 +2900,14 @@ export function importBatchDocx(
       'לא נבחרו קובצי DOCX לייבוא אצווה'
     );
   }
-
-  const mode = options?.mode || 'split_sections';
-  const allParagraphs: StoryParagraph[] = [];
-  const allFootnotes: StoryParagraph[] = [];
-  const allTables: ImportedTableData[] = [];
-  const allAnchors: MultiFlowAnchorLink[] = [];
-  const allLinks: ImportedFieldLink[] = [];
-  const mergedStyles: Record<string, DocxStyleDefinition> = {};
-  const mergedFonts = new Set<string>();
-  const sections: BatchImportedSection[] = [];
-  let totalWordCount = 0;
-
-  for (let fileIdx = 0; fileIdx < files.length; fileIdx++) {
-    const file = files[fileIdx];
-    const res = importDocx(file.content, {
-      ...file.options,
-      fileName: file.fileName
-    });
-
-    const sectionName = cleanDocumentTitle(file.fileName);
-    const idRemap = new Map<string, string>();
-    const sectionParagraphs: StoryParagraph[] = [];
-
-    for (const p of res.paragraphs) {
-      const freshId = generateCrockfordUlid();
-      idRemap.set(p.id, freshId);
-      const cloned: StoryParagraph = { ...p, id: freshId };
-      allParagraphs.push(cloned);
-      sectionParagraphs.push(cloned);
-    }
-
-    if (res.footnotes) {
-      for (const fn of res.footnotes) {
-        const freshFnId = generateCrockfordUlid();
-        idRemap.set(fn.id, freshFnId);
-        allFootnotes.push({ ...fn, id: freshFnId });
-      }
-    }
-
-    if (res.multiFlowAnchors) {
-      for (const anchor of res.multiFlowAnchors) {
-        allAnchors.push({
-          ...anchor,
-          anchorId: `${anchor.anchorId}_f${fileIdx}`,
-          primaryNodeId: idRemap.get(anchor.primaryNodeId) || anchor.primaryNodeId,
-          commentaryNodeId: idRemap.get(anchor.commentaryNodeId) || anchor.commentaryNodeId
-        });
-      }
-    }
-
-    if (res.tables) {
-      for (const tbl of res.tables) {
-        allTables.push({ ...tbl, id: `${tbl.id}_f${fileIdx}` });
-      }
-    }
-
-    if (res.links) {
-      for (const link of res.links) {
-        allLinks.push({
-          ...link,
-          paragraphId: link.paragraphId ? (idRemap.get(link.paragraphId) || link.paragraphId) : undefined
-        });
-      }
-    }
-
-    if (res.styles) {
-      for (const [k, v] of Object.entries(res.styles)) {
-        if (!mergedStyles[k]) {
-          mergedStyles[k] = v;
-        }
-      }
-    }
-
-    if (res.referencedFonts) {
-      for (const f of res.referencedFonts) {
-        mergedFonts.add(f);
-      }
-    }
-
-    sections.push({
-      name: sectionName,
-      fileName: file.fileName,
-      paragraphs: sectionParagraphs
-    });
-    totalWordCount += res.wordCount;
-  }
-
-  const combinedText = allParagraphs.map((p) => p.text).join(' ');
-  const resolvedTitle =
-    options?.title ||
-    (files.length === 1 ? cleanDocumentTitle(files[0].fileName) : `${cleanDocumentTitle(files[0].fileName)} (+${files.length - 1})`);
-
-  return {
-    title: resolvedTitle,
-    paragraphs: allParagraphs,
-    footnotes: allFootnotes.length > 0 ? allFootnotes : undefined,
-    tables: allTables.length > 0 ? allTables : undefined,
-    multiFlowAnchors: allAnchors.length > 0 ? allAnchors : undefined,
-    styles: Object.keys(mergedStyles).length > 0 ? mergedStyles : undefined,
-    links: allLinks.length > 0 ? allLinks : undefined,
-    format: 'docx',
-    detectedLanguage: detectTextLanguage(combinedText),
-    detectedDirection: detectTextDirection(combinedText),
-    wordCount: totalWordCount,
-    paragraphCount: allParagraphs.length,
-    referencedFonts: mergedFonts.size > 0 ? Array.from(mergedFonts) : undefined,
-    sections: mode === 'stitch_continuous' ? [{ name: resolvedTitle, fileName: files[0].fileName, paragraphs: allParagraphs }] : sections,
-    importedFileCount: files.length,
-    metadata: {
-      batchMode: mode,
-      fileCount: files.length
-    }
-  };
+  return importBatchDocuments(
+    files.map((f) => ({
+      fileName: f.fileName,
+      content: f.content,
+      options: { ...f.options, format: 'docx' }
+    })),
+    options
+  );
 }
 
 
