@@ -581,6 +581,9 @@ fn handle_preflight(
             _ => {}
         }
     }
+    if let Some(profile_arg) = extract_flag_value(extra_args, "--profile") {
+        req.color_profile = tok_pdf::IccProfileId::from_id_str(profile_arg);
+    }
     if extra_args.iter().any(|a| a == "--no-bleed") {
         req.bleed_pt = 0.0;
     }
@@ -591,11 +594,18 @@ fn handle_preflight(
         assets_pkg.as_ref(),
         &req,
     );
-    let json_str = serde_json::to_string_pretty(&report)?;
+    let output_text = match extract_flag_value(extra_args, "--format")
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("text") | Some("en") => report.format_report(false),
+        Some("he") | Some("hebrew") => report.format_report(true),
+        _ => serde_json::to_string_pretty(&report)?,
+    };
     if let Some(out_path) = output_opt {
-        write_atomic(Path::new(out_path), json_str.as_bytes())?;
+        write_atomic(Path::new(out_path), output_text.as_bytes())?;
     } else {
-        println!("{}", json_str);
+        println!("{}", output_text);
     }
     Ok(())
 }

@@ -94,6 +94,7 @@ impl PdfRenderRequest {
 #[derive(Debug, Clone)]
 pub struct PreflightRequest {
     pub standard: PdfXStandard,
+    pub color_profile: IccProfileId,
     pub bleed_pt: f32,
 }
 
@@ -101,6 +102,7 @@ impl Default for PreflightRequest {
     fn default() -> Self {
         Self {
             standard: PdfXStandard::PdfX1a2001,
+            color_profile: IccProfileId::Fogra39,
             bleed_pt: 8.504,
         }
     }
@@ -117,6 +119,12 @@ impl PreflightRequest {
             req.bleed_pt = 0.0;
         }
         req
+    }
+
+    /// Sets the target ICC export profile for preflight color checks.
+    pub fn with_color_profile(mut self, color_profile: IccProfileId) -> Self {
+        self.color_profile = color_profile;
+        self
     }
 }
 
@@ -220,6 +228,7 @@ pub fn evaluate_preflight(
     let (image_assets, _) = collect_package_media(assets_pkg);
     let opts = PdfExportOptions {
         standard: req.standard,
+        color_profile: req.color_profile,
         bleed_pt: req.bleed_pt,
         image_assets,
         ..PdfExportOptions::default()

@@ -140,6 +140,8 @@ pub struct PreflightPayload {
     pub assets_from: Option<String>,
     pub standard: Option<String>,
     pub bleed: Option<bool>,
+    #[serde(default)]
+    pub color_profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -718,7 +720,10 @@ pub async fn tok_run_preflight(
         Some(v) => Some(json_value_to_string(v)?),
         None => None,
     };
-    let req = PreflightRequest::from_ui_options(payload.standard.as_deref(), payload.bleed);
+    let mut req = PreflightRequest::from_ui_options(payload.standard.as_deref(), payload.bleed);
+    if let Some(prof) = payload.color_profile.as_deref() {
+        req = req.with_color_profile(tok_pdf::IccProfileId::from_id_str(prof));
+    }
     let session = Arc::clone(&state.session);
     let fonts_dir = optional_fonts_dir(&state.fonts_dir);
 
