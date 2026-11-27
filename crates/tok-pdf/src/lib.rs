@@ -6,14 +6,20 @@ pub mod imposition;
 pub mod ornament;
 pub mod pdf_engine;
 pub mod preflight;
+pub mod tiff;
 pub mod tounicode;
 
 pub use boxes::PrePressPageBoxes;
 pub use color::{CmykColor, ColorManagementEngine, IccProfileId};
 pub use font_subsetter::{FontSubsetter, SubsetFontResult};
 pub use image_xobject::{
-    decode_image, encode_image_xobject_data, inspect_image_dimensions, DecodedImage,
-    ImageDecodeError, PreparedColorSpace, PreparedImageXObject,
+    decode_image, decode_image_page, encode_image_xobject_data,
+    encode_image_xobject_data_for_page, inspect_image_dimensions, parse_asset_page_suffix,
+    DecodedImage, ImageDecodeError, PreparedColorSpace, PreparedImageXObject,
+};
+pub use tiff::{
+    decode_tiff, decode_tiff_page, inspect_tiff_info, is_tiff_signature, TiffEndianness, TiffInfo,
+    TiffPageInfo,
 };
 pub use imposition::{
     compute_creep_offset, compute_imposition_plan, impose_layout_pages, ImposedSheetSide,

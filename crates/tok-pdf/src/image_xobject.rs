@@ -1,8 +1,9 @@
-//! Pure-Rust PNG & JPEG decoder and PDF/X image XObject encoder.
+//! Pure-Rust PNG, JPEG & TIFF decoder and PDF/X image XObject encoder.
 //!
 //! Zero third-party image crates: parses PNG chunks (IHDR, PLTE, tRNS, IDAT) with
-//! `miniz_oxide` decompression and all 5 PNG scanline filters, plus Baseline/Progressive
-//! JPEG SOF dimensions/component metadata.
+//! `miniz_oxide` decompression and all 5 PNG scanline filters, Baseline/Progressive
+//! JPEG SOF dimensions/component metadata, and TIFF 6.0 IFDs (RGB, CMYK, Grayscale,
+//! Palette, LZW, ZIP/Deflate, PackBits, multi-page, DPI, and embedded ICC profiles).
 //!
 //! - PDF/X-1a: Alpha channels are composited over white and converted to managed
 //!   `/DeviceCMYK` via [`ColorManagementEngine::rgb_to_cmyk_managed`].
@@ -29,6 +30,14 @@ pub struct DecodedImage {
     pub raw_jpeg_bytes: Option<Vec<u8>>,
     /// Indicates Adobe-style inverted CMYK JPEG requiring `[1 0 1 0 1 0 1 0]` decode.
     pub jpeg_cmyk_inverted: bool,
+    /// Intrinsic horizontal resolution in DPI if embedded (e.g. TIFF XResolution).
+    pub dpi_x: Option<f32>,
+    /// Intrinsic vertical resolution in DPI if embedded (e.g. TIFF YResolution).
+    pub dpi_y: Option<f32>,
+    /// Embedded ICC color profile bytes if present (e.g. TIFF tag 34675).
+    pub icc_profile: Option<Vec<u8>>,
+    /// Total page count for multi-page formats such as TIFF.
+    pub page_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,16 +59,26 @@ pub struct PreparedImageXObject {
     pub data: Vec<u8>,
     /// Optional compressed grayscale `/SMask` stream bytes (PDF/X-4 only).
     pub smask_flate_data: Option<Vec<u8>>,
+    /// Optional embedded ICC profile bytes preserved for PDF/X-4 `/ICCBased` color spaces.
+    pub icc_profile: Option<Vec<u8>>,
+    /// Intrinsic horizontal resolution in DPI if present.
+    pub dpi_x: Option<f32>,
+    /// Intrinsic vertical resolution in DPI if present.
+    pub dpi_y: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ImageDecodeError {
-    #[error("Unsupported or unrecognized image format (expected PNG or JPEG)")]
+    #[error("Unsupported or unrecognized image format (expected PNG, JPEG, or TIFF)")]
     UnsupportedFormat,
     #[error("Invalid PNG stream: {0}")]
     InvalidPng(String),
     #[error("Invalid JPEG stream: {0}")]
     InvalidJpeg(String),
+    #[error("Invalid TIFF stream: {0}")]
+    InvalidTiff(String),
+    #[error("TIFF page index {page} out of range (total pages: {total})")]
+    TiffPageOutOfRange { page: usize, total: usize },
     #[error("Unsupported PNG color type / bit depth: color_type={0}, bit_depth={1}")]
     UnsupportedColorType(u8, u8),
 }
@@ -73,19 +92,42 @@ pub fn effective_dpi(intrinsic_px: u32, placed_pt: f32) -> f32 {
     (intrinsic_px as f32 * 72.0) / placed_pt
 }
 
-/// Decodes raw image bytes (PNG or JPEG) into pixel/header metadata.
+/// Parses an optional 1-based `#page=N` suffix from an image asset path,
+/// returning `(base_path, zero_based_page_index)`.
+pub fn parse_asset_page_suffix(asset_path: &str) -> (&str, usize) {
+    if let Some((base, frag)) = asset_path.rsplit_once("#page=") {
+        if let Ok(one_based) = frag.trim().parse::<usize>() {
+            if one_based >= 1 {
+                return (base, one_based - 1);
+            }
+        }
+    }
+    (asset_path, 0)
+}
+
+/// Decodes raw image bytes (PNG, JPEG, or TIFF page 0) into pixel/header metadata.
 pub fn decode_image(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
+    decode_image_page(bytes, 0)
+}
+
+/// Decodes a specific 0-based `page_index` from raw image bytes (multi-page TIFF, or page 0 for PNG/JPEG).
+pub fn decode_image_page(
+    bytes: &[u8],
+    page_index: usize,
+) -> Result<DecodedImage, ImageDecodeError> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
         decode_png(bytes)
     } else if bytes.len() >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
         decode_jpeg_headers(bytes)
+    } else if crate::tiff::is_tiff_signature(bytes) {
+        crate::tiff::decode_tiff_page(bytes, page_index)
     } else {
         Err(ImageDecodeError::UnsupportedFormat)
     }
 }
 
-/// Inspects width and height in pixels from raw PNG or JPEG bytes without full pixel decoding
-/// where possible (falls back cleanly for PNG `IHDR` O(1) read).
+/// Inspects width and height in pixels from raw PNG, JPEG, or TIFF bytes without full pixel decoding
+/// where possible.
 pub fn inspect_image_dimensions(bytes: &[u8]) -> Result<(u32, u32), ImageDecodeError> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
         if bytes.len() < 24 || &bytes[12..16] != b"IHDR" {
@@ -98,6 +140,13 @@ pub fn inspect_image_dimensions(bytes: &[u8]) -> Result<(u32, u32), ImageDecodeE
     if bytes.len() >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
         let j = decode_jpeg_headers(bytes)?;
         return Ok((j.width, j.height));
+    }
+    if crate::tiff::is_tiff_signature(bytes) {
+        let info = crate::tiff::inspect_tiff_info(bytes)?;
+        let first = info.pages.first().ok_or_else(|| {
+            ImageDecodeError::InvalidTiff("TIFF contains no pages".into())
+        })?;
+        return Ok((first.width, first.height));
     }
     Err(ImageDecodeError::UnsupportedFormat)
 }
@@ -288,6 +337,10 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
             alpha: None,
             raw_jpeg_bytes: None,
             jpeg_cmyk_inverted: false,
+            dpi_x: None,
+            dpi_y: None,
+            icc_profile: None,
+            page_count: None,
         }),
         4 => {
             let mut gray = Vec::with_capacity(w * h);
@@ -304,6 +357,10 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
                 alpha: Some(alpha),
                 raw_jpeg_bytes: None,
                 jpeg_cmyk_inverted: false,
+                dpi_x: None,
+                dpi_y: None,
+                icc_profile: None,
+                page_count: None,
             })
         }
         2 => Ok(DecodedImage {
@@ -314,6 +371,10 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
             alpha: None,
             raw_jpeg_bytes: None,
             jpeg_cmyk_inverted: false,
+            dpi_x: None,
+            dpi_y: None,
+            icc_profile: None,
+            page_count: None,
         }),
         6 => {
             let mut rgb = Vec::with_capacity(w * h * 3);
@@ -332,6 +393,10 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
                 alpha: Some(alpha),
                 raw_jpeg_bytes: None,
                 jpeg_cmyk_inverted: false,
+                dpi_x: None,
+                dpi_y: None,
+                icc_profile: None,
+                page_count: None,
             })
         }
         3 => {
@@ -356,6 +421,10 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeError> {
                 alpha,
                 raw_jpeg_bytes: None,
                 jpeg_cmyk_inverted: false,
+                dpi_x: None,
+                dpi_y: None,
+                icc_profile: None,
+                page_count: None,
             })
         }
         _ => Err(ImageDecodeError::UnsupportedColorType(
@@ -462,21 +531,45 @@ pub fn decode_jpeg_headers(bytes: &[u8]) -> Result<DecodedImage, ImageDecodeErro
         alpha: None,
         raw_jpeg_bytes: Some(bytes.to_vec()),
         jpeg_cmyk_inverted: color_model == ImageColorModel::Cmyk8 && adobe_transform.is_some(),
+        dpi_x: None,
+        dpi_y: None,
+        icc_profile: None,
+        page_count: None,
     })
 }
 
-/// Converts a decoded image into compressed PDF XObject payloads conforming to `is_pdf_x1a`.
+/// Converts a decoded image (page 0 for multi-page formats) into compressed PDF XObject payloads
+/// conforming to `is_pdf_x1a`.
 ///
 /// - In PDF/X-1a: flattens any alpha onto white (`255`) and converts RGB -> managed `/DeviceCMYK`
 ///   via [`ColorManagementEngine::rgb_to_cmyk_managed`].
-/// - In PDF/X-4: converts RGB PNGs -> managed `/DeviceCMYK` (keeping `/SMask` separate when alpha exists)
-///   or streams RGB JPEGs with `CalRGB` (`srgb()`) / CMYK JPEGs with `DeviceCMYK`.
+/// - In PDF/X-4: preserves embedded ICC profiles (`/ICCBased`) when present, keeps `/SMask`
+///   alpha streams separate, or converts untagged RGB -> managed `/DeviceCMYK`.
 pub fn encode_image_xobject_data(
     bytes: &[u8],
     is_pdf_x1a: bool,
     profile: IccProfileId,
 ) -> Result<PreparedImageXObject, ImageDecodeError> {
-    let decoded = decode_image(bytes)?;
+    encode_image_xobject_data_for_page(bytes, 0, is_pdf_x1a, profile)
+}
+
+/// Converts a specific 0-based `page_index` of an image (such as a multi-page TIFF) into
+/// compressed PDF XObject payloads conforming to `is_pdf_x1a`.
+pub fn encode_image_xobject_data_for_page(
+    bytes: &[u8],
+    page_index: usize,
+    is_pdf_x1a: bool,
+    profile: IccProfileId,
+) -> Result<PreparedImageXObject, ImageDecodeError> {
+    let decoded = decode_image_page(bytes, page_index)?;
+    let dpi_x = decoded.dpi_x;
+    let dpi_y = decoded.dpi_y;
+    let icc_profile = if is_pdf_x1a {
+        None
+    } else {
+        decoded.icc_profile.clone()
+    };
+
     if let Some(jpeg) = decoded.raw_jpeg_bytes {
         let color_space = match decoded.color_model {
             ImageColorModel::Gray8 => PreparedColorSpace::DeviceGray,
@@ -492,6 +585,9 @@ pub fn encode_image_xobject_data(
             cmyk_decode_inverted: decoded.jpeg_cmyk_inverted,
             data: jpeg,
             smask_flate_data: None,
+            icc_profile,
+            dpi_x,
+            dpi_y,
         });
     }
 
@@ -527,9 +623,27 @@ pub fn encode_image_xobject_data(
                 cmyk_decode_inverted: false,
                 data: miniz_oxide::deflate::compress_to_vec_zlib(&out, 6),
                 smask_flate_data,
+                icc_profile,
+                dpi_x,
+                dpi_y,
             })
         }
         ImageColorModel::Rgb8 => {
+            if !is_pdf_x1a && icc_profile.is_some() {
+                return Ok(PreparedImageXObject {
+                    width: decoded.width,
+                    height: decoded.height,
+                    color_space: PreparedColorSpace::CalRgb,
+                    bits_per_component: 8,
+                    is_dct_jpeg: false,
+                    cmyk_decode_inverted: false,
+                    data: miniz_oxide::deflate::compress_to_vec_zlib(&decoded.pixels, 6),
+                    smask_flate_data,
+                    icc_profile,
+                    dpi_x,
+                    dpi_y,
+                });
+            }
             let mut cmyk = Vec::with_capacity(pixel_count * 4);
             for idx in 0..pixel_count {
                 let mut r = decoded.pixels[idx * 3] as f32 / 255.0;
@@ -558,6 +672,9 @@ pub fn encode_image_xobject_data(
                 cmyk_decode_inverted: false,
                 data: miniz_oxide::deflate::compress_to_vec_zlib(&cmyk, 6),
                 smask_flate_data,
+                icc_profile: None,
+                dpi_x,
+                dpi_y,
             })
         }
         ImageColorModel::Cmyk8 => Ok(PreparedImageXObject {
@@ -569,6 +686,9 @@ pub fn encode_image_xobject_data(
             cmyk_decode_inverted: false,
             data: miniz_oxide::deflate::compress_to_vec_zlib(&decoded.pixels, 6),
             smask_flate_data,
+            icc_profile,
+            dpi_x,
+            dpi_y,
         }),
     }
 }

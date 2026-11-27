@@ -161,7 +161,7 @@ cargo run -p tok-cli -- verify-determinism
 
 בהתאם למשמעת ההנדסית של הפרויקט (אפס טענות שווא ואפס מצגי דמה), להלן המגבלות הידועות בגרסה הנוכחית:
 
-1. **תמיכה בתמונות TIFF:** מנוע הפריסה (`tok-typeset`) ומחולל ה-PDF (`tok-pdf`) תומכים במסגרות טקסט, עיטורים וקטוריים, קווי הפרדה ושיבוץ תמונות רסטר בפורמטי PNG ו-JPEG (`image_xobject`), אך טרם תומכים בפענוח והטמעה של תמונות TIFF.
+1. **תמיכה בתמונות TIFF (BigTIFF / JPEG-in-TIFF):** תמונות TIFF תקניות (1/8/16-bit ב־RGB, ‏CMYK, גווני אפור, פלטה, דחיסת LZW, ‏ZIP/Deflate, ‏PackBits, קבצים מרובי עמודים באמצעות `#page=N`, מטא־דאטה של רזולוציית DPI ופרופילי ICC מוטמעים) נתמכות במלואן ב־`tok-pdf` (`tiff`, `image_xobject`); פורמט BigTIFF (היסטים של 64 ביט, magic `43`) ו־TIFF בדחיסת JPEG פנימית (`Compression=6/7`) אינם נתמכים.
 2. **מנוע בתהליך יחיד (`tok-engine-service`):** מעטפת ה-Tauri v2 (`tok-desktop`) קוראת ישירות ל-`tok-engine-service` בתוך אותו תהליך, בעוד `crates/tok-ipc` מספקת את טיפוסי המסגור ופרוטוקול ה-Worker עבור `tok-cli`.
 3. **ייצוא PDF/X-4 וניהול פרופילי ICC חיצוניים:** מחולל ה-PDF מפיק קובצי `PDF/X-1a:2001` ו-`PDF/X-4` עם פקודות צבע `DeviceCMYK` וצבעי `Separation` (Spot Colors) אמיתיים ומילון `OutputIntent` מובנה (ISO Coated v2 / Fogra39), ללא קישור דינמי לספריית C חיצונית דוגמת `LittleCMS`.
 

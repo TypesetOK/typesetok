@@ -161,7 +161,7 @@ cargo run -p tok-cli -- verify-determinism
 
 In accordance with the project's engineering discipline (zero false claims and zero mock implementations), the following are the known limitations in the current release:
 
-1. **TIFF Image Support:** The layout engine (`tok-typeset`) and PDF generator (`tok-pdf`) support text frames, vector ornaments, divider rules, and inline PNG/JPEG bitmap images (`image_xobject`), but do not yet decode or place TIFF images.
+1. **TIFF Image Support (BigTIFF / JPEG-in-TIFF):** Standard 1/8/16-bit TIFF images (RGB, CMYK, Grayscale, Palette, LZW, ZIP/Deflate, PackBits, multi-page IFDs via `#page=N`, DPI metadata, and embedded ICC profiles) are supported in `tok-pdf` (`tiff`, `image_xobject`); BigTIFF (64-bit offsets, magic `43`) and old-style JPEG-compressed TIFFs (`Compression=6/7`) are not supported.
 2. **In-Process Engine (`tok-engine-service`):** `tok-desktop` (Tauri v2) invokes `tok-engine-service` directly in-process, while `crates/tok-ipc` provides the framing/worker protocol types for `tok-cli`.
 3. **PDF/X-4 Export & External ICC Profile Management:** The PDF generator produces `PDF/X-1a:2001` and `PDF/X-4` files with real `DeviceCMYK` and `Separation` (Spot Colors) operators and a built-in `OutputIntent` dictionary (ISO Coated v2 / Fogra39), without dynamically linking an external C library such as `LittleCMS`.
 

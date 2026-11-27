@@ -11,7 +11,9 @@
 use crate::boxes::PrePressPageBoxes;
 use crate::color::{CmykColor, ColorManagementEngine, IccProfileId};
 use crate::font_subsetter::{fnv1a, FontSubsetter, SubsetFontResult, FNV_OFFSET};
-use crate::image_xobject::{encode_image_xobject_data, PreparedColorSpace};
+use crate::image_xobject::{
+    encode_image_xobject_data_for_page, parse_asset_page_suffix, PreparedColorSpace,
+};
 use crate::ornament::{BuiltinOrnaments, SvgVectorCompiler};
 use crate::tounicode::ToUnicodeCMap;
 use pdf_writer::types::{
@@ -55,7 +57,7 @@ pub struct PdfExportOptions {
     pub mod_date: Option<String>,
     /// Compress streams with FlateDecode (deflate/zlib) for smaller PDF output.
     pub compress_streams: bool,
-    /// Raster image assets keyed by asset path (e.g. `images/photo.png` -> PNG/JPEG bytes).
+    /// Raster image assets keyed by asset path (e.g. `images/photo.png` -> PNG/JPEG/TIFF bytes).
     pub image_assets: BTreeMap<String, Vec<u8>>,
     /// Custom ornament SVG documents keyed by asset path (e.g. `ornaments/sep.svg` -> SVG XML).
     pub ornament_assets: BTreeMap<String, String>,
@@ -717,10 +719,14 @@ impl PdfPrePressEngine {
                 if image_xobjects.contains_key(&placed_img.asset_path) {
                     continue;
                 }
-                if let Some(raw_bytes) = lookup_image_bytes(&placed_img.asset_path) {
-                    if let Ok(prep) =
-                        encode_image_xobject_data(raw_bytes, is_pdf_x1a, options.color_profile)
-                    {
+                let (base_asset_path, page_index) = parse_asset_page_suffix(&placed_img.asset_path);
+                if let Some(raw_bytes) = lookup_image_bytes(base_asset_path) {
+                    if let Ok(prep) = encode_image_xobject_data_for_page(
+                        raw_bytes,
+                        page_index,
+                        is_pdf_x1a,
+                        options.color_profile,
+                    ) {
                         let smask_ref = prep.smask_flate_data.as_ref().map(|smask_bytes| {
                             let s_ref = alloc();
                             let mut sm = pdf.image_xobject(s_ref, smask_bytes);
@@ -733,21 +739,45 @@ impl PdfPrePressEngine {
                             s_ref
                         });
 
+                        let icc_ref = if !is_pdf_x1a {
+                            prep.icc_profile.as_ref().map(|icc_raw| {
+                                let c_ref = alloc();
+                                let n_components = match prep.color_space {
+                                    PreparedColorSpace::DeviceCmyk => 4i32,
+                                    PreparedColorSpace::DeviceGray => 1i32,
+                                    PreparedColorSpace::CalRgb => 3i32,
+                                };
+                                let compressed_icc =
+                                    miniz_oxide::deflate::compress_to_vec_zlib(icc_raw, 6);
+                                let mut icc_stream = pdf.stream(c_ref, &compressed_icc);
+                                icc_stream.filter(Filter::FlateDecode);
+                                icc_stream.pair(Name(b"N"), n_components);
+                                icc_stream.finish();
+                                c_ref
+                            })
+                        } else {
+                            None
+                        };
+
                         let img_ref = alloc();
                         let res_name = format!("Im{}", image_xobjects.len() + 1);
                         let mut xobj = pdf.image_xobject(img_ref, &prep.data);
                         xobj.width(prep.width as i32);
                         xobj.height(prep.height as i32);
                         xobj.bits_per_component(prep.bits_per_component);
-                        match prep.color_space {
-                            PreparedColorSpace::DeviceCmyk => {
-                                xobj.color_space().device_cmyk();
-                            }
-                            PreparedColorSpace::DeviceGray => {
-                                xobj.color_space().device_gray();
-                            }
-                            PreparedColorSpace::CalRgb => {
-                                xobj.color_space().srgb();
+                        if let Some(c_ref) = icc_ref {
+                            xobj.color_space().icc_based(c_ref);
+                        } else {
+                            match prep.color_space {
+                                PreparedColorSpace::DeviceCmyk => {
+                                    xobj.color_space().device_cmyk();
+                                }
+                                PreparedColorSpace::DeviceGray => {
+                                    xobj.color_space().device_gray();
+                                }
+                                PreparedColorSpace::CalRgb => {
+                                    xobj.color_space().srgb();
+                                }
                             }
                         }
                         if prep.cmyk_decode_inverted {
