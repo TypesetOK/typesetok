@@ -130,6 +130,18 @@ export interface MissingFontDiagnostic {
   permission_error?: string | null;
 }
 
+export interface PreflightIssue {
+  code: string;
+  check_id: string;
+  severity: PreflightStatus;
+  page_number?: number | null;
+  location?: string | null;
+  message: string;
+  message_he: string;
+  suggestion?: string | null;
+  suggestion_he?: string | null;
+}
+
 export interface PreflightReport {
   overall_status: PreflightStatus;
   profile_name: string;
@@ -139,6 +151,10 @@ export interface PreflightReport {
   missing_fonts?: MissingFontDiagnostic[];
   low_dpi_images_count: number;
   balance_warnings_count: number;
+  issues?: PreflightIssue[];
+  error_count?: number;
+  warning_count?: number;
+  affected_pages?: number[];
 }
 
 export interface PageLayoutBox {
