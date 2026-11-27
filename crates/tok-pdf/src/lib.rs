@@ -1,6 +1,7 @@
 pub mod boxes;
 pub mod color;
 pub mod font_subsetter;
+pub mod icc;
 pub mod image_xobject;
 pub mod imposition;
 pub mod ornament;
@@ -11,6 +12,7 @@ pub mod tounicode;
 
 pub use boxes::PrePressPageBoxes;
 pub use color::{CmykColor, ColorManagementEngine, IccProfileId};
+pub use icc::{IccColorSpace, IccDeviceClass, IccError, IccHeader, IccProfile, RenderingIntent};
 pub use font_subsetter::{FontSubsetter, SubsetFontResult};
 pub use image_xobject::{
     decode_image, decode_image_page, encode_image_xobject_data,
