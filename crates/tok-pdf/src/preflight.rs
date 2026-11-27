@@ -720,35 +720,173 @@ impl PreflightEngine {
             details: geom_details,
         });
 
-        // 4. Image Effective Resolution (>= 300 DPI Pass, 150..299 Warning, < 150 Fail)
+        // 4. Image Effective Resolution (>= 300 DPI Pass, 150..299 Warning, < 150 Fail),
+        //    aspect distortion, intrinsic dimensions, and asset availability.
         let mut img_status = PreflightStatus::Pass;
         let mut img_details = Vec::new();
         let mut total_images = 0usize;
         let mut low_dpi_images_count = 0usize;
+        let has_asset_map = !options.image_assets.is_empty();
+
         for (p_idx, page) in pages.iter().enumerate() {
+            let page_num = p_idx + 1;
             for img in &page.images {
                 total_images += 1;
-                let min_dpi = img.effective_dpi_x.min(img.effective_dpi_y);
-                if min_dpi > 0.0 && min_dpi < 150.0 {
+                let dx = img.effective_dpi_x;
+                let dy = img.effective_dpi_y;
+                let min_dpi = dx.min(dy);
+                let max_dpi = dx.max(dy);
+
+                if has_asset_map && !options.image_assets.contains_key(&img.asset_path) {
+                    img_status = PreflightStatus::Fail;
+                    let msg = format!(
+                        "Page {}: image asset '{}' is missing from package",
+                        page_num, img.asset_path
+                    );
+                    img_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "IMAGE_MISSING_ASSET".to_string(),
+                        check_id: "images".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: Some(img.asset_path.clone()),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: קובץ התמונה '{}' חסר בחבילת המסמך",
+                            page_num, img.asset_path
+                        ),
+                        suggestion: Some("Re-import or embed the missing image file.".to_string()),
+                        suggestion_he: Some("ייבאו מחדש או הטמיעו את קובץ התמונה החסר.".to_string()),
+                    });
+                }
+
+                if img.intrinsic_width_px == 0
+                    || img.intrinsic_height_px == 0
+                    || !dx.is_finite()
+                    || !dy.is_finite()
+                    || min_dpi <= 0.0
+                {
                     img_status = PreflightStatus::Fail;
                     low_dpi_images_count += 1;
-                    img_details.push(format!(
+                    let msg = format!(
+                        "Page {}: {} has invalid intrinsic size ({}x{}px)",
+                        page_num, img.asset_path, img.intrinsic_width_px, img.intrinsic_height_px
+                    );
+                    img_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "IMAGE_INVALID_DIMENSIONS".to_string(),
+                        check_id: "images".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: Some(img.asset_path.clone()),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: לתמונה '{}' מידות מקור לא תקינות ({}x{} פיקסלים)",
+                            page_num, img.asset_path, img.intrinsic_width_px, img.intrinsic_height_px
+                        ),
+                        suggestion: Some("Replace with a valid PNG or JPEG image.".to_string()),
+                        suggestion_he: Some("החליפו בקובץ PNG או JPEG תקין.".to_string()),
+                    });
+                    continue;
+                }
+
+                if min_dpi < 150.0 {
+                    img_status = PreflightStatus::Fail;
+                    low_dpi_images_count += 1;
+                    let msg = format!(
                         "Page {}: {} effective {:.0} DPI (< 150 DPI minimum)",
-                        p_idx + 1,
-                        img.asset_path,
-                        min_dpi
-                    ));
-                } else if min_dpi > 0.0 && min_dpi < 300.0 {
+                        page_num, img.asset_path, min_dpi
+                    );
+                    img_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "IMAGE_CRITICAL_LOW_DPI".to_string(),
+                        check_id: "images".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: Some(format!(
+                            "{} ({}x{}px, {:.0}x{:.0} DPI)",
+                            img.asset_path,
+                            img.intrinsic_width_px,
+                            img.intrinsic_height_px,
+                            dx,
+                            dy
+                        )),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: התמונה '{}' ברזולוציה אפקטיבית של {:.0} DPI (מתחת למינימום 150 DPI)",
+                            page_num, img.asset_path, min_dpi
+                        ),
+                        suggestion: Some(
+                            "Replace with a >= 300 DPI image or reduce its placed size on the page."
+                                .to_string(),
+                        ),
+                        suggestion_he: Some(
+                            "החליפו בתמונה באיכות 300 DPI לפחות, או הקטינו את גודל ההצבה בעמוד."
+                                .to_string(),
+                        ),
+                    });
+                } else if min_dpi < 300.0 {
                     if img_status == PreflightStatus::Pass {
                         img_status = PreflightStatus::Warning;
                     }
                     low_dpi_images_count += 1;
-                    img_details.push(format!(
+                    let msg = format!(
                         "Page {}: {} effective {:.0} DPI (150-299 DPI print warning)",
-                        p_idx + 1,
-                        img.asset_path,
-                        min_dpi
-                    ));
+                        page_num, img.asset_path, min_dpi
+                    );
+                    img_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "IMAGE_LOW_DPI".to_string(),
+                        check_id: "images".to_string(),
+                        severity: PreflightStatus::Warning,
+                        page_number: Some(page_num),
+                        location: Some(format!(
+                            "{} ({}x{}px, {:.0}x{:.0} DPI)",
+                            img.asset_path,
+                            img.intrinsic_width_px,
+                            img.intrinsic_height_px,
+                            dx,
+                            dy
+                        )),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: התמונה '{}' ברזולוציה אפקטיבית של {:.0} DPI (מומלץ 300 DPI ומעלה)",
+                            page_num, img.asset_path, min_dpi
+                        ),
+                        suggestion: Some(
+                            "Use a higher-resolution source (>= 300 DPI) for crisp print output."
+                                .to_string(),
+                        ),
+                        suggestion_he: Some(
+                            "מומלץ להחליף בתמונה ברזולוציית 300 DPI ומעלה להדפסה חדה."
+                                .to_string(),
+                        ),
+                    });
+                }
+
+                if max_dpi > 0.0 && (max_dpi - min_dpi) / max_dpi > 0.10 {
+                    if img_status == PreflightStatus::Pass {
+                        img_status = PreflightStatus::Warning;
+                    }
+                    let msg = format!(
+                        "Page {}: {} has non-uniform scaling ({:.0} x {:.0} DPI)",
+                        page_num, img.asset_path, dx, dy
+                    );
+                    img_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "IMAGE_ASPECT_DISTORTION".to_string(),
+                        check_id: "images".to_string(),
+                        severity: PreflightStatus::Warning,
+                        page_number: Some(page_num),
+                        location: Some(img.asset_path.clone()),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: התמונה '{}' מתוחה ביחס לא אחיד ({:.0} x {:.0} DPI)",
+                            page_num, img.asset_path, dx, dy
+                        ),
+                        suggestion: Some("Lock aspect ratio when resizing the image frame.".to_string()),
+                        suggestion_he: Some("שמרו על יחס גובה-רוחב אחיד בעת שינוי גודל התמונה.".to_string()),
+                    });
                 }
             }
         }
