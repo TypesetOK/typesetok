@@ -2,6 +2,7 @@ use crate::error::EngineServiceError;
 use std::collections::BTreeMap;
 use tok_core::model::DocumentRoot;
 use tok_pdf::color::IccProfileId;
+use tok_pdf::icc::RenderingIntent;
 use tok_pdf::html_projection::HtmlProjectionCompiler;
 use tok_pdf::pdf_engine::{PdfExportOptions, PdfPrePressEngine, PdfXStandard};
 use tok_pdf::preflight::{PreflightEngine, PreflightReport};
@@ -32,6 +33,10 @@ pub struct PdfRenderRequest {
     pub page_range: Option<(usize, usize)>,
     /// Optional 2-up booklet / signature imposition with creep compensation.
     pub imposition: Option<tok_pdf::imposition::ImpositionConfig>,
+    /// ICC rendering intent for color conversion.
+    pub rendering_intent: RenderingIntent,
+    /// Optional external ICC profile bytes overriding `color_profile`.
+    pub external_icc_profile: Option<Vec<u8>>,
 }
 
 impl Default for PdfRenderRequest {
@@ -44,6 +49,8 @@ impl Default for PdfRenderRequest {
             draw_registration_marks: false,
             page_range: None,
             imposition: None,
+            rendering_intent: RenderingIntent::default(),
+            external_icc_profile: None,
         }
     }
 }
@@ -194,6 +201,8 @@ pub fn render_pdf_bytes(
         image_assets,
         ornament_assets,
         imposition: req.imposition.clone(),
+        rendering_intent: req.rendering_intent,
+        external_icc_profile: req.external_icc_profile.clone(),
     };
 
     Ok(PdfPrePressEngine::export_pdf_with_fonts(

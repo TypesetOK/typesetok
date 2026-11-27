@@ -11,6 +11,7 @@
 use crate::boxes::PrePressPageBoxes;
 use crate::color::{CmykColor, ColorManagementEngine, IccProfileId};
 use crate::font_subsetter::{fnv1a, FontSubsetter, SubsetFontResult, FNV_OFFSET};
+use crate::icc::{IccError, IccProfile, RenderingIntent};
 use crate::image_xobject::{
     encode_image_xobject_data_for_page, parse_asset_page_suffix, PreparedColorSpace,
 };
@@ -63,6 +64,10 @@ pub struct PdfExportOptions {
     pub ornament_assets: BTreeMap<String, String>,
     /// Optional 2-up booklet / signature imposition with creep compensation.
     pub imposition: Option<crate::imposition::ImpositionConfig>,
+    /// ICC rendering intent used for RGB-to-CMYK color conversion.
+    pub rendering_intent: RenderingIntent,
+    /// Optional external `.icc` / `.icm` CMYK output profile bytes overriding `color_profile`.
+    pub external_icc_profile: Option<Vec<u8>>,
 }
 
 impl Default for PdfExportOptions {
@@ -84,6 +89,8 @@ impl Default for PdfExportOptions {
             image_assets: BTreeMap::new(),
             ornament_assets: BTreeMap::new(),
             imposition: None,
+            rendering_intent: RenderingIntent::default(),
+            external_icc_profile: None,
         }
     }
 }
@@ -95,6 +102,9 @@ pub enum PdfError {
 
     #[error("font '{family}' could not be embedded: {reason}")]
     FontEmbedding { family: String, reason: String },
+
+    #[error("invalid ICC profile: {0}")]
+    InvalidIccProfile(#[from] IccError),
 }
 
 /// Number of addressable TrueType glyph ids.
@@ -880,9 +890,18 @@ impl PdfPrePressEngine {
 
         // 7. Embedded ICC DestOutputProfile Stream (N = 4 CMYK components) & Catalog OutputIntent
         let icc_profile_id = alloc();
-        let profile_info = options.color_profile.info();
-        let intent_info = format!("TypesetOK approximation of {profile_info}");
-        let icc_raw = ColorManagementEngine::generate_icc_profile_bytes(options.color_profile);
+        let (intent_info, icc_raw) = if let Some(ext_bytes) = options.external_icc_profile.as_ref()
+        {
+            let parsed = IccProfile::from_bytes(ext_bytes.clone())?;
+            let desc = parsed.description().to_string();
+            (desc, parsed.raw_bytes().to_vec())
+        } else {
+            let profile_info = options.color_profile.info();
+            (
+                format!("TypesetOK approximation of {profile_info}"),
+                ColorManagementEngine::generate_icc_profile_bytes(options.color_profile),
+            )
+        };
         if options.compress_streams {
             let compressed_icc = miniz_oxide::deflate::compress_to_vec_zlib(&icc_raw, 6);
             let mut icc_stream = pdf.stream(icc_profile_id, &compressed_icc);

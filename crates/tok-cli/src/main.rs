@@ -145,6 +145,20 @@ fn handle_render_pdf(
                 req.color_profile = IccProfileId::from_id_str(&extra_args[idx + 1]);
                 idx += 2;
             }
+            "--intent" if idx + 1 < extra_args.len() => {
+                if let Some(intent) = tok_pdf::RenderingIntent::from_str_name(&extra_args[idx + 1])
+                {
+                    req.rendering_intent = intent;
+                }
+                idx += 2;
+            }
+            "--icc-file" if idx + 1 < extra_args.len() => {
+                let bytes = std::fs::read(&extra_args[idx + 1]).map_err(|e| {
+                    tok_engine_service::error::EngineServiceError::Io(e)
+                })?;
+                req.external_icc_profile = Some(bytes);
+                idx += 2;
+            }
             "--no-bleed" => {
                 req.bleed_pt = 0.0;
                 idx += 1;
