@@ -378,7 +378,7 @@ impl PreflightEngine {
             details: font_details,
         });
 
-        // 2. Color Compliance (ICC Profile, GCR/TAC <= 300%, Spot /Separation)
+        // 2. Color Compliance (ICC Profile, PDF/X color space, GCR/TAC <= profile limit, Spot /Separation)
         let profile = options.color_profile;
         let profile_name = profile.output_condition_identifier().to_string();
         let pdfx_standard = match options.standard {
@@ -390,54 +390,227 @@ impl PreflightEngine {
         let mut color_details = Vec::new();
         let mut spot_inks = std::collections::BTreeSet::new();
         let mut tac_clamped = 0usize;
+        let mut rgb_in_print_count = 0usize;
 
         let max_tac = profile.max_tac_percent();
-        let mut inspect_color = |c: &tok_core::styles::Color| match c {
-            tok_core::styles::Color::DeviceCmyk { c, m, y, k } => {
-                if (c + m + y + k) * 100.0 > max_tac + 0.5 {
-                    tac_clamped += 1;
+        let is_pdfx = options.standard != PdfXStandard::Plain;
+
+        let mut inspect_color =
+            |c: &tok_core::styles::Color, page_num: Option<usize>, location: &str, is_text: bool| {
+                match c {
+                    tok_core::styles::Color::DeviceCmyk { c, m, y, k } => {
+                        if !c.is_finite()
+                            || !m.is_finite()
+                            || !y.is_finite()
+                            || !k.is_finite()
+                            || *c < 0.0
+                            || *c > 1.0
+                            || *m < 0.0
+                            || *m > 1.0
+                            || *y < 0.0
+                            || *y > 1.0
+                            || *k < 0.0
+                            || *k > 1.0
+                        {
+                            color_status = PreflightStatus::Fail;
+                            let msg = format!(
+                                "{}: invalid CMYK component values ({:.2}, {:.2}, {:.2}, {:.2})",
+                                location, c, m, y, k
+                            );
+                            color_details.push(msg.clone());
+                            issues.push(PreflightIssue {
+                                code: "COLOR_INVALID_CMYK".to_string(),
+                                check_id: "color".to_string(),
+                                severity: PreflightStatus::Fail,
+                                page_number: page_num,
+                                location: Some(location.to_string()),
+                                message: msg,
+                                message_he: format!(
+                                    "{}: ערכי CMYK לא תקינים ({:.2}, {:.2}, {:.2}, {:.2})",
+                                    location, c, m, y, k
+                                ),
+                                suggestion: Some("Keep CMYK channel values between 0.0 and 1.0.".to_string()),
+                                suggestion_he: Some("ודאו שערכי הערוצים CMYK נמצאים בטווח 0.0 עד 1.0.".to_string()),
+                            });
+                            return;
+                        }
+                        let tac = (c + m + y + k) * 100.0;
+                        if tac > max_tac + 0.5 {
+                            tac_clamped += 1;
+                            if color_status == PreflightStatus::Pass {
+                                color_status = PreflightStatus::Warning;
+                            }
+                            issues.push(PreflightIssue {
+                                code: "COLOR_TAC_EXCEEDED".to_string(),
+                                check_id: "color".to_string(),
+                                severity: PreflightStatus::Warning,
+                                page_number: page_num,
+                                location: Some(location.to_string()),
+                                message: format!(
+                                    "{}: Total Ink Coverage {:.0}% exceeds {} limit ({:.0}%)",
+                                    location, tac, profile_name, max_tac
+                                ),
+                                message_he: format!(
+                                    "{}: כיסוי הדיו הכולל ({:.0}%) חורג ממגבלת פרופיל {} ({:.0}%)",
+                                    location, tac, profile_name, max_tac
+                                ),
+                                suggestion: Some(format!(
+                                    "Reduce CMYK ink sum below {:.0}% or rely on GCR export clamping.",
+                                    max_tac
+                                )),
+                                suggestion_he: Some(format!(
+                                    "הפחיתו את סכום הדיו מתחת ל-{:.0}% כדי למנוע מריחה בהדפסה.",
+                                    max_tac
+                                )),
+                            });
+                        } else if is_text && *c > 0.1 && *m > 0.1 && *y > 0.1 && *k > 0.5 {
+                            if color_status == PreflightStatus::Pass {
+                                color_status = PreflightStatus::Warning;
+                            }
+                            issues.push(PreflightIssue {
+                                code: "COLOR_RICH_BLACK_TEXT".to_string(),
+                                check_id: "color".to_string(),
+                                severity: PreflightStatus::Warning,
+                                page_number: page_num,
+                                location: Some(location.to_string()),
+                                message: format!(
+                                    "{}: text uses 4-color rich black; 100% K is recommended for sharp type",
+                                    location
+                                ),
+                                message_he: format!(
+                                    "{}: הטקסט משתמש בשחור עשיר (4 לוחות); מומלץ 100% K לטקסט חד",
+                                    location
+                                ),
+                                suggestion: Some("Use pure black (0/0/0/100 K) for body text.".to_string()),
+                                suggestion_he: Some("הגדירו שחור טהור (100% K) לטקסט רץ למניעת הילת רישום.".to_string()),
+                            });
+                        }
+                    }
+                    tok_core::styles::Color::Spot {
+                        name,
+                        tint,
+                        fallback_cmyk,
+                    } => {
+                        if name.trim().is_empty() {
+                            color_status = PreflightStatus::Fail;
+                            let msg = format!("{}: Spot color with empty ink name", location);
+                            color_details.push("Spot color with empty ink name".to_string());
+                            issues.push(PreflightIssue {
+                                code: "COLOR_SPOT_EMPTY_NAME".to_string(),
+                                check_id: "color".to_string(),
+                                severity: PreflightStatus::Fail,
+                                page_number: page_num,
+                                location: Some(location.to_string()),
+                                message: msg,
+                                message_he: format!("{}: צבע ספוט ללא שם דיו", location),
+                                suggestion: Some("Assign a valid Pantone/Spot ink name or convert to CMYK.".to_string()),
+                                suggestion_he: Some("תנו שם דיו לצבע הספוט או המירו ל-CMYK.".to_string()),
+                            });
+                        } else {
+                            spot_inks.insert(name.clone());
+                        }
+                        if !tint.is_finite() || *tint < 0.0 || *tint > 1.0 {
+                            color_status = PreflightStatus::Fail;
+                            let msg = format!("{}: Spot '{}' has invalid tint {:.2}", location, name, tint);
+                            color_details.push(msg.clone());
+                            issues.push(PreflightIssue {
+                                code: "COLOR_SPOT_INVALID_TINT".to_string(),
+                                check_id: "color".to_string(),
+                                severity: PreflightStatus::Fail,
+                                page_number: page_num,
+                                location: Some(location.to_string()),
+                                message: msg,
+                                message_he: format!("{}: ערך tint לא תקין ({:.2}) בצבע ספוט '{}'", location, tint, name),
+                                suggestion: Some("Set spot tint between 0.0 and 1.0.".to_string()),
+                                suggestion_he: Some("הגדירו את אחוז הגוון (tint) בין 0.0 ל-1.0.".to_string()),
+                            });
+                        }
+                        let sum = (fallback_cmyk.0
+                            + fallback_cmyk.1
+                            + fallback_cmyk.2
+                            + fallback_cmyk.3)
+                            * 100.0;
+                        if sum > max_tac + 0.5 {
+                            tac_clamped += 1;
+                            if color_status == PreflightStatus::Pass {
+                                color_status = PreflightStatus::Warning;
+                            }
+                        }
+                    }
+                    tok_core::styles::Color::Rgb { r, g, b } => {
+                        let is_pure_black = *r <= 1e-4 && *g <= 1e-4 && *b <= 1e-4;
+                        let is_pure_white = *r >= 1.0 - 1e-4 && *g >= 1.0 - 1e-4 && *b >= 1.0 - 1e-4;
+                        if is_pdfx && !is_pure_black && !is_pure_white {
+                            rgb_in_print_count += 1;
+                            if color_status == PreflightStatus::Pass {
+                                color_status = PreflightStatus::Warning;
+                            }
+                            issues.push(PreflightIssue {
+                                code: "COLOR_RGB_FOR_PRINT_PROFILE".to_string(),
+                                check_id: "color".to_string(),
+                                severity: PreflightStatus::Warning,
+                                page_number: page_num,
+                                location: Some(location.to_string()),
+                                message: format!(
+                                    "{}: RGB color ({:.2}, {:.2}, {:.2}) is not native to {} / {}; will be GCR-converted to CMYK",
+                                    location, r, g, b, pdfx_standard, profile_name
+                                ),
+                                message_he: format!(
+                                    "{}: צבע RGB ({:.2}, {:.2}, {:.2}) אינו מתאים ישירות לפרופיל {} ({}); יומר אוטומטית ל-CMYK",
+                                    location, r, g, b, profile_name, pdfx_standard
+                                ),
+                                suggestion: Some(format!(
+                                    "Define this color directly in DeviceCMYK for {} to avoid gamut shifts.",
+                                    profile_name
+                                )),
+                                suggestion_he: Some(format!(
+                                    "הגדירו את הצבע ישירות ב-DeviceCMYK עבור פרופיל {} למניעת סטיות גוון.",
+                                    profile_name
+                                )),
+                            });
+                        }
+                    }
                 }
-            }
-            tok_core::styles::Color::Spot {
-                name,
-                fallback_cmyk,
-                ..
-            } => {
-                if name.trim().is_empty() {
-                    color_status = PreflightStatus::Fail;
-                    color_details.push("Spot color with empty ink name".to_string());
-                } else {
-                    spot_inks.insert(name.clone());
-                }
-                let sum =
-                    (fallback_cmyk.0 + fallback_cmyk.1 + fallback_cmyk.2 + fallback_cmyk.3) * 100.0;
-                if sum > max_tac + 0.5 {
-                    tac_clamped += 1;
-                }
-            }
-            tok_core::styles::Color::Rgb { .. } => {}
-        };
+            };
 
         for sty in &doc.paragraph_styles {
-            inspect_color(&sty.color);
+            let loc = format!("Style '{}'", sty.name);
+            inspect_color(&sty.color, None, &loc, true);
         }
-        for page in pages {
+        for (p_idx, page) in pages.iter().enumerate() {
+            let page_num = p_idx + 1;
             for frame in &page.frames {
                 for line in &frame.lines {
                     for c in &line.colors {
-                        inspect_color(c);
+                        let loc = format!("Page {} frame '{}'", page_num, frame.frame_id);
+                        inspect_color(c, Some(page_num), &loc, true);
                     }
                 }
             }
             for orn in &page.ornaments {
-                inspect_color(&orn.color);
+                let loc = format!("Page {} ornament '{}'", page_num, orn.ornament_id);
+                inspect_color(&orn.color, Some(page_num), &loc, false);
+            }
+            if let Some(pns) = &page.page_number_style {
+                if let Some(c) = &pns.color {
+                    let loc = format!("Page {} page number", page_num);
+                    inspect_color(c, Some(page_num), &loc, true);
+                }
             }
         }
-        if tac_clamped > 0 && color_status == PreflightStatus::Pass {
-            color_status = PreflightStatus::Warning;
+        if tac_clamped > 0 {
+            if color_status == PreflightStatus::Pass {
+                color_status = PreflightStatus::Warning;
+            }
             color_details.push(format!(
-                "{} color specification(s) exceeded 300% TAC and are auto-clamped via GCR",
-                tac_clamped
+                "{} color specification(s) exceeded {:.0}% TAC and are auto-clamped via GCR",
+                tac_clamped, max_tac
+            ));
+        }
+        if rgb_in_print_count > 0 {
+            color_details.push(format!(
+                "{} RGB color(s) converted to {} ({}) on export",
+                rgb_in_print_count, profile_name, pdfx_standard
             ));
         }
         if !spot_inks.is_empty() {
@@ -446,11 +619,11 @@ impl PreflightEngine {
                 spot_inks.into_iter().collect::<Vec<_>>().join(", ")
             ));
         }
-        let color_summary = format!("{} (GCR TAC <= 300%)", profile_name);
+        let color_summary = format!("{} (GCR TAC <= {:.0}%)", profile_name, max_tac);
         checks.push(PreflightCheckItem {
             id: "color".to_string(),
             category: "Color".to_string(),
-            title: "ICC Profile & Ink Limit (TAC <= 300%)".to_string(),
+            title: format!("ICC Profile & Ink Limit (TAC <= {:.0}%)", max_tac),
             status: color_status,
             summary: color_summary,
             details: color_details,
