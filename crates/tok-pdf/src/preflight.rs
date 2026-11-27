@@ -1086,11 +1086,16 @@ impl PreflightEngine {
         let mut col_status = PreflightStatus::Pass;
         let mut col_details = Vec::new();
         let mut balance_warnings_count = 0usize;
-        for page in pages {
+        for (p_idx, page) in pages.iter().enumerate() {
             for diag in &page.diagnostics {
                 if diag.waiver.is_some() {
                     continue;
                 }
+                let diag_page = if diag.page_index < pages.len() {
+                    diag.page_index + 1
+                } else {
+                    p_idx + 1
+                };
                 if diag.code == "COLUMN_BALANCE_DELTA_EXCEEDED"
                     || diag.severity == DiagnosticSeverity::Warning
                 {
@@ -1099,10 +1104,32 @@ impl PreflightEngine {
                         col_status = PreflightStatus::Warning;
                     }
                     col_details.push(diag.message.clone());
+                    issues.push(PreflightIssue {
+                        code: diag.code.clone(),
+                        check_id: "columns".to_string(),
+                        severity: PreflightStatus::Warning,
+                        page_number: Some(diag_page),
+                        location: None,
+                        message: diag.message.clone(),
+                        message_he: format!("עמוד {}: {}", diag_page, diag.message),
+                        suggestion: Some("Adjust spacing or line breaks to balance column bottoms.".to_string()),
+                        suggestion_he: Some("התאימו מרווחי שורות או מעברי עמוד לאיזון תחתיות העמודות.".to_string()),
+                    });
                 } else if diag.severity == DiagnosticSeverity::Error {
                     col_status = PreflightStatus::Fail;
                     balance_warnings_count += 1;
                     col_details.push(diag.message.clone());
+                    issues.push(PreflightIssue {
+                        code: diag.code.clone(),
+                        check_id: "columns".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(diag_page),
+                        location: None,
+                        message: diag.message.clone(),
+                        message_he: format!("עמוד {}: {}", diag_page, diag.message),
+                        suggestion: Some("Resolve the layout error before print export.".to_string()),
+                        suggestion_he: Some("תקנו את שגיאת העימוד לפני הייצוא לדפוס.".to_string()),
+                    });
                 }
             }
         }
@@ -1123,26 +1150,160 @@ impl PreflightEngine {
             details: col_details,
         });
 
-        // 6. Page & Frame Bounds Overset Check
+        // 6. Page & Frame Bounds + Text-in-Frame Overset Check
         let mut page_status = PreflightStatus::Pass;
         let mut page_details = Vec::new();
         for (p_idx, page) in pages.iter().enumerate() {
+            let page_num = p_idx + 1;
+            let page_w = page.dimensions.width;
+            let page_h = page.dimensions.height;
+
             for frame in &page.frames {
-                if frame.rect.y + frame.rect.height > page.dimensions.height + 1.0 {
-                    page_status = PreflightStatus::Warning;
-                    page_details.push(format!(
+                if frame.rect.y + frame.rect.height > page_h + 1.0 {
+                    if page_status == PreflightStatus::Pass {
+                        page_status = PreflightStatus::Warning;
+                    }
+                    let over = frame.rect.y + frame.rect.height - page_h;
+                    let msg = format!(
                         "Page {} frame '{}' exceeds page bottom by {:.1}pt",
-                        p_idx + 1,
-                        frame.frame_id,
-                        frame.rect.y + frame.rect.height - page.dimensions.height
-                    ));
+                        page_num, frame.frame_id, over
+                    );
+                    page_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "FRAME_EXCEEDS_PAGE_BOTTOM".to_string(),
+                        check_id: "pagination".to_string(),
+                        severity: PreflightStatus::Warning,
+                        page_number: Some(page_num),
+                        location: Some(frame.frame_id.clone()),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: המסגרת '{}' חורגת מתחתית העמוד ב-{:.1} נק'",
+                            page_num, frame.frame_id, over
+                        ),
+                        suggestion: Some("Reduce frame height or adjust page margins.".to_string()),
+                        suggestion_he: Some("הקטינו את גובה המסגרת או התאימו את שולי העמוד.".to_string()),
+                    });
+                }
+                if frame.rect.x < -1.0 || frame.rect.x + frame.rect.width > page_w + 1.0 {
+                    if page_status == PreflightStatus::Pass {
+                        page_status = PreflightStatus::Warning;
+                    }
+                    let msg = format!(
+                        "Page {} frame '{}' extends outside horizontal page bounds",
+                        page_num, frame.frame_id
+                    );
+                    page_details.push(msg.clone());
+                    issues.push(PreflightIssue {
+                        code: "FRAME_EXCEEDS_PAGE_WIDTH".to_string(),
+                        check_id: "pagination".to_string(),
+                        severity: PreflightStatus::Warning,
+                        page_number: Some(page_num),
+                        location: Some(frame.frame_id.clone()),
+                        message: msg,
+                        message_he: format!(
+                            "עמוד {}: המסגרת '{}' חורגת מגבולות הרוחב של העמוד",
+                            page_num, frame.frame_id
+                        ),
+                        suggestion: Some("Keep text frames inside the page TrimBox.".to_string()),
+                        suggestion_he: Some("שמרו את מסגרות הטקסט בתוך גבולות ה-TrimBox של העמוד.".to_string()),
+                    });
+                }
+
+                // Check individual lines/glyphs overflowing outside their owning TextFrameBox
+                let mut vert_overflow_reported = false;
+                let mut horiz_overflow_reported = false;
+                for line in &frame.lines {
+                    if !vert_overflow_reported && line.baseline_y > frame.rect.height + 2.0 {
+                        vert_overflow_reported = true;
+                        page_status = PreflightStatus::Fail;
+                        let over = line.baseline_y - frame.rect.height;
+                        let msg = format!(
+                            "Page {} frame '{}' line {}: text overflows frame bottom by {:.1}pt",
+                            page_num,
+                            frame.frame_id,
+                            line.line_index + 1,
+                            over
+                        );
+                        page_details.push(msg.clone());
+                        issues.push(PreflightIssue {
+                            code: "TEXT_OVERFLOW_FRAME_BOTTOM".to_string(),
+                            check_id: "pagination".to_string(),
+                            severity: PreflightStatus::Fail,
+                            page_number: Some(page_num),
+                            location: Some(format!(
+                                "frame '{}' line {}",
+                                frame.frame_id,
+                                line.line_index + 1
+                            )),
+                            message: msg,
+                            message_he: format!(
+                                "עמוד {}: טקסט גלש מתחת למסגרת '{}' בשורה {} (חריגה של {:.1} נק')",
+                                page_num,
+                                frame.frame_id,
+                                line.line_index + 1,
+                                over
+                            ),
+                            suggestion: Some("Shorten text, reduce font size/leading, or expand the frame.".to_string()),
+                            suggestion_he: Some("קצרו את הטקסט, הקטינו גופן/מרווח שורות, או הרחיבו את המסגרת.".to_string()),
+                        });
+                    }
+
+                    if !horiz_overflow_reported && frame.rect.width > 0.0 {
+                        let (left, right) = if !line.glyphs.is_empty() {
+                            line.horizontal_extent()
+                        } else {
+                            (line.x_offset, line.x_offset + line.width)
+                        };
+                        let left_over = if left < -2.0 { -left } else { 0.0 };
+                        let right_over = if right > frame.rect.width + 2.0 {
+                            right - frame.rect.width
+                        } else {
+                            0.0
+                        };
+                        let max_over = left_over.max(right_over);
+                        if max_over > 0.0 {
+                            horiz_overflow_reported = true;
+                            if page_status == PreflightStatus::Pass {
+                                page_status = PreflightStatus::Warning;
+                            }
+                            let msg = format!(
+                                "Page {} frame '{}' line {}: text overflows frame width by {:.1}pt",
+                                page_num,
+                                frame.frame_id,
+                                line.line_index + 1,
+                                max_over
+                            );
+                            page_details.push(msg.clone());
+                            issues.push(PreflightIssue {
+                                code: "TEXT_OVERFLOW_FRAME_WIDTH".to_string(),
+                                check_id: "pagination".to_string(),
+                                severity: PreflightStatus::Warning,
+                                page_number: Some(page_num),
+                                location: Some(format!(
+                                    "frame '{}' line {}",
+                                    frame.frame_id,
+                                    line.line_index + 1
+                                )),
+                                message: msg,
+                                message_he: format!(
+                                    "עמוד {}: טקסט גלש לרוחב מחוץ למסגרת '{}' בשורה {} (חריגה של {:.1} נק')",
+                                    page_num,
+                                    frame.frame_id,
+                                    line.line_index + 1,
+                                    max_over
+                                ),
+                                suggestion: Some("Enable hyphenation/justification or widen the text frame.".to_string()),
+                                suggestion_he: Some("אפשרו שבירת שורות/מיקוף או הרחיבו את מסגרת הטקסט.".to_string()),
+                            });
+                        }
+                    }
                 }
             }
         }
         let page_summary = if page_status == PreflightStatus::Pass {
             format!("{} page(s) free of frame overset", pages.len())
         } else {
-            format!("{} overset warning(s) detected", page_details.len())
+            format!("{} overset issue(s) detected", page_details.len())
         };
         checks.push(PreflightCheckItem {
             id: "pagination".to_string(),
