@@ -793,7 +793,99 @@ export class TypesetOkApp {
   private bindKeyboardShortcuts(): void {
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this.onWindowKeyDown);
+      this.bindFileDropHandlers();
     }
+  }
+
+  private bindFileDropHandlers(): void {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('dragover', (e: DragEvent) => {
+      if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+        e.preventDefault();
+      }
+    });
+    window.addEventListener('drop', (e: DragEvent) => {
+      if (!e.dataTransfer || !e.dataTransfer.types.includes('Files')) return;
+      // Ignore if BatchImportModal is already open and handled the drop
+      if (this.batchImportModalInstance?.element.classList.contains('tok-open')) return;
+      e.preventDefault();
+      void this.handleWorkspaceFileDrop(e.dataTransfer);
+    });
+  }
+
+  private async handleWorkspaceFileDrop(dataTransfer: DataTransfer): Promise<void> {
+    const { files: dropped, hasDirectory } = await this.collectDroppedFiles(dataTransfer);
+    if (dropped.length === 0) return;
+
+    const supported = dropped.filter(
+      (f) => isSupportedImportFileName(f.file.name) && !f.file.name.startsWith('~$')
+    );
+
+    if (supported.length >= 2 || (hasDirectory && supported.length >= 1)) {
+      const queued = supported.map((f) => createQueuedFileFromWebFile(f.file, f.relativePath));
+      this.promptBatchImport(queued);
+      return;
+    }
+
+    if (supported.length === 1) {
+      const single = supported[0].file;
+      const singlePath = (single as any).path as string | undefined;
+      if (singlePath) {
+        this.promptAndImportDocument(singlePath);
+      } else {
+        const queued = [createQueuedFileFromWebFile(single, supported[0].relativePath)];
+        this.promptBatchImport(queued);
+      }
+    }
+  }
+
+  private async collectDroppedFiles(
+    dataTransfer: DataTransfer
+  ): Promise<{ files: { file: File; relativePath: string }[]; hasDirectory: boolean }> {
+    const out: { file: File; relativePath: string }[] = [];
+    let hasDirectory = false;
+    const MAX_DROP_FILES = 10_000;
+
+    const items = dataTransfer.items ? Array.from(dataTransfer.items) : [];
+    const entries = items
+      .map((item) => (typeof (item as any).webkitGetAsEntry === 'function' ? (item as any).webkitGetAsEntry() : null))
+      .filter(Boolean);
+
+    if (entries.length > 0) {
+      const readEntry = async (entry: any, prefix: string): Promise<void> => {
+        if (out.length >= MAX_DROP_FILES) return;
+        if (entry.isFile) {
+          const file: File = await new Promise((resolve, reject) => entry.file(resolve, reject));
+          out.push({ file, relativePath: prefix ? `${prefix}/${file.name}` : file.name });
+        } else if (entry.isDirectory) {
+          hasDirectory = true;
+          const reader = entry.createReader();
+          const readBatch = (): Promise<any[]> =>
+            new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+          let batch: any[] = await readBatch();
+          while (batch.length > 0 && out.length < MAX_DROP_FILES) {
+            for (const child of batch) {
+              const nextPrefix = prefix ? `${prefix}/${entry.name}` : entry.name;
+              await readEntry(child, nextPrefix);
+              if (out.length >= MAX_DROP_FILES) break;
+            }
+            batch = await readBatch();
+          }
+        }
+      };
+
+      for (const entry of entries) {
+        await readEntry(entry, '');
+        if (out.length >= MAX_DROP_FILES) break;
+      }
+      return { files: out, hasDirectory };
+    }
+
+    for (const file of Array.from(dataTransfer.files || [])) {
+      out.push({ file, relativePath: (file as any).webkitRelativePath || file.name });
+      if (out.length >= MAX_DROP_FILES) break;
+    }
+    return { files: out, hasDirectory };
   }
 
   private handleGlobalKeyDown(e: KeyboardEvent): void {
