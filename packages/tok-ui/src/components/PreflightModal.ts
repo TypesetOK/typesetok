@@ -1,7 +1,7 @@
 import { i18n } from '../i18n';
 import { el, iconButton, button, kbd } from '../ui';
 import { ModalController } from './ModalController';
-import type { PreflightReport, PreflightCheckItem, PreflightStatus } from '../engine/typesetBridge';
+import type { PreflightReport, PreflightCheckItem, PreflightIssue, PreflightStatus } from '../engine/typesetBridge';
 
 export interface PreflightModalCallbacks {
   onClose: () => void;
@@ -273,7 +273,11 @@ export class PreflightModal {
     } else {
       body.appendChild(this.renderSummary(this.report, isEn));
       const checks = [...this.report.checks].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
-      for (const ck of checks) body.appendChild(this.renderCheck(ck, isEn));
+      const allIssues = this.report.issues ?? [];
+      for (const ck of checks) {
+        const checkIssues = allIssues.filter((issue) => issue.check_id === ck.id);
+        body.appendChild(this.renderCheck(ck, checkIssues, isEn));
+      }
     }
     card.appendChild(body);
 
@@ -310,10 +314,21 @@ export class PreflightModal {
     }
     box.appendChild(el('strong', undefined, { style: `color:${fg};font-size:15px` }, title));
     box.appendChild(el('span', undefined, { style: 'font-size:12px;color:var(--tok-text-secondary)' }, sub));
+    if (report.affected_pages && report.affected_pages.length > 0) {
+      const pagesText = report.affected_pages.join(', ');
+      box.appendChild(
+        el(
+          'span',
+          undefined,
+          { style: 'font-size:12px;color:var(--tok-text-secondary)' },
+          isEn ? `Affected pages: ${pagesText}` : `עמודים עם ממצאים: ${pagesText}`
+        )
+      );
+    }
     return box;
   }
 
-  private renderCheck(ck: PreflightCheckItem, isEn: boolean): HTMLElement {
+  private renderCheck(ck: PreflightCheckItem, checkIssues: PreflightIssue[], isEn: boolean): HTMLElement {
     const copy = CHECK_COPY[ck.id];
     const idx = isEn ? 1 : 0;
     const { fg, bg } = statusColor(ck.status);
@@ -347,7 +362,40 @@ export class PreflightModal {
       card.appendChild(el('span', undefined, { style: 'font-size:13px' }, ck.summary));
     }
 
-    if (ck.details && ck.details.length > 0) {
+    if (checkIssues.length > 0) {
+      const sortedIssues = [...checkIssues].sort((a, b) => {
+        const sevDiff = STATUS_RANK[a.severity] - STATUS_RANK[b.severity];
+        if (sevDiff !== 0) return sevDiff;
+        return (a.page_number ?? 0) - (b.page_number ?? 0);
+      });
+      const list = el('div', undefined, {
+        style: 'margin:6px 0 0;display:flex;flex-direction:column;gap:6px;'
+      });
+      for (const issue of sortedIssues) {
+        const ic = statusColor(issue.severity);
+        const row = el('div', undefined, {
+          style: 'background:var(--tok-bg-surface-2, rgba(0,0,0,0.03));border-inline-start:3px solid ' + ic.fg + ';border-radius:6px;padding:6px 10px;display:flex;flex-direction:column;gap:3px;font-size:12px;'
+        });
+        const meta = el('div', undefined, { style: 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;' });
+        const pageBadge = issue.page_number != null
+          ? (isEn ? `Page ${issue.page_number}` : `עמוד ${issue.page_number}`)
+          : (isEn ? 'Document' : 'כל המסמך');
+        meta.appendChild(el('span', undefined, {
+          style: `background:${ic.bg};color:${ic.fg};border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;`
+        }, pageBadge));
+        if (issue.location) {
+          meta.appendChild(el('code', undefined, { style: 'font-size:11px;color:var(--tok-text-muted)' }, issue.location));
+        }
+        row.appendChild(meta);
+        row.appendChild(el('span', undefined, { style: 'color:var(--tok-text-primary)' }, isEn ? issue.message : issue.message_he));
+        const sug = isEn ? issue.suggestion : issue.suggestion_he;
+        if (sug) {
+          row.appendChild(el('span', undefined, { style: 'color:var(--tok-accent-text);font-size:11px' }, sug));
+        }
+        list.appendChild(row);
+      }
+      card.appendChild(list);
+    } else if (ck.details && ck.details.length > 0) {
       const list = el('ul', undefined, {
         style: 'margin:4px 0 0;padding-inline-start:18px;font-size:12px;color:var(--tok-text-secondary);display:flex;flex-direction:column;gap:2px;'
       });
