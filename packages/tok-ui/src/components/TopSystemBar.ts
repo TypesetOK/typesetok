@@ -26,6 +26,7 @@ const MENU_ITEMS: MenuItem[] = [
   { labelKey: 'menuNewDocument', shortcut: 'Ctrl+N', action: 'new-document' },
   { labelKey: 'menuOpenDocument', shortcut: 'Ctrl+O', action: 'open-document' },
   { labelKey: 'menuImportDocument', shortcut: 'Ctrl+I', action: 'import-document' },
+  { labelKey: 'menuBatchImport', action: 'batch-import' },
   { labelKey: 'menuSave', shortcut: 'Ctrl+S', action: 'save-document' },
   { labelKey: 'menuSaveAs', shortcut: 'Ctrl+Shift+S', action: 'save-as' },
   { labelKey: 'menuRenameDocument', shortcut: 'F2', action: 'rename-document' },

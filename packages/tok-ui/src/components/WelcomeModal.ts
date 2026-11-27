@@ -32,6 +32,7 @@ export interface WelcomeModalCallbacks {
   /** Open a .tok file; `path` is set when a file was dropped on the screen or selected. */
   onOpenProject: (path?: string) => void;
   onImportDocument?: () => void;
+  onBatchImport?: () => void;
   onClose: () => void;
   onOpenSettings?: () => void;
   onOpenAbout?: () => void;
@@ -225,6 +226,19 @@ export class WelcomeModal {
       this.callbacks.onImportDocument?.();
     });
     primaryGrid.appendChild(importCard);
+
+    const batchCard = el('button', 'tok-template-card tok-template-import', { type: 'button', role: 'listitem', 'data-focus-key': 'template-batch-import' });
+    const batchIconWrap = el('span', 'tok-plus', { 'aria-hidden': 'true', style: 'background:rgba(16,185,129,0.15);color:#10b981;' });
+    batchIconWrap.appendChild(icon('folder', 20));
+    batchCard.appendChild(batchIconWrap);
+    batchCard.appendChild(el('span', 'tok-template-title', undefined, t('batchImportCardTitle')));
+    batchCard.appendChild(el('span', 'tok-template-desc', undefined, t('batchImportCardDesc')));
+    batchCard.addEventListener('click', () => {
+      this.hide();
+      this.callbacks.onBatchImport?.();
+    });
+    primaryGrid.appendChild(batchCard);
+
     main.appendChild(primaryGrid);
     card.appendChild(main);
 

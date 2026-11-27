@@ -1088,6 +1088,7 @@ export class TypesetOkApp {
         onSelectTemplate: (tmpl) => (tmpl === 'blank' ? this.promptNewDocumentTemplate() : this.handleTemplateSelect(tmpl)),
         onOpenProject: (path) => this.handleSystemAction('open-document', path),
         onImportDocument: () => this.handleSystemAction('import-document'),
+        onBatchImport: () => this.handleSystemAction('batch-import'),
         onClose: () => {
           this.welcomeModalInstance?.hide();
         },
@@ -2403,6 +2404,14 @@ export class TypesetOkApp {
         subtitle: t('importDocumentDesc'),
         shortcut: 'Ctrl+I',
         action: () => this.handleSystemAction('import-document')
+      },
+      {
+        id: 'cmd-batch-import',
+        icon: 'folder',
+        category: t('cmdCatProjects'),
+        title: t('batchImportTitle'),
+        subtitle: t('batchImportSubtitle'),
+        action: () => this.handleSystemAction('batch-import')
       },
       {
         id: 'cmd-change-template',
