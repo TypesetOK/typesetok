@@ -21,6 +21,8 @@ pub use imposition::{
 };
 pub use ornament::{BuiltinOrnamentSpec, BuiltinOrnaments, SvgVectorCompiler};
 pub use pdf_engine::{PdfError, PdfExportOptions, PdfPrePressEngine, PdfXStandard};
-pub use preflight::{PreflightCheckItem, PreflightEngine, PreflightReport, PreflightStatus};
+pub use preflight::{
+    PreflightCheckItem, PreflightEngine, PreflightIssue, PreflightReport, PreflightStatus,
+};
 pub use tok_typeset::html_projection::{self, HtmlProjectionCompiler};
 pub use tounicode::ToUnicodeCMap;

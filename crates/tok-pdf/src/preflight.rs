@@ -20,6 +20,23 @@ pub enum PreflightStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreflightIssue {
+    pub code: String,
+    pub check_id: String,
+    pub severity: PreflightStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    pub message: String,
+    pub message_he: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion_he: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreflightCheckItem {
     pub id: String,
     pub category: String,
@@ -41,6 +58,32 @@ pub struct PreflightReport {
     pub missing_fonts: Vec<MissingFontDiagnostic>,
     pub low_dpi_images_count: usize,
     pub balance_warnings_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<PreflightIssue>,
+    #[serde(default)]
+    pub error_count: usize,
+    #[serde(default)]
+    pub warning_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub affected_pages: Vec<usize>,
+}
+
+impl PreflightReport {
+    /// Returns all issues targeting a specific 1-based page number.
+    pub fn issues_for_page(&self, page_number: usize) -> Vec<&PreflightIssue> {
+        self.issues
+            .iter()
+            .filter(|issue| issue.page_number == Some(page_number))
+            .collect()
+    }
+
+    /// Returns document-wide issues that are not bound to a single page.
+    pub fn document_wide_issues(&self) -> Vec<&PreflightIssue> {
+        self.issues
+            .iter()
+            .filter(|issue| issue.page_number.is_none())
+            .collect()
+    }
 }
 
 pub struct PreflightEngine;
@@ -53,6 +96,7 @@ impl PreflightEngine {
         options: &PdfExportOptions,
     ) -> PreflightReport {
         let mut checks = Vec::new();
+        let mut issues: Vec<PreflightIssue> = Vec::new();
 
         // 1. Font embedding, fsType license permissions, & Hebrew/Niqqud/Taamim glyph coverage
         let missing_fonts = font_mgr.find_missing_or_incomplete_fonts(doc);
@@ -355,6 +399,21 @@ impl PreflightEngine {
             .max()
             .unwrap_or(PreflightStatus::Pass);
 
+        let error_count = issues
+            .iter()
+            .filter(|i| i.severity == PreflightStatus::Fail)
+            .count();
+        let warning_count = issues
+            .iter()
+            .filter(|i| i.severity == PreflightStatus::Warning)
+            .count();
+        let affected_pages: Vec<usize> = issues
+            .iter()
+            .filter_map(|i| i.page_number)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
         PreflightReport {
             overall_status,
             profile_name,
@@ -364,6 +423,10 @@ impl PreflightEngine {
             missing_fonts,
             low_dpi_images_count,
             balance_warnings_count,
+            issues,
+            error_count,
+            warning_count,
+            affected_pages,
         }
     }
 }
