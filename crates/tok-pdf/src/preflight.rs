@@ -102,6 +102,7 @@ impl PreflightEngine {
         let missing_fonts = font_mgr.find_missing_or_incomplete_fonts(doc);
         let mut font_details = Vec::new();
         let mut font_status = PreflightStatus::Pass;
+        let mut unembeddable_count = 0usize;
         for diag in &missing_fonts {
             if diag.missing_family || diag.missing_hebrew_coverage {
                 font_status = PreflightStatus::Fail;
@@ -109,17 +110,22 @@ impl PreflightEngine {
                 font_status = PreflightStatus::Warning;
             }
             let mut flags = Vec::new();
+            let mut flags_he = Vec::new();
             if diag.missing_family {
                 flags.push("font not installed/embedded");
+                flags_he.push("הגופן אינו מותקן או אינו מוטמע");
             }
             if diag.missing_hebrew_coverage {
                 flags.push("missing Hebrew letters");
+                flags_he.push("חסרות אותיות עבריות");
             }
             if diag.missing_niqqud_coverage {
                 flags.push("missing Niqqud");
+                flags_he.push("חסר ניקוד");
             }
             if diag.missing_taamim_coverage {
                 flags.push("missing Taamim");
+                flags_he.push("חסרים טעמי מקרא");
             }
             font_details.push(format!(
                 "{} ({} paragraphs): {}",
@@ -127,17 +133,227 @@ impl PreflightEngine {
                 diag.affected_paragraphs,
                 flags.join(", ")
             ));
+            let sev = if diag.missing_family || diag.missing_hebrew_coverage {
+                PreflightStatus::Fail
+            } else {
+                PreflightStatus::Warning
+            };
+            issues.push(PreflightIssue {
+                code: if diag.missing_family {
+                    "FONT_NOT_EMBEDDED".to_string()
+                } else {
+                    "FONT_INCOMPLETE_GLYPHS".to_string()
+                },
+                check_id: "fonts".to_string(),
+                severity: sev,
+                page_number: None,
+                location: Some(format!(
+                    "{} ({} paragraphs)",
+                    diag.family_name, diag.affected_paragraphs
+                )),
+                message: format!(
+                    "Font '{}' ({} paragraphs): {}",
+                    diag.family_name,
+                    diag.affected_paragraphs,
+                    flags.join(", ")
+                ),
+                message_he: format!(
+                    "הגופן '{}' ({} פסקאות): {}",
+                    diag.family_name,
+                    diag.affected_paragraphs,
+                    flags_he.join(", ")
+                ),
+                suggestion: Some(
+                    "Install/embed the font or switch to a print-ready Hebrew font such as Frank Ruhl Libre."
+                        .to_string(),
+                ),
+                suggestion_he: Some(
+                    "התקינו והטמיעו את הגופן, או החליפו לגופן דפוס תומך עברית וניקוד כגון Frank Ruhl Libre."
+                        .to_string(),
+                ),
+            });
         }
         // Check registered external fonts for non-embeddable OS/2 fsType
+        let mut restricted_families = std::collections::BTreeSet::new();
         for (face_name, _) in font_mgr.external_fonts() {
             if let Some(rep) = font_mgr.inspect_registered_family(&face_name) {
                 if !rep.is_embeddable {
                     font_status = PreflightStatus::Fail;
+                    unembeddable_count += 1;
+                    restricted_families.insert(face_name.clone());
                     font_details.push(format!(
                         "{}: restricted OS/2 fsType=0x{:04X}",
                         face_name, rep.fs_type
                     ));
+                    issues.push(PreflightIssue {
+                        code: "FONT_EMBEDDING_RESTRICTED".to_string(),
+                        check_id: "fonts".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: None,
+                        location: Some(face_name.clone()),
+                        message: format!(
+                            "Font '{}' has restricted embedding license (OS/2 fsType=0x{:04X})",
+                            face_name, rep.fs_type
+                        ),
+                        message_he: format!(
+                            "רישיון הגופן '{}' אוסר הטמעה ב-PDF (OS/2 fsType=0x{:04X})",
+                            face_name, rep.fs_type
+                        ),
+                        suggestion: Some(
+                            "Replace with a font whose OS/2 fsType permits PDF embedding."
+                                .to_string(),
+                        ),
+                        suggestion_he: Some(
+                            "החליפו בגופן שרישיון ה-OS/2 שלו מתיר הטמעה בקובץ PDF.".to_string(),
+                        ),
+                    });
                 }
+            }
+        }
+        // Per-page font embedding & missing-glyph (.notdef) check across typeset pages
+        for (p_idx, page) in pages.iter().enumerate() {
+            let page_num = p_idx + 1;
+            let mut page_fonts = std::collections::BTreeSet::new();
+            let mut notdef_chars = std::collections::BTreeSet::new();
+            let mut has_unknown_font_glyphs = false;
+
+            if let Some(pns) = &page.page_number_style {
+                if !pns.font_family.trim().is_empty() {
+                    page_fonts.insert(pns.font_family.clone());
+                }
+            }
+            for frame in &page.frames {
+                for line in &frame.lines {
+                    for f in &line.fonts {
+                        if !f.trim().is_empty() {
+                            page_fonts.insert(f.clone());
+                        }
+                    }
+                    for run in &line.visual_runs {
+                        if !run.font_family.trim().is_empty() {
+                            page_fonts.insert(run.font_family.clone());
+                        }
+                    }
+                    for g in &line.glyphs {
+                        if g.font_index == tok_typeset::geometry::UNKNOWN_FONT {
+                            has_unknown_font_glyphs = true;
+                        } else if g.glyph_id == 0 {
+                            if let Some(ch) = g.character {
+                                if !ch.is_whitespace() && !ch.is_control() {
+                                    notdef_chars.insert(ch);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for fam in page_fonts {
+                if !font_mgr.is_family_available(&fam) {
+                    font_status = PreflightStatus::Fail;
+                    unembeddable_count += 1;
+                    font_details.push(format!(
+                        "Page {}: font '{}' is not registered for PDF embedding",
+                        page_num, fam
+                    ));
+                    issues.push(PreflightIssue {
+                        code: "FONT_PAGE_NOT_EMBEDDED".to_string(),
+                        check_id: "fonts".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: Some(fam.clone()),
+                        message: format!(
+                            "Page {}: font '{}' is not available for PDF embedding",
+                            page_num, fam
+                        ),
+                        message_he: format!(
+                            "עמוד {}: הגופן '{}' אינו זמין להטמעה בקובץ ה-PDF",
+                            page_num, fam
+                        ),
+                        suggestion: Some("Embed or install the font before exporting.".to_string()),
+                        suggestion_he: Some("התקינו או הטמיעו את הגופן לפני הייצוא.".to_string()),
+                    });
+                } else if restricted_families.contains(&fam) {
+                    font_status = PreflightStatus::Fail;
+                    issues.push(PreflightIssue {
+                        code: "FONT_PAGE_EMBEDDING_RESTRICTED".to_string(),
+                        check_id: "fonts".to_string(),
+                        severity: PreflightStatus::Fail,
+                        page_number: Some(page_num),
+                        location: Some(fam.clone()),
+                        message: format!(
+                            "Page {}: font '{}' cannot be embedded due to license restrictions",
+                            page_num, fam
+                        ),
+                        message_he: format!(
+                            "עמוד {}: לא ניתן להטמיע את הגופן '{}' עקב מגבלת רישיון",
+                            page_num, fam
+                        ),
+                        suggestion: Some("Switch to an embeddable TrueType font.".to_string()),
+                        suggestion_he: Some("החליפו לגופן TrueType שמותר להטמעה.".to_string()),
+                    });
+                }
+            }
+
+            if has_unknown_font_glyphs {
+                if font_status == PreflightStatus::Pass {
+                    font_status = PreflightStatus::Warning;
+                }
+                font_details.push(format!(
+                    "Page {}: contains glyphs shaped without a resolved font",
+                    page_num
+                ));
+                issues.push(PreflightIssue {
+                    code: "FONT_UNRESOLVED_GLYPHS".to_string(),
+                    check_id: "fonts".to_string(),
+                    severity: PreflightStatus::Warning,
+                    page_number: Some(page_num),
+                    location: None,
+                    message: format!(
+                        "Page {}: some glyphs were shaped using heuristic fallback without an embedded font",
+                        page_num
+                    ),
+                    message_he: format!(
+                        "עמוד {}: קיימים תווים שעברו עימוד ללא גופן מוטמע מזוהה",
+                        page_num
+                    ),
+                    suggestion: Some("Verify all paragraph styles reference installed fonts.".to_string()),
+                    suggestion_he: Some("ודאו שכל סגנונות הפסקה מפנים לגופנים מותקנים.".to_string()),
+                });
+            }
+
+            if !notdef_chars.is_empty() {
+                if font_status == PreflightStatus::Pass {
+                    font_status = PreflightStatus::Warning;
+                }
+                let sample: String = notdef_chars.iter().take(6).collect();
+                font_details.push(format!(
+                    "Page {}: {} missing glyph(s) (.notdef) e.g. '{}'",
+                    page_num,
+                    notdef_chars.len(),
+                    sample
+                ));
+                issues.push(PreflightIssue {
+                    code: "FONT_MISSING_GLYPHS_NOTDEF".to_string(),
+                    check_id: "fonts".to_string(),
+                    severity: PreflightStatus::Warning,
+                    page_number: Some(page_num),
+                    location: Some(format!("glyphs: {}", sample)),
+                    message: format!(
+                        "Page {}: {} character(s) mapped to .notdef (missing glyph), e.g. '{}'",
+                        page_num,
+                        notdef_chars.len(),
+                        sample
+                    ),
+                    message_he: format!(
+                        "עמוד {}: {} תווים חסרים בגופן (.notdef), לדוגמה '{}'",
+                        page_num,
+                        notdef_chars.len(),
+                        sample
+                    ),
+                    suggestion: Some("Use a font that contains glyphs for all characters on this page.".to_string()),
+                    suggestion_he: Some("השתמשו בגופן שמכיל גליפים לכל התווים בעמוד זה.".to_string()),
+                });
             }
         }
         let font_summary = match font_status {
@@ -146,11 +362,11 @@ impl PreflightEngine {
             }
             PreflightStatus::Warning => format!(
                 "{} font glyph-coverage warning(s) detected",
-                missing_fonts.len()
+                missing_fonts.len().max(1)
             ),
             PreflightStatus::Fail => format!(
-                "{} missing or unembeddable font(s) detected",
-                missing_fonts.len()
+                "{} missing or unembeddable font issue(s) detected",
+                missing_fonts.len() + unembeddable_count
             ),
         };
         checks.push(PreflightCheckItem {
