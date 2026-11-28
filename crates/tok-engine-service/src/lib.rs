@@ -9,6 +9,7 @@ pub mod document;
 pub mod error;
 pub mod export;
 pub mod io;
+pub mod layout_analysis;
 pub mod session;
 
 pub use document::{
@@ -22,6 +23,9 @@ pub use export::{
     evaluate_preflight, render_html_string, render_pdf_bytes, PdfRenderRequest, PreflightRequest,
 };
 pub use io::{format_hex, sanitize_asset_filename, write_atomic};
+pub use layout_analysis::{
+    apply_recommendation_to_section, recommend_layout_from_file, recommend_layouts_for_batch,
+};
 pub use session::{TypesetOutput, WorkspaceSession};
 
 #[cfg(test)]
