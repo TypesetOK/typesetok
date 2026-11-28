@@ -9,19 +9,40 @@
 //! Outputs [`LayoutRecommendation`] mapped directly to `tok_typeset::LayoutFamily`,
 //! `tok_core::SectionNode`, and `tok-ui` `TemplateType`.
 
+pub mod classifier_geom;
+pub mod components;
+pub mod context;
 pub mod error;
+pub mod features;
 pub mod geometry;
+pub mod hybrid;
 pub mod input;
+pub mod lshape;
+pub mod ml_labels;
+pub mod ml_onnx;
+pub mod noise_filter;
+pub mod pdf_vector;
+pub mod pipeline;
+pub mod preprocess;
 pub mod profile;
+pub mod projection;
+pub mod raster;
 pub mod recommendation;
+pub mod rules;
+pub mod script_classifier;
 pub mod spread;
+pub mod spread_split;
+pub mod synthesizer;
 pub mod taxonomy;
 pub mod typography;
+pub mod xycut;
 
 pub use error::{AnalyzerError, AnalyzerResult};
 pub use geometry::NormalizedBBox;
 pub use input::{AnalysisInput, AnalysisOptions, PageRange};
+pub use pipeline::analyze_document_pages;
 pub use profile::{DetectedRegion, PageSpatialProfile, RegionClass};
+pub use raster::GrayImage;
 pub use recommendation::{
     LayoutAlternative, LayoutRecommendation, RecommendedFlowRole, SuggestedSectionConfig,
 };
