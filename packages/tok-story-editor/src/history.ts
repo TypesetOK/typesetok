@@ -8,14 +8,14 @@
 
 import { StoryParagraph, StorySelection } from './types.js';
 
-function cloneParagraph(p: StoryParagraph): StoryParagraph {
+export function cloneParagraph(p: StoryParagraph): StoryParagraph {
   return {
     ...p,
     spans: p.spans ? p.spans.map((s) => ({ ...s, format: s.format ? { ...s.format } : s.format })) : undefined,
   };
 }
 
-function cloneParagraphs(paragraphs: StoryParagraph[]): StoryParagraph[] {
+export function cloneParagraphs(paragraphs: StoryParagraph[]): StoryParagraph[] {
   const out = new Array<StoryParagraph>(paragraphs.length);
   for (let i = 0; i < paragraphs.length; i++) {
     out[i] = cloneParagraph(paragraphs[i]);
@@ -139,7 +139,7 @@ export class StoryHistory {
     this.redoStack.push(record);
     record.onUndo?.();
     return {
-      paragraphs: JSON.parse(JSON.stringify(record.paragraphsBefore)),
+      paragraphs: cloneParagraphs(record.paragraphsBefore),
       selection: record.selectionBefore
     };
   }
@@ -155,7 +155,7 @@ export class StoryHistory {
     this.undoStack.push(record);
     record.onRedo?.();
     return {
-      paragraphs: JSON.parse(JSON.stringify(record.paragraphsAfter)),
+      paragraphs: cloneParagraphs(record.paragraphsAfter),
       selection: record.selectionAfter
     };
   }

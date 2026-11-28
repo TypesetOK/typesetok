@@ -18,7 +18,7 @@ import {
   splitParagraph
 } from './types.js';
 import { renderParagraphDom, parseParagraphDom } from './dom_converter.js';
-import { StoryHistory } from './history.js';
+import { StoryHistory, cloneParagraph, cloneParagraphs } from './history.js';
 import {
   FindOptions,
   FindResult,
@@ -272,7 +272,7 @@ export class StoryEditor {
   /** Retrieve a single paragraph by ID */
   public getParagraph(paraId: string): StoryParagraph | null {
     const cached = this.lastSavedParagraphs.find((p) => p.id === paraId);
-    if (cached) return JSON.parse(JSON.stringify(cached));
+    if (cached) return cloneParagraph(cached);
     const el = this.editorEl.querySelector<HTMLElement>(`p[data-para-id="${CSS.escape(paraId)}"]`);
     return el ? parseParagraphDom(el) : null;
   }
@@ -314,7 +314,7 @@ export class StoryEditor {
     const state = this.history.undo();
     if (!state) return false;
     this.renderParagraphs(state.paragraphs);
-    this.lastSavedParagraphs = JSON.parse(JSON.stringify(state.paragraphs));
+    this.lastSavedParagraphs = cloneParagraphs(state.paragraphs);
     if (state.selection) {
       this.setStorySelection(state.selection);
     }
@@ -332,7 +332,7 @@ export class StoryEditor {
     const state = this.history.redo();
     if (!state) return false;
     this.renderParagraphs(state.paragraphs);
-    this.lastSavedParagraphs = JSON.parse(JSON.stringify(state.paragraphs));
+    this.lastSavedParagraphs = cloneParagraphs(state.paragraphs);
     if (state.selection) {
       this.setStorySelection(state.selection);
     }
@@ -369,7 +369,7 @@ export class StoryEditor {
       onRedo: hooks?.onRedo
     });
 
-    this.lastSavedParagraphs = JSON.parse(JSON.stringify(after));
+    this.lastSavedParagraphs = cloneParagraphs(after);
     this.lastSelection = selAfter;
     this.notifyHistoryChange();
 
