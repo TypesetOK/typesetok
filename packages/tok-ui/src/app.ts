@@ -22,6 +22,7 @@ import { TextStatsModal } from './components/TextStatsModal';
 import { PreflightModal } from './components/PreflightModal';
 import { PdfPreviewModal } from './components/PdfPreviewModal';
 import { ImportTemplateModal } from './components/ImportTemplateModal';
+import { analyzePageLayout, SuggestedSectionConfig } from './services/layoutAnalyzerBridge';
 import { BatchImportModal, BatchImportLaunchOptions, createQueuedFileFromPath, createQueuedFileFromWebFile } from './components/BatchImportModal';
 import { BatchQueuedFile, isSupportedImportFileName } from './engine/batchFileOrder';
 import { MissingFontsModal } from './components/MissingFontsModal';
@@ -1395,23 +1396,26 @@ export class TypesetOkApp {
   private get importTemplateModal(): ImportTemplateModal {
     if (!this.importTemplateModalInstance) {
       this.importTemplateModalInstance = new ImportTemplateModal({
-        onSelect: (templateId, customTemplate) => {
+        onSelect: (templateId, customTemplate, suggestedConfig) => {
           if (this.isChangingActiveDocumentTemplate) {
             this.isChangingActiveDocumentTemplate = false;
             this.changeDocumentTemplate(templateId);
             this.applyCustomTemplateSettings(customTemplate);
+            this.applySuggestedSectionConfig(suggestedConfig);
             return;
           }
           if (this.isCreatingNewDocument) {
             this.isCreatingNewDocument = false;
             this.handleTemplateSelect(templateId);
             this.applyCustomTemplateSettings(customTemplate);
+            this.applySuggestedSectionConfig(suggestedConfig);
             return;
           }
           if (this.pendingImportResult) {
             rememberImportTemplate(this.pendingImportResult.filePath, templateId);
             this.applyImportedDocument(this.pendingImportResult.result, this.pendingImportResult.filePath, templateId);
             this.applyCustomTemplateSettings(customTemplate);
+            this.applySuggestedSectionConfig(suggestedConfig);
             this.pendingImportResult = null;
           }
         },
@@ -1427,6 +1431,33 @@ export class TypesetOkApp {
       this.root.appendChild(this.importTemplateModalInstance.element);
     }
     return this.importTemplateModalInstance;
+  }
+
+  private applySuggestedSectionConfig(config?: SuggestedSectionConfig): void {
+    if (!config) return;
+    const activeSection = this.documentState.sections?.[0];
+    if (!activeSection) return;
+    if (config.layoutKind) {
+      (activeSection as unknown as Record<string, unknown>).layout_kind = config.layoutKind;
+    }
+    if (config.columnProportions) {
+      (activeSection as unknown as Record<string, unknown>).column_proportions = config.columnProportions;
+    }
+    if (typeof config.columnCount === 'number') {
+      (activeSection as unknown as Record<string, unknown>).column_count = config.columnCount;
+    }
+    if (typeof config.columnGutterPt === 'number') {
+      (activeSection as unknown as Record<string, unknown>).column_gutter_pt = config.columnGutterPt;
+    }
+    (activeSection as unknown as Record<string, unknown>).draw_column_rule = config.drawColumnRule;
+  }
+
+  public async analyzeFileLayoutForImport(filePath: string) {
+    try {
+      return await analyzePageLayout(filePath, 1, 10);
+    } catch {
+      return null;
+    }
   }
 
   private get batchImportModal(): BatchImportModal {
