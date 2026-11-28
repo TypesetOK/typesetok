@@ -1368,6 +1368,23 @@ pub fn tok_send_command(cmd: Value) -> Value {
 }
 
 #[tauri::command]
+pub async fn analyze_page_layout(
+    file_path: String,
+    start_page: Option<usize>,
+    end_page: Option<usize>,
+) -> Result<Value, String> {
+    let start = start_page.unwrap_or(1).max(1);
+    let end = end_page.unwrap_or(10).max(start);
+    tauri::async_runtime::spawn_blocking(move || {
+        tok_engine_service::recommend_layout_from_file(&file_path, start, end)
+            .map_err(|e| e.to_string())
+            .and_then(|rec| serde_json::to_value(rec).map_err(|e| e.to_string()))
+    })
+    .await
+    .map_err(|e| format!("Layout analysis task failed: {e}"))?
+}
+
+#[tauri::command]
 pub fn tok_report_startup_trace(
     app: AppHandle,
     state: State<'_, AppState>,

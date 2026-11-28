@@ -21,6 +21,7 @@ tok-core = { workspace = true }
 tok-engine-service = { workspace = true }
 tok-pdf = { workspace = true }
 tok-typeset = { workspace = true }
+tok-layout-analyzer = { workspace = true }
 tok-storage = { workspace = true }
 sha2 = { workspace = true }
 zip = { workspace = true }

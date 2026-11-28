@@ -306,6 +306,7 @@ fn main() {
             commands::tok_recalculate_heading_numbers,
             commands::tok_send_command,
             commands::tok_report_startup_trace,
+            commands::analyze_page_layout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running TypesetOK Tauri application");
