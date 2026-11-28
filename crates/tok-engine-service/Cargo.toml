@@ -12,6 +12,7 @@ fixtures = ["tok-typeset/fixtures"]
 [dependencies]
 tok-core = { workspace = true }
 tok-typeset = { workspace = true }
+tok-layout-analyzer = { workspace = true }
 tok-pdf = { workspace = true }
 tok-storage = { workspace = true }
 tok-plugin-host = { workspace = true }
