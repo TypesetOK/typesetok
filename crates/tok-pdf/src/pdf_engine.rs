@@ -1174,7 +1174,7 @@ impl PdfPrePressEngine {
 
                 if line.glyphs.is_empty() {
                     // Text-only line: a single run at the line origin.
-                    let Some(font) = registry.legacy.map(|slot| &embedded[slot]) else {
+                    let Some(font) = registry.legacy.and_then(|slot| embedded.get(slot)) else {
                         continue;
                     };
                     let cids: Vec<u8> = line
@@ -1329,8 +1329,7 @@ impl PdfPrePressEngine {
             if active_fill != default_black {
                 content.set_fill_cmyk(0.0, 0.0, 0.0, 1.0);
             }
-            if let Some(slot) = registry.legacy {
-                let font = &embedded[slot];
+            if let Some(font) = registry.legacy.and_then(|slot| embedded.get(slot)) {
                 let style_spec = p_box.page_number_style.as_ref();
                 let folio_font_size = style_spec.map(|s| s.font_size_pt.max(6.0)).unwrap_or(10.0);
                 // Each glyph with its advance, in logical (reading) order.

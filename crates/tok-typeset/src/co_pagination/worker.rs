@@ -69,12 +69,16 @@ impl NonBlockingPaginator {
         let token = CancellationToken::new();
         let thread_token = token.clone();
 
-        thread::Builder::new()
+        let err_sender = sender.clone();
+        if let Err(err) = thread::Builder::new()
             .name("co_pagination_worker".to_string())
             .spawn(move || {
                 Self::run_worker(config, sync_config, doc, engine, sender, thread_token);
             })
-            .expect("Failed to spawn co_pagination worker thread");
+        {
+            eprintln!("[tok-typeset] Failed to spawn co_pagination worker thread: {err}");
+            let _ = err_sender.send(PaginationEvent::Cancelled);
+        }
 
         (receiver, token)
     }
