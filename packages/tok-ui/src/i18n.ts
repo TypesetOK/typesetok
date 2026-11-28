@@ -37,6 +37,9 @@ export const strings: Translations = {
   templateBulletinDesc: { he: 'שני טורים עם כותרת, לעלוני שבת וחוברות.', en: 'Two columns with a headline, for weekly bulletins and booklets.' },
   templateBlank: { he: 'מסמך ריק', en: 'Blank document' },
   templateBlankDesc: { he: 'בוחרים גודל דף ושוליים בעצמכם', en: 'Choose page size and margins yourself' },
+  layoutAutoDetectedBadge: { he: 'זוהה אוטומטית (ביטחון {pct})', en: 'Auto-detected ({pct} confidence)' },
+  layoutAlternativeLabel: { he: 'חלופה: {name} ({pct})', en: 'Alternative: {name} ({pct})' },
+  layoutRectoVersoVerified: { he: 'אומתה סימטריית שדרה (Recto/Verso)', en: 'Recto/Verso spine symmetry verified' },
 
   // Top Bar & Navigation
   topBarProjects: { he: 'פרויקטים', en: 'Projects' },
