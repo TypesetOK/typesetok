@@ -384,6 +384,14 @@ export class BatchImportModal {
     titleWrap.appendChild(
       el('p', undefined, { style: 'margin:0;font-size:12px;color:var(--tok-text-muted);' }, t('batchImportSubtitle'))
     );
+    if (this.detectedLayout) {
+      const rec = this.detectedLayout;
+      titleWrap.appendChild(
+        el('div', 'tok-batch-layout-badge', {
+          style: 'display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;font-weight:600;padding:2px 10px;border-radius:12px;background:#10B98122;color:#10B981;'
+        }, `${rec.displayNameHe} · ${tf('layoutAutoDetectedBadge', { pct: formatConfidencePercent(rec.confidence) })}`)
+      );
+    }
     head.appendChild(titleWrap);
     const closeBtn = iconButton('close', t('paletteHintClose'), () => {
       if (!this.isBusy) this.cancel();
