@@ -42,6 +42,7 @@ COMMANDS:
     inspect-font <PATH.ttf>         Validate external font (glyf/OS2 fsType/Hebrew coverage) and emit JSON report
     preflight <INPUT> [OUTPUT.json] Run real pre-press preflight evaluation and emit PreflightReport JSON
     analyze-layout <IN> [OUT.json]  Analyze PDF/scan page layout and recommend TypesetOK template
+    generate-layout-dataset <IN> <OUT.json>  Export synthetic ground-truth annotations from typeset pages
     help                            Show this help message
 
 EXAMPLES:
@@ -989,6 +990,39 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 println!("{}", json_out);
             }
+        }
+        "generate-layout-dataset" => {
+            if args.len() < 4 {
+                eprintln!("Usage: tok-cli generate-layout-dataset <INPUT.json | --demo> <OUTPUT.json> [--form <prose|notes|gemara|mikraot|bulletin>]");
+                std::process::exit(1);
+            }
+            let extra = args.get(4..).unwrap_or(&[]);
+            let form = match extract_flag_value(extra, "--form").unwrap_or("prose") {
+                "notes" => tok_layout_analyzer::PageForm::ProseWithFootnotes,
+                "gemara" => tok_layout_analyzer::PageForm::TzuratHaDaf,
+                "mikraot" => tok_layout_analyzer::PageForm::MultiCommentaryGrid,
+                "bulletin" => tok_layout_analyzer::PageForm::MultiColumnModern,
+                _ => tok_layout_analyzer::PageForm::StandardProse,
+            };
+            let (doc, _, pkg_opt) = load_package_or_doc(&args[2], 12)?;
+            let assets_pkg = resolve_assets_package(pkg_opt, extra);
+            let font_mgr = build_font_manager(None, assets_pkg.as_ref());
+            let engine = TypesettingEngine::with_font_manager(
+                engine_config_from_root(doc.root()),
+                font_mgr,
+            );
+            let pages = engine.typeset_document(doc.root());
+            let dataset: Vec<_> = pages
+                .iter()
+                .map(|p| tok_layout_analyzer::synthetic::extract_ground_truth_from_layout(p, form))
+                .collect();
+            let json_out = serde_json::to_string_pretty(&dataset)?;
+            write_atomic(Path::new(&args[3]), json_out.as_bytes())?;
+            println!(
+                "Exported {} synthetic ground-truth pages to {}",
+                dataset.len(),
+                &args[3]
+            );
         }
         "help" | "-h" | "--help" => {
             print_usage();
