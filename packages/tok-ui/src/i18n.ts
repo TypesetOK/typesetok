@@ -702,6 +702,7 @@ export const strings: Translations = {
   inspMultiApparatusPresetDual: { he: 'הפעל שני מדורים: מקורות (2 טורים) וביאורים (טור אחד)', en: 'Enable two bands: Sources (2 columns) and Commentary (1 column)' },
   inspMultiApparatusAdd: { he: 'הוסף מדור הערות נוסף', en: 'Add Footnote Apparatus' },
   exportFileName: { he: 'שם הקובץ', en: 'File name' },
+  cancel: { he: 'ביטול', en: 'Cancel' },
   exportCancel: { he: 'ביטול', en: 'Cancel' },
   exportGo: { he: 'ייצוא PDF', en: 'Export PDF' },
   exportCheckTitle: { he: 'בדיקת דפוס', en: 'Print check' },

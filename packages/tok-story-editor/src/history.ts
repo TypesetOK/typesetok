@@ -9,10 +9,11 @@
 import { StoryParagraph, StorySelection } from './types.js';
 
 export function cloneParagraph(p: StoryParagraph): StoryParagraph {
-  return {
-    ...p,
-    spans: p.spans ? p.spans.map((s) => ({ ...s, format: s.format ? { ...s.format } : s.format })) : undefined,
-  };
+  const cloned: StoryParagraph = { ...p };
+  if (p.spans !== undefined) {
+    cloned.spans = p.spans.map((s) => ({ ...s, format: s.format ? { ...s.format } : s.format }));
+  }
+  return cloned;
 }
 
 export function cloneParagraphs(paragraphs: StoryParagraph[]): StoryParagraph[] {

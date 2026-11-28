@@ -6,6 +6,61 @@ import { ChangelogEntry } from './types';
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    "version": "0.40.3",
+    "releaseDate": "2026-11-28",
+    "importance": "minor",
+    "title": {
+      "he": "מנוע זיהוי מבנה עמודים (Layout Analyzer), ייבוא אצווה וגרירת תיקיות, בדיקת דפוס מובנית ומנוע צבע ICC/TIFF (0.40.3)",
+      "en": "Automatic Page Layout Analyzer, Universal Batch Importer, Structured Preflight & ICC/TIFF Color Engine (0.40.3)"
+    },
+    "summary": {
+      "he": "שחרור משמעותי המוסיף מנוע חדש לזיהוי אוטומטי של מבנה עמודים (צורת הדף, טורים, הערות שוליים והמלצת תבנית), ייבוא אצווה אוניברסלי לכל הפורמטים עם מיון חכם וגרירת תיקיות, מנוע Preflight מובנה לבדיקות דפוס מקיפות עם הפניה לעמודים, ומנוע צבע ICC טהור ב-Rust עם Soft Proofing ומפענח TIFF מתקדם.",
+      "en": "Major release introducing an automatic page layout analyzer (Tzurat HaDaf, columns, footnotes, and template recommendation), universal batch importer with smart sorting and folder drag-and-drop, structured page-referenced Preflight print checks, and a pure-Rust ICC color engine with soft proofing and TIFF decoding."
+    },
+    "changes": [
+      {
+        "category": "features",
+        "text": {
+          "he": "מנוע ניתוח וזיהוי אוטומטי של מבנה עמודים (`tok-layout-analyzer`) לזיהוי צורת הדף, טורים והערות שוליים, כולל חילוץ וקטורי מ-PDF, תמיכה אופציונלית ב-ONNX ואינטגרציה מלאה ב-CLI, ב-Tauri ובחלונות הייבוא",
+          "en": "Automatic page layout analyzer (`tok-layout-analyzer`) for detecting Tzurat HaDaf, columns, and footnotes with PDF vector extraction, optional ONNX inference, and full CLI, Tauri, and import modal integration"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "הרחבת מנוע ייבוא האצווה לכל פורמטי המסמכים, מיון חכם (טבעי, גימטריה, נתיב, תאריך, מניפסט), גרירה ושחרור של תיקיות ומספר קבצים למרחב העבודה, ודו\"ח סיכום מפורט",
+          "en": "Generalized batch importer for all document formats with smart sorting (natural, gematria, path, date, manifest), multi-file and folder drag-and-drop, and a detailed summary report"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מנוע Preflight מורחב לבדיקות קדם-דפוס (הטמעת גופנים וכיסוי גליפים, תאימות פרופילי צבע ו-TAC, גבולות TrimBox/BleedBox, רזולוציית תמונות וזליגת טקסט ממסגרות) עם דו\"ח מובנה לפי עמודים",
+          "en": "Extended Preflight engine (font embedding and glyph coverage, color profile and TAC validation, TrimBox/BleedBox, image DPI, and frame overflow) with page-referenced structured reports"
+        }
+      },
+      {
+        "category": "features",
+        "text": {
+          "he": "מנוע צבע ICC (ISO 15076-1) להמרת RGB ל-CMYK, תצוגת Soft Proofing, אזהרת Gamut ומדדי Delta-E, וכן מפענח TIFF טהור ב-Rust (RGB/CMYK, LZW/ZIP וריבוי עמודים)",
+          "en": "ISO 15076-1 ICC color engine for RGB-to-CMYK conversion, soft proofing, gamut warning, and Delta-E metrics, plus a pure-Rust TIFF decoder (RGB/CMYK, LZW/ZIP, multi-page)"
+        }
+      },
+      {
+        "category": "improvements",
+        "text": {
+          "he": "שיפורי ביצועים ויציבות — שיבוט מבני מהיר בעורך הטקסט, בדיקות אינדקס בטוחות ב-`tok-pdf` ו-`tok-typeset`, וניקוי נתיבי תאימות ישנים",
+          "en": "Performance and stability improvements — fast structural paragraph cloning in the story editor, checked indexing in `tok-pdf` and `tok-typeset`, and legacy fallback cleanup"
+        }
+      }
+    ],
+    "highlights": [],
+    "badge": {
+      "he": "זיהוי מבנה עמוד אוטומטי, ייבוא אצווה, קדם-דפוס ו-ICC",
+      "en": "Auto Layout Analyzer, Batch Importer, Preflight & ICC Color"
+    }
+  },
+  {
     "version": "0.38.1",
     "releaseDate": "2026-11-27",
     "importance": "minor",

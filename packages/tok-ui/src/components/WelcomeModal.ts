@@ -228,7 +228,7 @@ export class WelcomeModal {
     primaryGrid.appendChild(importCard);
 
     const batchCard = el('button', 'tok-template-card tok-template-import', { type: 'button', role: 'listitem', 'data-focus-key': 'template-batch-import' });
-    const batchIconWrap = el('span', 'tok-plus', { 'aria-hidden': 'true', style: 'background:rgba(16,185,129,0.15);color:#10b981;' });
+    const batchIconWrap = el('span', 'tok-plus', { 'aria-hidden': 'true', style: 'background:var(--tok-success-soft);color:var(--tok-status-success);' });
     batchIconWrap.appendChild(icon('folder', 20));
     batchCard.appendChild(batchIconWrap);
     batchCard.appendChild(el('span', 'tok-template-title', undefined, t('batchImportCardTitle')));

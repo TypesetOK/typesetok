@@ -1434,22 +1434,14 @@ export class TypesetOkApp {
   }
 
   private applySuggestedSectionConfig(config?: SuggestedSectionConfig): void {
-    if (!config) return;
-    const activeSection = this.documentState.sections?.[0];
-    if (!activeSection) return;
-    if (config.layoutKind) {
-      (activeSection as unknown as Record<string, unknown>).layout_kind = config.layoutKind;
-    }
-    if (config.columnProportions) {
-      (activeSection as unknown as Record<string, unknown>).column_proportions = config.columnProportions;
-    }
+    if (!config || !this.documentState.settings) return;
     if (typeof config.columnCount === 'number') {
-      (activeSection as unknown as Record<string, unknown>).column_count = config.columnCount;
+      this.documentState.settings.columns = config.columnCount;
     }
     if (typeof config.columnGutterPt === 'number') {
-      (activeSection as unknown as Record<string, unknown>).column_gutter_pt = config.columnGutterPt;
+      this.documentState.settings.columnGapMm = Number(((config.columnGutterPt * 25.4) / 72).toFixed(2));
     }
-    (activeSection as unknown as Record<string, unknown>).draw_column_rule = config.drawColumnRule;
+    this.documentState.settings.drawColumnRule = config.drawColumnRule;
   }
 
   public async analyzeFileLayoutForImport(filePath: string) {
@@ -4300,7 +4292,7 @@ export class TypesetOkApp {
         savedAt?: string;
         title?: string;
         filePath?: string;
-        document?: Parameters<AppController['loadDocumentRoot']>[0];
+        document?: Parameters<TypesetOkApp['loadDocumentRoot']>[0];
       } | null = null;
       if (host.has('loadDraftRecovery')) {
         parsed = (await host.loadDraftRecovery()) as typeof parsed;
