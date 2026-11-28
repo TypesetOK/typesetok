@@ -3,6 +3,11 @@ import { el, icon, iconButton, button } from '../ui';
 import { ModalController } from './ModalController';
 import { getHostBridge } from '../platform/hostBridge.js';
 import {
+  LayoutRecommendation,
+  analyzePageLayout,
+  formatConfidencePercent,
+} from '../services/layoutAnalyzerBridge';
+import {
   BatchQueuedFile,
   BatchSortMode,
   applyCustomOrderList,
@@ -88,6 +93,7 @@ export class BatchImportModal {
   private statusNotice = '';
   private isBusy = false;
   private progressPercent = 0;
+  private detectedLayout: LayoutRecommendation | null = null;
   private progressText = '';
   private dragSourceIndex: number | null = null;
 
@@ -124,8 +130,10 @@ export class BatchImportModal {
 
     if (options?.initialFiles && options.initialFiles.length > 0) {
       this.files = sortBatchFiles(options.initialFiles, this.sortMode);
+      void this.refreshLayoutRecommendation();
     } else {
       this.files = [];
+      this.detectedLayout = null;
     }
 
     this.isVisible = true;
@@ -159,6 +167,23 @@ export class BatchImportModal {
   private cancel(): void {
     this.hide();
     this.callbacks.onCancel?.();
+  }
+
+  private async refreshLayoutRecommendation(): Promise<void> {
+    const candidate = this.files.find((f) => f.filePath && /\.(pdf|pgm)$/i.test(f.filePath));
+    if (!candidate?.filePath) {
+      this.detectedLayout = null;
+      return;
+    }
+    try {
+      const rec = await analyzePageLayout(candidate.filePath, 1, 10);
+      this.detectedLayout = rec;
+      if (this.isVisible) {
+        this.render();
+      }
+    } catch {
+      this.detectedLayout = null;
+    }
   }
 
   private addQueuedFiles(incoming: BatchQueuedFile[]): void {
