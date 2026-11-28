@@ -1,0 +1,21 @@
+[package]
+name = "tok-layout-analyzer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+description = "Hybrid page layout analysis and TypesetOK template classification engine"
+
+[features]
+default = []
+ml-onnx = ["dep:ort"]
+
+[dependencies]
+tok-core = { workspace = true }
+tok-typeset = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+rayon = { workspace = true }
+ort = { version = "2.0.0-rc.9", optional = true }

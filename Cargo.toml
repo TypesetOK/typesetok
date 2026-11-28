@@ -10,6 +10,7 @@ members = [
     "crates/tok-engine-service",
     "crates/tok-cli",
     "crates/tok-desktop",
+    "crates/tok-layout-analyzer",
 ]
 
 [workspace.package]
@@ -50,6 +51,7 @@ tok-storage = { path = "crates/tok-storage" }
 tok-ipc = { path = "crates/tok-ipc" }
 tok-plugin-host = { path = "crates/tok-plugin-host" }
 tok-engine-service = { path = "crates/tok-engine-service" }
+tok-layout-analyzer = { path = "crates/tok-layout-analyzer" }
 
 [profile.release]
 lto = "thin"
