@@ -150,15 +150,32 @@ export class ImportTemplateModal {
     }
 
     for (const opt of TEMPLATE_OPTIONS) {
+      const rec = this.layoutRecommendation;
+      const isRecommended = rec?.recommendedTemplateType === opt.id;
+      const altMatch = rec?.alternatives.find((a) => a.templateType === opt.id);
+
       const card = el('button', 'tok-template-option-btn', {
         type: 'button',
-        style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-radius:10px;border:1px solid var(--tok-border-strong);background:var(--tok-bg-surface-2, #1E293B);color:var(--tok-text-primary);cursor:pointer;text-align:start;transition:all 0.15s ease;flex-shrink:0;'
+        style: `display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-radius:10px;border:1px solid ${isRecommended ? '#10B981' : 'var(--tok-border-strong)'};background:var(--tok-bg-surface-2, #1E293B);color:var(--tok-text-primary);cursor:pointer;text-align:start;transition:all 0.15s ease;flex-shrink:0;`
       });
 
       const info = el('div', undefined, { style: 'display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;' });
-      const optTitleRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:8px;' });
+      const optTitleRow = el('div', undefined, { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;' });
       optTitleRow.appendChild(el('strong', undefined, { style: 'font-size:14px;font-weight:700;' }, t(opt.titleKey)));
-      if (opt.badge) {
+      if (isRecommended && rec) {
+        optTitleRow.appendChild(el('span', 'tok-layout-auto-badge', {
+          style: 'font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:#10B98122;color:#10B981;'
+        }, tf('layoutAutoDetectedBadge', { pct: formatConfidencePercent(rec.confidence) })));
+        if (rec.rectoVersoVerified) {
+          optTitleRow.appendChild(el('span', undefined, {
+            style: 'font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;background:#3B82F622;color:#3B82F6;'
+          }, t('layoutRectoVersoVerified')));
+        }
+      } else if (altMatch) {
+        optTitleRow.appendChild(el('span', undefined, {
+          style: 'font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:#F59E0B22;color:#F59E0B;'
+        }, tf('layoutAlternativeLabel', { name: t(opt.titleKey), pct: formatConfidencePercent(altMatch.confidence) })));
+      } else if (opt.badge && !rec) {
         optTitleRow.appendChild(el('span', undefined, {
           style: `font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:${opt.badgeColor}22;color:${opt.badgeColor};`
         }, isEn && opt.badge === 'מומלץ' ? 'Recommended' : opt.badge));
@@ -176,14 +193,15 @@ export class ImportTemplateModal {
         card.style.background = 'var(--tok-accent-soft, rgba(59, 130, 246, 0.1))';
       });
       card.addEventListener('mouseleave', () => {
-        card.style.borderColor = 'var(--tok-border-strong)';
+        card.style.borderColor = isRecommended ? '#10B981' : 'var(--tok-border-strong)';
         card.style.background = 'var(--tok-bg-surface-2, #1E293B)';
       });
 
       card.addEventListener('click', () => {
         this.hide();
         try {
-          this.callbacks.onSelect(opt.id);
+          const suggested = isRecommended && rec ? rec.suggestedSectionConfig : undefined;
+          this.callbacks.onSelect(opt.id, undefined, suggested);
         } catch (err) {
           console.error('[TOK] Error applying template:', err);
         }
