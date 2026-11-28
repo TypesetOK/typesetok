@@ -9,6 +9,7 @@
 //! Outputs [`LayoutRecommendation`] mapped directly to `tok_typeset::LayoutFamily`,
 //! `tok_core::SectionNode`, and `tok-ui` `TemplateType`.
 
+pub mod augment;
 pub mod classifier_geom;
 pub mod components;
 pub mod context;
@@ -32,6 +33,7 @@ pub mod rules;
 pub mod script_classifier;
 pub mod spread;
 pub mod spread_split;
+pub mod synthetic;
 pub mod synthesizer;
 pub mod taxonomy;
 pub mod typography;
