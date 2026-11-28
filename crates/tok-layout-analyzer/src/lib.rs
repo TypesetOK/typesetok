@@ -19,6 +19,7 @@ pub mod geometry;
 pub mod hybrid;
 pub mod input;
 pub mod lshape;
+pub mod metrics;
 pub mod ml_labels;
 pub mod ml_onnx;
 pub mod noise_filter;
