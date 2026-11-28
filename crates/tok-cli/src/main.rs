@@ -6,8 +6,9 @@ use tok_core::model::{DocumentModel, DocumentRoot};
 use tok_engine_service::{
     build_font_manager, create_sample_hebrew_document, evaluate_preflight, format_hex,
     inspect_font_file, inspect_package, load_document_input, load_package_or_doc,
-    render_html_string, render_pdf_bytes, run_builtin_plugins, save_package, sync_heading_numbers,
-    write_atomic, PdfRenderRequest, PreflightRequest, WorkspaceSession,
+    recommend_layout_from_file, render_html_string, render_pdf_bytes, run_builtin_plugins,
+    save_package, sync_heading_numbers, write_atomic, PdfRenderRequest, PreflightRequest,
+    WorkspaceSession,
 };
 use tok_ipc::protocol::{WorkerRequest, WorkerResponse};
 use tok_pdf::color::IccProfileId;
@@ -40,6 +41,7 @@ COMMANDS:
     inspect-package <INPUT>         Inspect .tok package manifest, metadata, and assets
     inspect-font <PATH.ttf>         Validate external font (glyf/OS2 fsType/Hebrew coverage) and emit JSON report
     preflight <INPUT> [OUTPUT.json] Run real pre-press preflight evaluation and emit PreflightReport JSON
+    analyze-layout <IN> [OUT.json]  Analyze PDF/scan page layout and recommend TypesetOK template
     help                            Show this help message
 
 EXAMPLES:
@@ -972,6 +974,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let extra = args.get(extra_start..).unwrap_or(&[]);
             handle_preflight(&args[2], out_opt, extra)?;
+        }
+        "analyze-layout" => {
+            if args.len() < 3 {
+                eprintln!("Usage: tok-cli analyze-layout <INPUT.pdf | INPUT.pgm> [OUTPUT.json]");
+                std::process::exit(1);
+            }
+            let out_opt = args.get(3).filter(|a| !a.starts_with("--")).map(|s| s.as_str());
+            let rec = recommend_layout_from_file(&args[2], 1, 10)?;
+            let json_out = serde_json::to_string_pretty(&rec)?;
+            if let Some(out_path) = out_opt {
+                write_atomic(Path::new(out_path), json_out.as_bytes())?;
+                println!("Layout recommendation written to {}", out_path);
+            } else {
+                println!("{}", json_out);
+            }
         }
         "help" | "-h" | "--help" => {
             print_usage();

@@ -13,6 +13,7 @@ path = "src/main.rs"
 tok-engine-service = { workspace = true, features = ["fixtures"] }
 tok-core = { workspace = true }
 tok-typeset = { workspace = true, features = ["fixtures"] }
+tok-layout-analyzer = { workspace = true }
 tok-pdf = { workspace = true }
 tok-storage = { workspace = true }
 tok-ipc = { workspace = true }
