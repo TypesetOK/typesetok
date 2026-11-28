@@ -265,6 +265,12 @@ impl TokPackage {
         })
     }
 
+    fn migrate_and_deserialize_document(doc_text: &str) -> Result<DocumentRoot, StorageError> {
+        let doc_json: serde_json::Value = serde_json::from_str(doc_text)?;
+        let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
+        Ok(serde_json::from_value(migrated_doc_json)?)
+    }
+
     /// Opens and extracts a `.tok` archive into a DocumentModel and TokPackage container.
     ///
     /// Rejects archives with unsafe entry names (absolute, `..`, drive or
@@ -311,27 +317,16 @@ impl TokPackage {
             == crate::migration::CURRENT_SCHEMA_VERSION
         {
             match serde_json::from_str::<DocumentRoot>(&doc_text) {
-                Ok(parsed) => {
+                Ok(parsed)
                     if parsed.metadata.schema_version == crate::migration::CURRENT_SCHEMA_VERSION
-                        || parsed.metadata.schema_version == "1.0"
-                    {
-                        parsed
-                    } else {
-                        let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
-                        let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
-                        serde_json::from_value(migrated_doc_json)?
-                    }
+                        || parsed.metadata.schema_version == "1.0" =>
+                {
+                    parsed
                 }
-                Err(_) => {
-                    let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
-                    let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
-                    serde_json::from_value(migrated_doc_json)?
-                }
+                _ => Self::migrate_and_deserialize_document(&doc_text)?,
             }
         } else {
-            let doc_json: serde_json::Value = serde_json::from_str(&doc_text)?;
-            let migrated_doc_json = MigrationPipeline::migrate_document_json(doc_json)?;
-            serde_json::from_value(migrated_doc_json)?
+            Self::migrate_and_deserialize_document(&doc_text)?
         };
 
         // 4. Read assets and previews
