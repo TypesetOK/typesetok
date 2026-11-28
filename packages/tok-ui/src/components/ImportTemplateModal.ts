@@ -5,6 +5,11 @@ import { TemplateType } from '../engine/FlowPaginator';
 import { ImportResult } from '../engine/textImporter';
 import { getAvailableFonts } from '../fonts';
 import {
+  LayoutRecommendation,
+  SuggestedSectionConfig,
+  formatConfidencePercent,
+} from '../services/layoutAnalyzerBridge';
+import {
   CustomTemplate,
   BaseTemplateType,
   getCustomTemplates,
@@ -13,7 +18,7 @@ import {
 } from '../services/customTemplatesStore';
 
 export interface ImportTemplateModalCallbacks {
-  onSelect: (templateId: TemplateType, customTemplate?: CustomTemplate) => void;
+  onSelect: (templateId: TemplateType, customTemplate?: CustomTemplate, suggestedConfig?: SuggestedSectionConfig) => void;
   onCancel: () => void;
 }
 
@@ -63,6 +68,7 @@ export class ImportTemplateModal {
   private isVisible = false;
   private isNewDocument = false;
   private isCreatingCustom = false;
+  private layoutRecommendation: LayoutRecommendation | null = null;
 
   constructor(callbacks: ImportTemplateModalCallbacks) {
     this.callbacks = callbacks;
@@ -75,10 +81,11 @@ export class ImportTemplateModal {
     });
   }
 
-  public show(result: ImportResult, options?: { isNewDocument?: boolean }): void {
+  public show(result: ImportResult, options?: { isNewDocument?: boolean; layoutRecommendation?: LayoutRecommendation | null }): void {
     this.isNewDocument = Boolean(options?.isNewDocument);
     this.isCreatingCustom = false;
     this.currentResult = result;
+    this.layoutRecommendation = options?.layoutRecommendation ?? null;
     this.isVisible = true;
     this.element.dir = i18n.getDirection();
     this.render();
