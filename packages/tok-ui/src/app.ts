@@ -2963,12 +2963,12 @@ export class TypesetOkApp {
               this.statusBar?.updateStats({ preflightStatus: uiPfStatus });
             }
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
             return;
           }
           console.error('[TOK] Rust live typesetting failed:', err);
-          this.showToast('עימוד Rust נכשל — מוצגת תצוגה משוערת בלבד', true);
+          this.showToast('עימוד Rust נכשל — התצוגה הקודמת נשמרה', true);
         }
       }
 
@@ -2977,9 +2977,13 @@ export class TypesetOkApp {
       }
 
       if (newPages.length === 0) {
-        const minPages = Math.max(1, this.pages.length);
-        const isExplicitFallback = host.has('typesetDocument');
-        newPages = FlowPaginator.paginateDocument(this.documentState, minPages, isExplicitFallback);
+        if (host.has('typesetDocument')) {
+          // Do not fall back to the legacy JS word-count paginator when Rust typesetter is active.
+          newPages = this.pages;
+        } else {
+          const minPages = Math.max(1, this.pages.length);
+          newPages = FlowPaginator.paginateDocument(this.documentState, minPages, false);
+        }
       }
 
       if (requestId !== this.latestTypesetRequestId || abortCtrl.signal.aborted) {
@@ -4292,9 +4296,14 @@ export class TypesetOkApp {
   private async checkDraftRecoveryOnStartup(): Promise<void> {
     try {
       const host = getHostBridge();
-      let parsed: any = null;
+      let parsed: {
+        savedAt?: string;
+        title?: string;
+        filePath?: string;
+        document?: Parameters<AppController['loadDocumentRoot']>[0];
+      } | null = null;
       if (host.has('loadDraftRecovery')) {
-        parsed = await host.loadDraftRecovery();
+        parsed = (await host.loadDraftRecovery()) as typeof parsed;
       }
       if (!parsed) {
         const raw = hostSettings.get('tok_draft_recovery');
