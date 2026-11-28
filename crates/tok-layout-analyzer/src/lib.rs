@@ -8,3 +8,23 @@
 //!
 //! Outputs [`LayoutRecommendation`] mapped directly to `tok_typeset::LayoutFamily`,
 //! `tok_core::SectionNode`, and `tok-ui` `TemplateType`.
+
+pub mod error;
+pub mod geometry;
+pub mod input;
+pub mod profile;
+pub mod recommendation;
+pub mod spread;
+pub mod taxonomy;
+pub mod typography;
+
+pub use error::{AnalyzerError, AnalyzerResult};
+pub use geometry::NormalizedBBox;
+pub use input::{AnalysisInput, AnalysisOptions, PageRange};
+pub use profile::{DetectedRegion, PageSpatialProfile, RegionClass};
+pub use recommendation::{
+    LayoutAlternative, LayoutRecommendation, RecommendedFlowRole, SuggestedSectionConfig,
+};
+pub use spread::SpreadSide;
+pub use taxonomy::PageForm;
+pub use typography::{ScriptMode, TypographyMetrics};
