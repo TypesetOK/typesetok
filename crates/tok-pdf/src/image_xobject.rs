@@ -143,9 +143,10 @@ pub fn inspect_image_dimensions(bytes: &[u8]) -> Result<(u32, u32), ImageDecodeE
     }
     if crate::tiff::is_tiff_signature(bytes) {
         let info = crate::tiff::inspect_tiff_info(bytes)?;
-        let first = info.pages.first().ok_or_else(|| {
-            ImageDecodeError::InvalidTiff("TIFF contains no pages".into())
-        })?;
+        let first = info
+            .pages
+            .first()
+            .ok_or_else(|| ImageDecodeError::InvalidTiff("TIFF contains no pages".into()))?;
         return Ok((first.width, first.height));
     }
     Err(ImageDecodeError::UnsupportedFormat)

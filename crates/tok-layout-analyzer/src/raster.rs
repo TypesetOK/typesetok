@@ -60,7 +60,7 @@ impl GrayImage {
             )));
         }
         let mut data = Vec::with_capacity(pixels);
-        for chunk in rgb.chunks_exact(3) {
+        for chunk in rgb.as_chunks::<3>().0 {
             // ITU-R BT.601 luma approximation using integer arithmetic.
             let y = (77 * chunk[0] as u32 + 150 * chunk[1] as u32 + 29 * chunk[2] as u32) >> 8;
             data.push(y as u8);

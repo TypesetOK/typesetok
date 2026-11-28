@@ -255,7 +255,10 @@ impl ToneCurve {
                     y.powf(1.0 / *g)
                 }
             }
-            Self::Parametric { func_type: 3, params } => {
+            Self::Parametric {
+                func_type: 3,
+                params,
+            } => {
                 let [g, a, b, c, d, _, _] = *params;
                 let threshold = c * d;
                 if y >= threshold && a.abs() > 1e-7 && g.abs() > 1e-7 {
@@ -366,7 +369,11 @@ impl IccLut {
     fn interp_clut(&self, clut: &[f32], x: &[f32]) -> Vec<f32> {
         match self.in_channels {
             3 => interp_nd::<3>(
-                [self.grid_points[0], self.grid_points[1], self.grid_points[2]],
+                [
+                    self.grid_points[0],
+                    self.grid_points[1],
+                    self.grid_points[2],
+                ],
                 self.out_channels,
                 clut,
                 [x[0], x[1], x[2]],
@@ -616,15 +623,39 @@ impl IccProfile {
             rgb_trc: Some([
                 ToneCurve::Parametric {
                     func_type: 3,
-                    params: [2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045, 0.0, 0.0],
+                    params: [
+                        2.4,
+                        1.0 / 1.055,
+                        0.055 / 1.055,
+                        1.0 / 12.92,
+                        0.04045,
+                        0.0,
+                        0.0,
+                    ],
                 },
                 ToneCurve::Parametric {
                     func_type: 3,
-                    params: [2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045, 0.0, 0.0],
+                    params: [
+                        2.4,
+                        1.0 / 1.055,
+                        0.055 / 1.055,
+                        1.0 / 12.92,
+                        0.04045,
+                        0.0,
+                        0.0,
+                    ],
                 },
                 ToneCurve::Parametric {
                     func_type: 3,
-                    params: [2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045, 0.0, 0.0],
+                    params: [
+                        2.4,
+                        1.0 / 1.055,
+                        0.055 / 1.055,
+                        1.0 / 12.92,
+                        0.04045,
+                        0.0,
+                        0.0,
+                    ],
                 },
             ]),
             gray_trc: None,
@@ -710,10 +741,16 @@ fn parse_description_tag(data: &[u8]) -> Option<String> {
                 return None;
             }
             let u16s: Vec<u16> = data[str_off..str_off + str_len]
-                .chunks_exact(2)
-                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes(*c))
                 .collect();
-            Some(String::from_utf16_lossy(&u16s).trim_end_matches('\0').to_string())
+            Some(
+                String::from_utf16_lossy(&u16s)
+                    .trim_end_matches('\0')
+                    .to_string(),
+            )
         }
         _ => None,
     }
@@ -834,7 +871,10 @@ fn parse_mft1(tag: [u8; 4], data: &[u8]) -> Result<IccLut, IccError> {
     let mut off = 48;
     let mut a_curves = Vec::with_capacity(in_ch);
     for _ in 0..in_ch {
-        let t: Vec<f32> = data[off..off + 256].iter().map(|&v| v as f32 / 255.0).collect();
+        let t: Vec<f32> = data[off..off + 256]
+            .iter()
+            .map(|&v| v as f32 / 255.0)
+            .collect();
         a_curves.push(ToneCurve::Lut16(t));
         off += 256;
     }
@@ -845,7 +885,10 @@ fn parse_mft1(tag: [u8; 4], data: &[u8]) -> Result<IccLut, IccError> {
     off += clut_len;
     let mut b_curves = Vec::with_capacity(out_ch);
     for _ in 0..out_ch {
-        let t: Vec<f32> = data[off..off + 256].iter().map(|&v| v as f32 / 255.0).collect();
+        let t: Vec<f32> = data[off..off + 256]
+            .iter()
+            .map(|&v| v as f32 / 255.0)
+            .collect();
         b_curves.push(ToneCurve::Lut16(t));
         off += 256;
     }
@@ -1071,7 +1114,9 @@ mod tests {
             assert!(profile.is_cmyk_output());
             assert_eq!(profile.header().device_class, IccDeviceClass::Output);
             assert_eq!(profile.header().pcs, IccColorSpace::Lab);
-            assert!(profile.select_a2b(RenderingIntent::RelativeColorimetric).is_some());
+            assert!(profile
+                .select_a2b(RenderingIntent::RelativeColorimetric)
+                .is_some());
             assert!(profile.select_b2a(RenderingIntent::Perceptual).is_some());
             assert!(profile.gamut_lut().is_some());
             assert!(profile.media_white_point.is_some());

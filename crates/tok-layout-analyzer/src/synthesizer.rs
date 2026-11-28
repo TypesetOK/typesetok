@@ -35,10 +35,7 @@ pub fn synthesize_recommendation(
     LayoutRecommendation {
         page_form: agg.dominant_form,
         recommended_family,
-        recommended_template_type: agg
-            .dominant_form
-            .to_ui_template_type()
-            .map(str::to_string),
+        recommended_template_type: agg.dominant_form.to_ui_template_type().map(str::to_string),
         display_name_he: agg.dominant_form.display_name_he().to_string(),
         confidence: agg.confidence,
         alternatives,
@@ -70,7 +67,9 @@ pub fn map_form_to_layout_family(
             spine_inner_flow: Some(FlowId::new("rashi")),
             spine_outer_flow: Some(FlowId::new("tosafot")),
             expansion_flow: Some(FlowId::new("tosafot")),
-            has_bottom_band: profile.map(|p| p.has_footnote_rule_and_band).unwrap_or(false),
+            has_bottom_band: profile
+                .map(|p| p.has_footnote_rule_and_band)
+                .unwrap_or(false),
         },
         PageForm::MultiCommentaryGrid => {
             let count = profile

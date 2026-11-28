@@ -166,7 +166,10 @@ fn compute_typography_metrics(regions: &[DetectedRegion]) -> TypographyMetrics {
 
     let mut sizes: Vec<f32> = regions
         .iter()
-        .filter_map(|r| r.font_size_pt.or_else(|| r.median_line_height.map(|h| h * 700.0)))
+        .filter_map(|r| {
+            r.font_size_pt
+                .or_else(|| r.median_line_height.map(|h| h * 700.0))
+        })
         .collect();
 
     if sizes.is_empty() {

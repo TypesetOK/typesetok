@@ -15,7 +15,10 @@ fn main() {
     let options = AnalysisOptions::default();
     match analyze_document_pages(AnalysisInput::FilePath(PathBuf::from(path_str)), &options) {
         Ok(rec) => {
-            println!("Detected Form: {} ({:?})", rec.display_name_he, rec.page_form);
+            println!(
+                "Detected Form: {} ({:?})",
+                rec.display_name_he, rec.page_form
+            );
             println!("Template Type: {:?}", rec.recommended_template_type);
             println!("Confidence: {:.1}%", rec.confidence * 100.0);
             println!("Recto/Verso Verified: {}", rec.recto_verso_verified);

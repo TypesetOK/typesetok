@@ -79,15 +79,17 @@ fn xycut_recurse(
     let min_row_gap = ((img.height as f32 * cfg.min_row_gap_ratio).round() as usize).max(4);
 
     // Filter out outer-edge valleys so we only split *internal* gaps.
-    let v_valleys: Vec<(usize, usize)> = find_valleys(&prof.vertical_ink, cfg.valley_ink_threshold, min_col_gap)
-        .into_iter()
-        .filter(|&(s, e)| s > 2 && e + 2 < prof.vertical_ink.len())
-        .collect();
+    let v_valleys: Vec<(usize, usize)> =
+        find_valleys(&prof.vertical_ink, cfg.valley_ink_threshold, min_col_gap)
+            .into_iter()
+            .filter(|&(s, e)| s > 2 && e + 2 < prof.vertical_ink.len())
+            .collect();
 
-    let h_valleys: Vec<(usize, usize)> = find_valleys(&prof.horizontal_ink, cfg.valley_ink_threshold, min_row_gap)
-        .into_iter()
-        .filter(|&(s, e)| s > 2 && e + 2 < prof.horizontal_ink.len())
-        .collect();
+    let h_valleys: Vec<(usize, usize)> =
+        find_valleys(&prof.horizontal_ink, cfg.valley_ink_threshold, min_row_gap)
+            .into_iter()
+            .filter(|&(s, e)| s > 2 && e + 2 < prof.horizontal_ink.len())
+            .collect();
 
     // Choose the widest normalized cut (preferring vertical column splits on ties).
     let best_v = v_valleys.iter().max_by_key(|(s, e)| e - s).copied();

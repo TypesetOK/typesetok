@@ -4,6 +4,7 @@
 //! provides a clean, zero-dependency fallback stub otherwise.
 
 use crate::error::{AnalyzerError, AnalyzerResult};
+#[cfg(feature = "ml-onnx")]
 use crate::geometry::NormalizedBBox;
 use crate::ml_labels::map_pp_doclayout_class;
 use crate::profile::DetectedRegion;
@@ -20,6 +21,7 @@ pub const DEFAULT_ML_SCORE_THRESHOLD: f32 = 0.42;
 pub struct OnnxLayoutDetector {
     #[cfg(feature = "ml-onnx")]
     session: ort::session::Session,
+    #[cfg_attr(not(feature = "ml-onnx"), allow(dead_code))]
     score_threshold: f32,
 }
 

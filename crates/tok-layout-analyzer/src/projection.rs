@@ -43,8 +43,14 @@ pub fn compute_projection_profiles(
         row_counts[y - cy0] = row_sum;
     }
 
-    let vertical_ink = col_counts.into_iter().map(|c| c as f32 / rh as f32).collect();
-    let horizontal_ink = row_counts.into_iter().map(|r| r as f32 / rw as f32).collect();
+    let vertical_ink = col_counts
+        .into_iter()
+        .map(|c| c as f32 / rh as f32)
+        .collect();
+    let horizontal_ink = row_counts
+        .into_iter()
+        .map(|r| r as f32 / rw as f32)
+        .collect();
 
     ProjectionProfiles {
         vertical_ink,

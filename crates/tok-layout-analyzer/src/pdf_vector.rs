@@ -221,7 +221,7 @@ fn extract_pdf_literal_text(line: &str) -> Option<String> {
 fn parse_horizontal_rules(block: &str, page_w: f32, page_h: f32) -> Vec<NormalizedBBox> {
     let mut rules = Vec::new();
     for line in block.lines() {
-        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 5 && parts[4] == "re" {
             if let (Ok(x), Ok(y), Ok(w), Ok(h)) = (
                 parts[0].parse::<f32>(),

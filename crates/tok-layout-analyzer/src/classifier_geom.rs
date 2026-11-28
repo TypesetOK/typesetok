@@ -18,11 +18,23 @@ pub struct PageClassification {
 pub fn classify_page_geometric(profile: &PageSpatialProfile) -> PageClassification {
     let mut scores = [
         (PageForm::StandardProse, score_standard_prose(profile)),
-        (PageForm::ProseWithFootnotes, score_prose_with_footnotes(profile)),
+        (
+            PageForm::ProseWithFootnotes,
+            score_prose_with_footnotes(profile),
+        ),
         (PageForm::TzuratHaDaf, score_tzurat_hadaf(profile)),
-        (PageForm::MultiCommentaryGrid, score_multi_commentary(profile)),
-        (PageForm::MultiColumnModern, score_multi_column_modern(profile)),
-        (PageForm::TitleOrOutlierPage, score_title_or_outlier(profile)),
+        (
+            PageForm::MultiCommentaryGrid,
+            score_multi_commentary(profile),
+        ),
+        (
+            PageForm::MultiColumnModern,
+            score_multi_column_modern(profile),
+        ),
+        (
+            PageForm::TitleOrOutlierPage,
+            score_title_or_outlier(profile),
+        ),
     ];
 
     scores.sort_by(|a, b| b.1.total_cmp(&a.1));

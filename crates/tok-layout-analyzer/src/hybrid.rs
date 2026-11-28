@@ -28,7 +28,8 @@ pub fn analyze_page_hybrid(
     source_kind: &str,
 ) -> HybridPageResult {
     let cleaned_s1 = filter_noise_and_tag_marginalia(stage1_regions);
-    let profile_s1 = extract_page_spatial_profile(page_index, aspect_ratio, cleaned_s1, source_kind);
+    let profile_s1 =
+        extract_page_spatial_profile(page_index, aspect_ratio, cleaned_s1, source_kind);
     let class_s1 = classify_page_geometric(&profile_s1);
 
     if class_s1.confidence >= fast_path_threshold {

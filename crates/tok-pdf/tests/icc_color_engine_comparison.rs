@@ -21,7 +21,11 @@ fn ciede2000_matches_sharma_wu_dalal_reference_vectors() {
         // Pair 17
         ([50.0, 2.4900, -0.0010], [50.0, -2.4900, 0.0009], 7.1792),
         // Pair 25
-        ([60.2574, -34.0099, 36.2677], [60.4626, -34.1751, 39.4387], 1.2644),
+        (
+            [60.2574, -34.0099, 36.2677],
+            [60.4626, -34.1751, 39.4387],
+            1.2644,
+        ),
     ];
 
     for (idx, (lab1, lab2, expected)) in cases.iter().enumerate() {
@@ -138,7 +142,9 @@ fn external_icc_absolute_vs_relative_intent_simulates_paper_white() {
     let wtpt_off = (0..tag_count)
         .map(|i| 132 + i * 12)
         .find(|&entry| ext_bytes[entry..entry + 4] == *b"wtpt")
-        .map(|entry| u32::from_be_bytes(ext_bytes[entry + 4..entry + 8].try_into().unwrap()) as usize)
+        .map(|entry| {
+            u32::from_be_bytes(ext_bytes[entry + 4..entry + 8].try_into().unwrap()) as usize
+        })
         .expect("wtpt tag");
     let to_s15f16 = |v: f32| ((v * 65536.0).round() as i32).to_be_bytes();
     ext_bytes[wtpt_off + 8..wtpt_off + 12].copy_from_slice(&to_s15f16(0.92));
@@ -147,10 +153,14 @@ fn external_icc_absolute_vs_relative_intent_simulates_paper_white() {
 
     let ext_profile = IccProfile::from_bytes(ext_bytes.clone()).unwrap();
 
-    let rel_xform =
-        IccColorTransform::srgb_to_target(ext_profile.clone(), RenderingIntent::RelativeColorimetric);
-    let abs_xform =
-        IccColorTransform::srgb_to_target(ext_profile.clone(), RenderingIntent::AbsoluteColorimetric);
+    let rel_xform = IccColorTransform::srgb_to_target(
+        ext_profile.clone(),
+        RenderingIntent::RelativeColorimetric,
+    );
+    let abs_xform = IccColorTransform::srgb_to_target(
+        ext_profile.clone(),
+        RenderingIntent::AbsoluteColorimetric,
+    );
 
     assert_eq!(rel_xform.rgb_to_cmyk(1.0, 1.0, 1.0), CmykColor::WHITE);
     let abs_white = abs_xform.rgb_to_cmyk(1.0, 1.0, 1.0);

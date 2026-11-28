@@ -58,8 +58,7 @@ pub fn lab_to_xyz(lab: [f32; 3], white: [f32; 3]) -> [f32; 3] {
         }
     };
     let yr = if lab[0] > KAPPA * EPSILON {
-        let fy3 = fy * fy * fy;
-        fy3
+        fy * fy * fy
     } else {
         lab[0] / KAPPA
     };
@@ -106,11 +105,7 @@ pub fn xyz_to_pcs_norm(xyz: [f32; 3]) -> [f32; 3] {
 /// Decodes normalized `[0.0, 1.0]` ICC `u1Fixed15` PCS coordinates to CIE XYZ.
 pub fn pcs_norm_to_xyz(pcs: [f32; 3]) -> [f32; 3] {
     const INV_SCALE: f32 = 65535.0 / 32768.0;
-    [
-        pcs[0] * INV_SCALE,
-        pcs[1] * INV_SCALE,
-        pcs[2] * INV_SCALE,
-    ]
+    [pcs[0] * INV_SCALE, pcs[1] * INV_SCALE, pcs[2] * INV_SCALE]
 }
 
 /// Performs Bradford chromatic adaptation of `xyz` from `src_white` to `dst_white`.
@@ -237,7 +232,9 @@ impl IccColorTransform {
             let out = a2b.eval(&[r, g, b]);
             if out.len() >= 3 {
                 return match self.source.header().pcs {
-                    IccColorSpace::Xyz => xyz_to_lab(pcs_norm_to_xyz([out[0], out[1], out[2]]), D50_WHITE),
+                    IccColorSpace::Xyz => {
+                        xyz_to_lab(pcs_norm_to_xyz([out[0], out[1], out[2]]), D50_WHITE)
+                    }
                     _ => pcs_norm_to_lab([out[0], out[1], out[2]]),
                 };
             }
@@ -287,7 +284,7 @@ impl IccColorTransform {
             [primaries[0][2], primaries[1][2], primaries[2][2]],
         ];
         let inv = invert_3x3(mat).unwrap_or([
-            [3.1338561, -1.6168667, -0.4906146],
+            [3.133_856, -1.6168667, -0.4906146],
             [-0.9787684, 1.9161415, 0.0334540],
             [0.0719453, -0.2289914, 1.4052427],
         ]);
@@ -318,7 +315,8 @@ impl IccColorTransform {
                 let adapted = bradford_adapt(xyz, D50_WHITE, target_wtpt);
                 lab = xyz_to_lab(adapted, D50_WHITE);
             }
-        } else if self.black_point_compensation && self.intent == RenderingIntent::RelativeColorimetric
+        } else if self.black_point_compensation
+            && self.intent == RenderingIntent::RelativeColorimetric
         {
             // Gentle shadow-toe scaling toward target black point (L* ~ 5..100 -> 0..100)
             if lab[0] < 10.0 {
@@ -351,7 +349,9 @@ impl IccColorTransform {
             let out = a2b.eval(&[unit(cmyk.c), unit(cmyk.m), unit(cmyk.y), unit(cmyk.k)]);
             if out.len() >= 3 {
                 let mut lab = match self.target.header().pcs {
-                    IccColorSpace::Xyz => xyz_to_lab(pcs_norm_to_xyz([out[0], out[1], out[2]]), D50_WHITE),
+                    IccColorSpace::Xyz => {
+                        xyz_to_lab(pcs_norm_to_xyz([out[0], out[1], out[2]]), D50_WHITE)
+                    }
                     _ => pcs_norm_to_lab([out[0], out[1], out[2]]),
                 };
                 if self.intent == RenderingIntent::AbsoluteColorimetric {
@@ -681,7 +681,8 @@ mod tests {
     #[test]
     fn rgb_to_cmyk_via_icc_preserves_black_white_and_tac() {
         let target = IccProfile::from_builtin(IccProfileId::Fogra39).unwrap();
-        let xform = IccColorTransform::srgb_to_target(target, RenderingIntent::RelativeColorimetric);
+        let xform =
+            IccColorTransform::srgb_to_target(target, RenderingIntent::RelativeColorimetric);
 
         assert_eq!(xform.rgb_to_cmyk(0.0, 0.0, 0.0), CmykColor::BLACK);
         assert_eq!(xform.rgb_to_cmyk(1.0, 1.0, 1.0), CmykColor::WHITE);

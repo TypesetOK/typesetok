@@ -73,12 +73,18 @@ fn read_u32(bytes: &[u8], off: usize, end: TiffEndianness) -> Result<u32, ImageD
 
 fn parse_header(bytes: &[u8]) -> Result<(TiffEndianness, u32), ImageDecodeError> {
     if bytes.len() < 8 {
-        return Err(ImageDecodeError::InvalidTiff("TIFF header < 8 bytes".into()));
+        return Err(ImageDecodeError::InvalidTiff(
+            "TIFF header < 8 bytes".into(),
+        ));
     }
     let end = match (bytes[0], bytes[1]) {
         (b'I', b'I') => TiffEndianness::Little,
         (b'M', b'M') => TiffEndianness::Big,
-        _ => return Err(ImageDecodeError::InvalidTiff("invalid TIFF byte order".into())),
+        _ => {
+            return Err(ImageDecodeError::InvalidTiff(
+                "invalid TIFF byte order".into(),
+            ))
+        }
     };
     let magic = read_u16(bytes, 2, end)?;
     if magic == 43 {
@@ -173,9 +179,11 @@ impl IfdEntry {
         match self.field_type {
             1 | 7 => {
                 for i in 0..count {
-                    out.push(*raw.get(i).ok_or_else(|| {
-                        ImageDecodeError::InvalidTiff("truncated BYTE tag".into())
-                    })? as u32);
+                    out.push(
+                        *raw.get(i).ok_or_else(|| {
+                            ImageDecodeError::InvalidTiff("truncated BYTE tag".into())
+                        })? as u32,
+                    );
                 }
             }
             3 => {
@@ -225,9 +233,11 @@ impl IfdEntry {
             }
             1 => {
                 for i in 0..count {
-                    out.push(*raw.get(i).ok_or_else(|| {
-                        ImageDecodeError::InvalidTiff("truncated BYTE tag".into())
-                    })? as u16);
+                    out.push(
+                        *raw.get(i).ok_or_else(|| {
+                            ImageDecodeError::InvalidTiff("truncated BYTE tag".into())
+                        })? as u16,
+                    );
                 }
             }
             other => {
@@ -389,10 +399,7 @@ fn parse_ifd_at(
                 bits_per_sample = Some(entry.read_u16_vec(bytes, end)?);
             }
             259 => {
-                compression = *entry
-                    .read_u16_vec(bytes, end)?
-                    .first()
-                    .unwrap_or(&1);
+                compression = *entry.read_u16_vec(bytes, end)?.first().unwrap_or(&1);
             }
             262 => {
                 photometric = entry.read_u16_vec(bytes, end)?.into_iter().next();
@@ -401,10 +408,7 @@ fn parse_ifd_at(
                 strip_offsets = entry.read_u32_vec(bytes, end)?;
             }
             277 => {
-                samples_per_pixel = *entry
-                    .read_u16_vec(bytes, end)?
-                    .first()
-                    .unwrap_or(&1);
+                samples_per_pixel = *entry.read_u16_vec(bytes, end)?.first().unwrap_or(&1);
             }
             278 => {
                 rows_per_strip = entry.read_u32_vec(bytes, end)?.into_iter().next();
@@ -419,22 +423,13 @@ fn parse_ifd_at(
                 y_resolution = entry.read_rational_f32(bytes, end)?;
             }
             284 => {
-                planar_configuration = *entry
-                    .read_u16_vec(bytes, end)?
-                    .first()
-                    .unwrap_or(&1);
+                planar_configuration = *entry.read_u16_vec(bytes, end)?.first().unwrap_or(&1);
             }
             296 => {
-                resolution_unit = *entry
-                    .read_u16_vec(bytes, end)?
-                    .first()
-                    .unwrap_or(&2);
+                resolution_unit = *entry.read_u16_vec(bytes, end)?.first().unwrap_or(&2);
             }
             317 => {
-                predictor = *entry
-                    .read_u16_vec(bytes, end)?
-                    .first()
-                    .unwrap_or(&1);
+                predictor = *entry.read_u16_vec(bytes, end)?.first().unwrap_or(&1);
             }
             320 => {
                 color_map = entry.read_u16_vec(bytes, end)?;
@@ -583,26 +578,23 @@ fn decompress_lzw(src: &[u8], expected_len: usize) -> Result<Vec<u8>, ImageDecod
     let mut byte_pos: usize = 0;
     let mut stack = Vec::with_capacity(256);
 
-    let read_code = |bit_buf: &mut u32,
-                     bit_count: &mut u8,
-                     byte_pos: &mut usize,
-                     bits: u8|
-     -> Option<u16> {
-        while *bit_count < bits {
-            if *byte_pos >= src.len() {
-                return None;
+    let read_code =
+        |bit_buf: &mut u32, bit_count: &mut u8, byte_pos: &mut usize, bits: u8| -> Option<u16> {
+            while *bit_count < bits {
+                if *byte_pos >= src.len() {
+                    return None;
+                }
+                *bit_buf = (*bit_buf << 8) | (src[*byte_pos] as u32);
+                *byte_pos += 1;
+                *bit_count += 8;
             }
-            *bit_buf = (*bit_buf << 8) | (src[*byte_pos] as u32);
-            *byte_pos += 1;
-            *bit_count += 8;
-        }
-        let shift = *bit_count - bits;
-        let mask = (1u32 << bits) - 1;
-        let code = ((*bit_buf >> shift) & mask) as u16;
-        *bit_count -= bits;
-        *bit_buf &= (1u32 << *bit_count).wrapping_sub(1);
-        Some(code)
-    };
+            let shift = *bit_count - bits;
+            let mask = (1u32 << bits) - 1;
+            let code = ((*bit_buf >> shift) & mask) as u16;
+            *bit_count -= bits;
+            *bit_buf &= (1u32 << *bit_count).wrapping_sub(1);
+            Some(code)
+        };
 
     while let Some(code) = read_code(&mut bit_buf, &mut bit_count, &mut byte_pos, code_bits) {
         if code == EOI {
@@ -621,9 +613,7 @@ fn decompress_lzw(src: &[u8], expected_len: usize) -> Result<Vec<u8>, ImageDecod
             let mut steps = 0usize;
             while cur != u16::MAX {
                 if steps >= 4096 {
-                    return Err(ImageDecodeError::InvalidTiff(
-                        "LZW dictionary cycle".into(),
-                    ));
+                    return Err(ImageDecodeError::InvalidTiff("LZW dictionary cycle".into()));
                 }
                 stack.push(suffix[cur as usize]);
                 cur = prefix[cur as usize];
@@ -654,9 +644,7 @@ fn decompress_lzw(src: &[u8], expected_len: usize) -> Result<Vec<u8>, ImageDecod
             let mut steps = 0usize;
             while cur != u16::MAX {
                 if steps >= 4096 {
-                    return Err(ImageDecodeError::InvalidTiff(
-                        "LZW dictionary cycle".into(),
-                    ));
+                    return Err(ImageDecodeError::InvalidTiff("LZW dictionary cycle".into()));
                 }
                 stack.push(suffix[cur as usize]);
                 cur = prefix[cur as usize];
@@ -773,8 +761,12 @@ fn undo_horizontal_predictor(
                 let mut i = start + stride;
                 while i + 1 < end_off {
                     let prev = match end {
-                        TiffEndianness::Little => u16::from_le_bytes([buf[i - stride], buf[i - stride + 1]]),
-                        TiffEndianness::Big => u16::from_be_bytes([buf[i - stride], buf[i - stride + 1]]),
+                        TiffEndianness::Little => {
+                            u16::from_le_bytes([buf[i - stride], buf[i - stride + 1]])
+                        }
+                        TiffEndianness::Big => {
+                            u16::from_be_bytes([buf[i - stride], buf[i - stride + 1]])
+                        }
                     };
                     let cur = match end {
                         TiffEndianness::Little => u16::from_le_bytes([buf[i], buf[i + 1]]),
@@ -834,7 +826,11 @@ fn decode_ifd(
         )));
     }
 
-    let samples_per_chunk_pixel = if ifd.planar_configuration == 2 { 1 } else { spp };
+    let samples_per_chunk_pixel = if ifd.planar_configuration == 2 {
+        1
+    } else {
+        spp
+    };
     let is_tiled = ifd.tile_width.is_some() && !ifd.tile_offsets.is_empty();
 
     // Decode into chunky u8-per-sample (or u16->u8 downscaled) buffer of len w * h * spp
@@ -884,19 +880,12 @@ fn decode_ifd(
         {
             let start = off as usize;
             let end_off = start + cnt as usize;
-            let compressed = bytes.get(start..end_off).ok_or_else(|| {
-                ImageDecodeError::InvalidTiff("tile data out of bounds".into())
-            })?;
+            let compressed = bytes
+                .get(start..end_off)
+                .ok_or_else(|| ImageDecodeError::InvalidTiff("tile data out of bounds".into()))?;
             let mut raw = decompress_chunk(compressed, ifd.compression, expected_tile_bytes)?;
             if ifd.predictor == 2 {
-                undo_horizontal_predictor(
-                    &mut raw,
-                    tw,
-                    th,
-                    samples_per_chunk_pixel,
-                    bps,
-                    end,
-                )?;
+                undo_horizontal_predictor(&mut raw, tw, th, samples_per_chunk_pixel, bps, end)?;
             }
 
             let (plane, local_tile_idx) = if ifd.planar_configuration == 2 {
@@ -969,9 +958,9 @@ fn decode_ifd(
 
             let start = off as usize;
             let end_off = start + cnt as usize;
-            let compressed = bytes.get(start..end_off).ok_or_else(|| {
-                ImageDecodeError::InvalidTiff("strip data out of bounds".into())
-            })?;
+            let compressed = bytes
+                .get(start..end_off)
+                .ok_or_else(|| ImageDecodeError::InvalidTiff("strip data out of bounds".into()))?;
             let mut raw = decompress_chunk(compressed, ifd.compression, expected_strip_bytes)?;
             if ifd.predictor == 2 {
                 undo_horizontal_predictor(
@@ -1182,9 +1171,10 @@ fn extract_sample(
             })?;
             Ok(if ((b >> bit) & 1) != 0 { 255 } else { 0 })
         }
-        8 => raw.get(row_off + sample_idx).copied().ok_or_else(|| {
-            ImageDecodeError::InvalidTiff("8-bit TIFF strip/tile truncated".into())
-        }),
+        8 => raw
+            .get(row_off + sample_idx)
+            .copied()
+            .ok_or_else(|| ImageDecodeError::InvalidTiff("8-bit TIFF strip/tile truncated".into())),
         16 => {
             let off = row_off + sample_idx * 2;
             let val = read_u16(raw, off, end)?;

@@ -223,10 +223,7 @@ fn build_tiff(end: Endian, pages: Vec<TiffIfdSpec>) -> Vec<u8> {
             push_u16_slice(&mut tags, 338, &page.extra_samples);
         }
         if let Some(ref icc) = page.icc_profile {
-            tags.push((
-                34675,
-                TagData::OutOfLine(7, icc.len() as u32, icc.clone()),
-            ));
+            tags.push((34675, TagData::OutOfLine(7, icc.len() as u32, icc.clone())));
         }
 
         // Write strip or tile data first after reserving IFD space
@@ -437,7 +434,10 @@ fn printshop_rgb_zip_deflate_alpha_and_cm_resolution() {
         let decoded = decode_image(&tiff).unwrap();
         assert_eq!(decoded.width, w);
         assert_eq!(decoded.height, h);
-        assert_eq!(decoded.alpha.as_ref().unwrap(), &[255, 128, 0, 255, 200, 255]);
+        assert_eq!(
+            decoded.alpha.as_ref().unwrap(),
+            &[255, 128, 0, 255, 200, 255]
+        );
         assert!((decoded.dpi_x.unwrap() - 300.0).abs() < 0.05);
 
         let prep_x4 = encode_image_xobject_data(&tiff, false, IccProfileId::Fogra39).unwrap();
@@ -588,7 +588,10 @@ fn printshop_multipage_tiff_tiled_planar_16bit_and_pdf_export() {
     };
     let pdf_a = PdfPrePressEngine::export_pdf(&[page_box.clone()], &opts).unwrap();
     let pdf_b = PdfPrePressEngine::export_pdf(&[page_box], &opts).unwrap();
-    assert_eq!(pdf_a, pdf_b, "TIFF PDF/X-4 export must be bit-deterministic");
+    assert_eq!(
+        pdf_a, pdf_b,
+        "TIFF PDF/X-4 export must be bit-deterministic"
+    );
     let pdf_str = String::from_utf8_lossy(&pdf_a);
     assert!(pdf_str.contains("/Im1 Do"));
     assert!(pdf_str.contains("/Im2 Do"));

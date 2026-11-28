@@ -156,9 +156,8 @@ fn handle_render_pdf(
                 idx += 2;
             }
             "--icc-file" if idx + 1 < extra_args.len() => {
-                let bytes = std::fs::read(&extra_args[idx + 1]).map_err(|e| {
-                    tok_engine_service::error::EngineServiceError::Io(e)
-                })?;
+                let bytes = std::fs::read(&extra_args[idx + 1])
+                    .map_err(tok_engine_service::error::EngineServiceError::Io)?;
                 req.external_icc_profile = Some(bytes);
                 idx += 2;
             }
@@ -981,7 +980,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("Usage: tok-cli analyze-layout <INPUT.pdf | INPUT.pgm> [OUTPUT.json]");
                 std::process::exit(1);
             }
-            let out_opt = args.get(3).filter(|a| !a.starts_with("--")).map(|s| s.as_str());
+            let out_opt = args
+                .get(3)
+                .filter(|a| !a.starts_with("--"))
+                .map(|s| s.as_str());
             let rec = recommend_layout_from_file(&args[2], 1, 10)?;
             let json_out = serde_json::to_string_pretty(&rec)?;
             if let Some(out_path) = out_opt {
@@ -1007,10 +1009,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let (doc, _, pkg_opt) = load_package_or_doc(&args[2], 12)?;
             let assets_pkg = resolve_assets_package(pkg_opt, extra);
             let font_mgr = build_font_manager(None, assets_pkg.as_ref());
-            let engine = TypesettingEngine::with_font_manager(
-                engine_config_from_root(doc.root()),
-                font_mgr,
-            );
+            let engine =
+                TypesettingEngine::with_font_manager(engine_config_from_root(doc.root()), font_mgr);
             let pages = engine.typeset_document(doc.root());
             let dataset: Vec<_> = pages
                 .iter()
@@ -1021,7 +1021,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "Exported {} synthetic ground-truth pages to {}",
                 dataset.len(),
-                &args[3]
+                args[3]
             );
         }
         "help" | "-h" | "--help" => {

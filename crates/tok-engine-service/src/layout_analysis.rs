@@ -21,8 +21,11 @@ pub fn recommend_layout_from_file(
         },
         ..AnalysisOptions::default()
     };
-    analyze_document_pages(AnalysisInput::FilePath(path.as_ref().to_path_buf()), &options)
-        .map_err(|e| EngineServiceError::Validation(e.to_string()))
+    analyze_document_pages(
+        AnalysisInput::FilePath(path.as_ref().to_path_buf()),
+        &options,
+    )
+    .map_err(|e| EngineServiceError::Validation(e.to_string()))
 }
 
 /// Analyzes a batch of file paths and returns `(path_string, Result<LayoutRecommendation, String>)` pairs.
@@ -34,18 +37,15 @@ pub fn recommend_layouts_for_batch(
     paths
         .iter()
         .map(|p| {
-            let res = recommend_layout_from_file(p, start_page, end_page)
-                .map_err(|e| e.to_string());
+            let res =
+                recommend_layout_from_file(p, start_page, end_page).map_err(|e| e.to_string());
             (p.clone(), res)
         })
         .collect()
 }
 
 /// Applies a [`LayoutRecommendation`]'s `SuggestedSectionConfig` onto a `tok_core::SectionNode`.
-pub fn apply_recommendation_to_section(
-    section: &mut SectionNode,
-    rec: &LayoutRecommendation,
-) {
+pub fn apply_recommendation_to_section(section: &mut SectionNode, rec: &LayoutRecommendation) {
     let cfg = &rec.suggested_section_config;
     if let Some(kind) = &cfg.layout_kind {
         section.layout_kind = Some(kind.clone());

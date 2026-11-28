@@ -117,7 +117,6 @@ impl NormalizedBBox {
     /// Returns `true` if `self` is positioned below `other` and horizontally crosses into `other`'s X-span
     /// (key geometric primitive for L-shape commentary expansion below Gemara).
     pub fn wraps_under(&self, central: &Self, min_cross_ratio: f32) -> bool {
-        self.y0 >= central.y1 - 0.02
-            && self.horizontal_overlap_ratio(central) >= min_cross_ratio
+        self.y0 >= central.y1 - 0.02 && self.horizontal_overlap_ratio(central) >= min_cross_ratio
     }
 }

@@ -461,8 +461,13 @@ impl PreflightEngine {
                         notdef_chars.len(),
                         sample
                     ),
-                    suggestion: Some("Use a font that contains glyphs for all characters on this page.".to_string()),
-                    suggestion_he: Some("השתמשו בגופן שמכיל גליפים לכל התווים בעמוד זה.".to_string()),
+                    suggestion: Some(
+                        "Use a font that contains glyphs for all characters on this page."
+                            .to_string(),
+                    ),
+                    suggestion_he: Some(
+                        "השתמשו בגופן שמכיל גליפים לכל התווים בעמוד זה.".to_string(),
+                    ),
                 });
             }
         }
@@ -505,79 +510,85 @@ impl PreflightEngine {
         let max_tac = profile.max_tac_percent();
         let is_pdfx = options.standard != PdfXStandard::Plain;
 
-        let mut inspect_color =
-            |c: &tok_core::styles::Color, page_num: Option<usize>, location: &str, is_text: bool| {
-                match c {
-                    tok_core::styles::Color::DeviceCmyk { c, m, y, k } => {
-                        if !c.is_finite()
-                            || !m.is_finite()
-                            || !y.is_finite()
-                            || !k.is_finite()
-                            || *c < 0.0
-                            || *c > 1.0
-                            || *m < 0.0
-                            || *m > 1.0
-                            || *y < 0.0
-                            || *y > 1.0
-                            || *k < 0.0
-                            || *k > 1.0
-                        {
-                            color_status = PreflightStatus::Fail;
-                            let msg = format!(
-                                "{}: invalid CMYK component values ({:.2}, {:.2}, {:.2}, {:.2})",
+        let mut inspect_color = |c: &tok_core::styles::Color,
+                                 page_num: Option<usize>,
+                                 location: &str,
+                                 is_text: bool| {
+            match c {
+                tok_core::styles::Color::DeviceCmyk { c, m, y, k } => {
+                    if !c.is_finite()
+                        || !m.is_finite()
+                        || !y.is_finite()
+                        || !k.is_finite()
+                        || *c < 0.0
+                        || *c > 1.0
+                        || *m < 0.0
+                        || *m > 1.0
+                        || *y < 0.0
+                        || *y > 1.0
+                        || *k < 0.0
+                        || *k > 1.0
+                    {
+                        color_status = PreflightStatus::Fail;
+                        let msg = format!(
+                            "{}: invalid CMYK component values ({:.2}, {:.2}, {:.2}, {:.2})",
+                            location, c, m, y, k
+                        );
+                        color_details.push(msg.clone());
+                        issues.push(PreflightIssue {
+                            code: "COLOR_INVALID_CMYK".to_string(),
+                            check_id: "color".to_string(),
+                            severity: PreflightStatus::Fail,
+                            page_number: page_num,
+                            location: Some(location.to_string()),
+                            message: msg,
+                            message_he: format!(
+                                "{}: ערכי CMYK לא תקינים ({:.2}, {:.2}, {:.2}, {:.2})",
                                 location, c, m, y, k
-                            );
-                            color_details.push(msg.clone());
-                            issues.push(PreflightIssue {
-                                code: "COLOR_INVALID_CMYK".to_string(),
-                                check_id: "color".to_string(),
-                                severity: PreflightStatus::Fail,
-                                page_number: page_num,
-                                location: Some(location.to_string()),
-                                message: msg,
-                                message_he: format!(
-                                    "{}: ערכי CMYK לא תקינים ({:.2}, {:.2}, {:.2}, {:.2})",
-                                    location, c, m, y, k
-                                ),
-                                suggestion: Some("Keep CMYK channel values between 0.0 and 1.0.".to_string()),
-                                suggestion_he: Some("ודאו שערכי הערוצים CMYK נמצאים בטווח 0.0 עד 1.0.".to_string()),
-                            });
-                            return;
+                            ),
+                            suggestion: Some(
+                                "Keep CMYK channel values between 0.0 and 1.0.".to_string(),
+                            ),
+                            suggestion_he: Some(
+                                "ודאו שערכי הערוצים CMYK נמצאים בטווח 0.0 עד 1.0.".to_string(),
+                            ),
+                        });
+                        return;
+                    }
+                    let tac = (c + m + y + k) * 100.0;
+                    if tac > max_tac + 0.5 {
+                        tac_clamped += 1;
+                        if color_status == PreflightStatus::Pass {
+                            color_status = PreflightStatus::Warning;
                         }
-                        let tac = (c + m + y + k) * 100.0;
-                        if tac > max_tac + 0.5 {
-                            tac_clamped += 1;
-                            if color_status == PreflightStatus::Pass {
-                                color_status = PreflightStatus::Warning;
-                            }
-                            issues.push(PreflightIssue {
-                                code: "COLOR_TAC_EXCEEDED".to_string(),
-                                check_id: "color".to_string(),
-                                severity: PreflightStatus::Warning,
-                                page_number: page_num,
-                                location: Some(location.to_string()),
-                                message: format!(
-                                    "{}: Total Ink Coverage {:.0}% exceeds {} limit ({:.0}%)",
-                                    location, tac, profile_name, max_tac
-                                ),
-                                message_he: format!(
-                                    "{}: כיסוי הדיו הכולל ({:.0}%) חורג ממגבלת פרופיל {} ({:.0}%)",
-                                    location, tac, profile_name, max_tac
-                                ),
-                                suggestion: Some(format!(
-                                    "Reduce CMYK ink sum below {:.0}% or rely on GCR export clamping.",
-                                    max_tac
-                                )),
-                                suggestion_he: Some(format!(
-                                    "הפחיתו את סכום הדיו מתחת ל-{:.0}% כדי למנוע מריחה בהדפסה.",
-                                    max_tac
-                                )),
-                            });
-                        } else if is_text && *c > 0.1 && *m > 0.1 && *y > 0.1 && *k > 0.5 {
-                            if color_status == PreflightStatus::Pass {
-                                color_status = PreflightStatus::Warning;
-                            }
-                            issues.push(PreflightIssue {
+                        issues.push(PreflightIssue {
+                            code: "COLOR_TAC_EXCEEDED".to_string(),
+                            check_id: "color".to_string(),
+                            severity: PreflightStatus::Warning,
+                            page_number: page_num,
+                            location: Some(location.to_string()),
+                            message: format!(
+                                "{}: Total Ink Coverage {:.0}% exceeds {} limit ({:.0}%)",
+                                location, tac, profile_name, max_tac
+                            ),
+                            message_he: format!(
+                                "{}: כיסוי הדיו הכולל ({:.0}%) חורג ממגבלת פרופיל {} ({:.0}%)",
+                                location, tac, profile_name, max_tac
+                            ),
+                            suggestion: Some(format!(
+                                "Reduce CMYK ink sum below {:.0}% or rely on GCR export clamping.",
+                                max_tac
+                            )),
+                            suggestion_he: Some(format!(
+                                "הפחיתו את סכום הדיו מתחת ל-{:.0}% כדי למנוע מריחה בהדפסה.",
+                                max_tac
+                            )),
+                        });
+                    } else if is_text && *c > 0.1 && *m > 0.1 && *y > 0.1 && *k > 0.5 {
+                        if color_status == PreflightStatus::Pass {
+                            color_status = PreflightStatus::Warning;
+                        }
+                        issues.push(PreflightIssue {
                                 code: "COLOR_RICH_BLACK_TEXT".to_string(),
                                 check_id: "color".to_string(),
                                 severity: PreflightStatus::Warning,
@@ -594,68 +605,77 @@ impl PreflightEngine {
                                 suggestion: Some("Use pure black (0/0/0/100 K) for body text.".to_string()),
                                 suggestion_he: Some("הגדירו שחור טהור (100% K) לטקסט רץ למניעת הילת רישום.".to_string()),
                             });
-                        }
                     }
-                    tok_core::styles::Color::Spot {
-                        name,
-                        tint,
-                        fallback_cmyk,
-                    } => {
-                        if name.trim().is_empty() {
-                            color_status = PreflightStatus::Fail;
-                            let msg = format!("{}: Spot color with empty ink name", location);
-                            color_details.push("Spot color with empty ink name".to_string());
-                            issues.push(PreflightIssue {
-                                code: "COLOR_SPOT_EMPTY_NAME".to_string(),
-                                check_id: "color".to_string(),
-                                severity: PreflightStatus::Fail,
-                                page_number: page_num,
-                                location: Some(location.to_string()),
-                                message: msg,
-                                message_he: format!("{}: צבע ספוט ללא שם דיו", location),
-                                suggestion: Some("Assign a valid Pantone/Spot ink name or convert to CMYK.".to_string()),
-                                suggestion_he: Some("תנו שם דיו לצבע הספוט או המירו ל-CMYK.".to_string()),
-                            });
-                        } else {
-                            spot_inks.insert(name.clone());
-                        }
-                        if !tint.is_finite() || *tint < 0.0 || *tint > 1.0 {
-                            color_status = PreflightStatus::Fail;
-                            let msg = format!("{}: Spot '{}' has invalid tint {:.2}", location, name, tint);
-                            color_details.push(msg.clone());
-                            issues.push(PreflightIssue {
-                                code: "COLOR_SPOT_INVALID_TINT".to_string(),
-                                check_id: "color".to_string(),
-                                severity: PreflightStatus::Fail,
-                                page_number: page_num,
-                                location: Some(location.to_string()),
-                                message: msg,
-                                message_he: format!("{}: ערך tint לא תקין ({:.2}) בצבע ספוט '{}'", location, tint, name),
-                                suggestion: Some("Set spot tint between 0.0 and 1.0.".to_string()),
-                                suggestion_he: Some("הגדירו את אחוז הגוון (tint) בין 0.0 ל-1.0.".to_string()),
-                            });
-                        }
-                        let sum = (fallback_cmyk.0
-                            + fallback_cmyk.1
-                            + fallback_cmyk.2
-                            + fallback_cmyk.3)
+                }
+                tok_core::styles::Color::Spot {
+                    name,
+                    tint,
+                    fallback_cmyk,
+                } => {
+                    if name.trim().is_empty() {
+                        color_status = PreflightStatus::Fail;
+                        let msg = format!("{}: Spot color with empty ink name", location);
+                        color_details.push("Spot color with empty ink name".to_string());
+                        issues.push(PreflightIssue {
+                            code: "COLOR_SPOT_EMPTY_NAME".to_string(),
+                            check_id: "color".to_string(),
+                            severity: PreflightStatus::Fail,
+                            page_number: page_num,
+                            location: Some(location.to_string()),
+                            message: msg,
+                            message_he: format!("{}: צבע ספוט ללא שם דיו", location),
+                            suggestion: Some(
+                                "Assign a valid Pantone/Spot ink name or convert to CMYK."
+                                    .to_string(),
+                            ),
+                            suggestion_he: Some(
+                                "תנו שם דיו לצבע הספוט או המירו ל-CMYK.".to_string(),
+                            ),
+                        });
+                    } else {
+                        spot_inks.insert(name.clone());
+                    }
+                    if !tint.is_finite() || *tint < 0.0 || *tint > 1.0 {
+                        color_status = PreflightStatus::Fail;
+                        let msg =
+                            format!("{}: Spot '{}' has invalid tint {:.2}", location, name, tint);
+                        color_details.push(msg.clone());
+                        issues.push(PreflightIssue {
+                            code: "COLOR_SPOT_INVALID_TINT".to_string(),
+                            check_id: "color".to_string(),
+                            severity: PreflightStatus::Fail,
+                            page_number: page_num,
+                            location: Some(location.to_string()),
+                            message: msg,
+                            message_he: format!(
+                                "{}: ערך tint לא תקין ({:.2}) בצבע ספוט '{}'",
+                                location, tint, name
+                            ),
+                            suggestion: Some("Set spot tint between 0.0 and 1.0.".to_string()),
+                            suggestion_he: Some(
+                                "הגדירו את אחוז הגוון (tint) בין 0.0 ל-1.0.".to_string(),
+                            ),
+                        });
+                    }
+                    let sum =
+                        (fallback_cmyk.0 + fallback_cmyk.1 + fallback_cmyk.2 + fallback_cmyk.3)
                             * 100.0;
-                        if sum > max_tac + 0.5 {
-                            tac_clamped += 1;
-                            if color_status == PreflightStatus::Pass {
-                                color_status = PreflightStatus::Warning;
-                            }
+                    if sum > max_tac + 0.5 {
+                        tac_clamped += 1;
+                        if color_status == PreflightStatus::Pass {
+                            color_status = PreflightStatus::Warning;
                         }
                     }
-                    tok_core::styles::Color::Rgb { r, g, b } => {
-                        let is_pure_black = *r <= 1e-4 && *g <= 1e-4 && *b <= 1e-4;
-                        let is_pure_white = *r >= 1.0 - 1e-4 && *g >= 1.0 - 1e-4 && *b >= 1.0 - 1e-4;
-                        if is_pdfx && !is_pure_black && !is_pure_white {
-                            rgb_in_print_count += 1;
-                            if color_status == PreflightStatus::Pass {
-                                color_status = PreflightStatus::Warning;
-                            }
-                            issues.push(PreflightIssue {
+                }
+                tok_core::styles::Color::Rgb { r, g, b } => {
+                    let is_pure_black = *r <= 1e-4 && *g <= 1e-4 && *b <= 1e-4;
+                    let is_pure_white = *r >= 1.0 - 1e-4 && *g >= 1.0 - 1e-4 && *b >= 1.0 - 1e-4;
+                    if is_pdfx && !is_pure_black && !is_pure_white {
+                        rgb_in_print_count += 1;
+                        if color_status == PreflightStatus::Pass {
+                            color_status = PreflightStatus::Warning;
+                        }
+                        issues.push(PreflightIssue {
                                 code: "COLOR_RGB_FOR_PRINT_PROFILE".to_string(),
                                 check_id: "color".to_string(),
                                 severity: PreflightStatus::Warning,
@@ -678,10 +698,10 @@ impl PreflightEngine {
                                     profile_name
                                 )),
                             });
-                        }
                     }
                 }
-            };
+            }
+        };
 
         for sty in &doc.paragraph_styles {
             let loc = format!("Style '{}'", sty.name);
@@ -817,12 +837,8 @@ impl PreflightEngine {
                     });
                 }
 
-                let boxes = crate::boxes::PrePressPageBoxes::new(
-                    w,
-                    h,
-                    options.bleed_pt,
-                    options.slug_pt,
-                );
+                let boxes =
+                    crate::boxes::PrePressPageBoxes::new(w, h, options.bleed_pt, options.slug_pt);
                 if boxes.bleed_box[0] > boxes.trim_box[0]
                     || boxes.bleed_box[2] < boxes.trim_box[2]
                     || boxes.media_box[0] > boxes.bleed_box[0]
@@ -845,7 +861,9 @@ impl PreflightEngine {
                             "עמוד {}: תיבת ה-BleedBox/MediaBox אינה מכילה את ה-TrimBox",
                             page_num
                         ),
-                        suggestion: Some("Verify bleed and slug margins are non-negative.".to_string()),
+                        suggestion: Some(
+                            "Verify bleed and slug margins are non-negative.".to_string(),
+                        ),
                         suggestion_he: Some("ודאו ששולי החיתוך וה-Slug אינם שליליים.".to_string()),
                     });
                 }
@@ -913,8 +931,12 @@ impl PreflightEngine {
                                     "עמוד {}: העיטור '{}' נוגע בקצה החיתוך עם Bleed של {:.2} נק'",
                                     page_num, orn.ornament_id, options.bleed_pt
                                 ),
-                                suggestion: Some("Enable >= 3mm (8.5pt) bleed for edge ornaments.".to_string()),
-                                suggestion_he: Some("הגדירו שולי חיתוך של 3 מ\"מ (8.5 נק') לפחות.".to_string()),
+                                suggestion: Some(
+                                    "Enable >= 3mm (8.5pt) bleed for edge ornaments.".to_string(),
+                                ),
+                                suggestion_he: Some(
+                                    "הגדירו שולי חיתוך של 3 מ\"מ (8.5 נק') לפחות.".to_string(),
+                                ),
                             });
                         }
                     }
@@ -932,7 +954,10 @@ impl PreflightEngine {
                     page_number: None,
                     location: None,
                     message: msg,
-                    message_he: format!("ערך שולי החיתוך (Bleed) אינו תקין: {:.2} נק'", options.bleed_pt),
+                    message_he: format!(
+                        "ערך שולי החיתוך (Bleed) אינו תקין: {:.2} נק'",
+                        options.bleed_pt
+                    ),
                     suggestion: Some("Set bleed to >= 8.5pt (3mm).".to_string()),
                     suggestion_he: Some("הגדירו שולי חיתוך ל-8.5 נק' (3 מ\"מ) ומעלה.".to_string()),
                 });
@@ -956,8 +981,13 @@ impl PreflightEngine {
                         "שולי החיתוך (Bleed) הם {:.2} נק' (מתחת לתקן המסחרי של 3 מ\"מ / 8.5 נק')",
                         options.bleed_pt
                     ),
-                    suggestion: Some("Increase bleed to at least 3mm (8.5pt) in export settings.".to_string()),
-                    suggestion_he: Some("הגדילו את שולי החיתוך ל-3 מ\"מ (8.5 נק') לפחות בהגדרות הייצוא.".to_string()),
+                    suggestion: Some(
+                        "Increase bleed to at least 3mm (8.5pt) in export settings.".to_string(),
+                    ),
+                    suggestion_he: Some(
+                        "הגדילו את שולי החיתוך ל-3 מ\"מ (8.5 נק') לפחות בהגדרות הייצוא."
+                            .to_string(),
+                    ),
                 });
             }
 
@@ -984,8 +1014,14 @@ impl PreflightEngine {
                         "שולי ה-Slug ({:.1} נק') צפופים מדי לסימני החיתוך והרישום",
                         options.slug_pt
                     ),
-                    suggestion: Some("Use default 10mm (28.35pt) slug margin when printer marks are enabled.".to_string()),
-                    suggestion_he: Some("השתמשו בשולי Slug של 10 מ\"מ (28.35 נק') כאשר סימני דפוס פעילים.".to_string()),
+                    suggestion: Some(
+                        "Use default 10mm (28.35pt) slug margin when printer marks are enabled."
+                            .to_string(),
+                    ),
+                    suggestion_he: Some(
+                        "השתמשו בשולי Slug של 10 מ\"מ (28.35 נק') כאשר סימני דפוס פעילים."
+                            .to_string(),
+                    ),
                 });
             }
         }
@@ -1039,7 +1075,9 @@ impl PreflightEngine {
                             page_num, img.asset_path
                         ),
                         suggestion: Some("Re-import or embed the missing image file.".to_string()),
-                        suggestion_he: Some("ייבאו מחדש או הטמיעו את קובץ התמונה החסר.".to_string()),
+                        suggestion_he: Some(
+                            "ייבאו מחדש או הטמיעו את קובץ התמונה החסר.".to_string(),
+                        ),
                     });
                 }
 
@@ -1065,7 +1103,10 @@ impl PreflightEngine {
                         message: msg,
                         message_he: format!(
                             "עמוד {}: לתמונה '{}' מידות מקור לא תקינות ({}x{} פיקסלים)",
-                            page_num, img.asset_path, img.intrinsic_width_px, img.intrinsic_height_px
+                            page_num,
+                            img.asset_path,
+                            img.intrinsic_width_px,
+                            img.intrinsic_height_px
                         ),
                         suggestion: Some("Replace with a valid PNG or JPEG image.".to_string()),
                         suggestion_he: Some("החליפו בקובץ PNG או JPEG תקין.".to_string()),
@@ -1167,8 +1208,12 @@ impl PreflightEngine {
                             "עמוד {}: התמונה '{}' מתוחה ביחס לא אחיד ({:.0} x {:.0} DPI)",
                             page_num, img.asset_path, dx, dy
                         ),
-                        suggestion: Some("Lock aspect ratio when resizing the image frame.".to_string()),
-                        suggestion_he: Some("שמרו על יחס גובה-רוחב אחיד בעת שינוי גודל התמונה.".to_string()),
+                        suggestion: Some(
+                            "Lock aspect ratio when resizing the image frame.".to_string(),
+                        ),
+                        suggestion_he: Some(
+                            "שמרו על יחס גובה-רוחב אחיד בעת שינוי גודל התמונה.".to_string(),
+                        ),
                     });
                 }
             }
@@ -1222,8 +1267,12 @@ impl PreflightEngine {
                         location: None,
                         message: diag.message.clone(),
                         message_he: format!("עמוד {}: {}", diag_page, diag.message),
-                        suggestion: Some("Adjust spacing or line breaks to balance column bottoms.".to_string()),
-                        suggestion_he: Some("התאימו מרווחי שורות או מעברי עמוד לאיזון תחתיות העמודות.".to_string()),
+                        suggestion: Some(
+                            "Adjust spacing or line breaks to balance column bottoms.".to_string(),
+                        ),
+                        suggestion_he: Some(
+                            "התאימו מרווחי שורות או מעברי עמוד לאיזון תחתיות העמודות.".to_string(),
+                        ),
                     });
                 } else if diag.severity == DiagnosticSeverity::Error {
                     col_status = PreflightStatus::Fail;
@@ -1237,7 +1286,9 @@ impl PreflightEngine {
                         location: None,
                         message: diag.message.clone(),
                         message_he: format!("עמוד {}: {}", diag_page, diag.message),
-                        suggestion: Some("Resolve the layout error before print export.".to_string()),
+                        suggestion: Some(
+                            "Resolve the layout error before print export.".to_string(),
+                        ),
                         suggestion_he: Some("תקנו את שגיאת העימוד לפני הייצוא לדפוס.".to_string()),
                     });
                 }
@@ -1291,7 +1342,9 @@ impl PreflightEngine {
                             page_num, frame.frame_id, over
                         ),
                         suggestion: Some("Reduce frame height or adjust page margins.".to_string()),
-                        suggestion_he: Some("הקטינו את גובה המסגרת או התאימו את שולי העמוד.".to_string()),
+                        suggestion_he: Some(
+                            "הקטינו את גובה המסגרת או התאימו את שולי העמוד.".to_string(),
+                        ),
                     });
                 }
                 if frame.rect.x < -1.0 || frame.rect.x + frame.rect.width > page_w + 1.0 {
@@ -1315,7 +1368,9 @@ impl PreflightEngine {
                             page_num, frame.frame_id
                         ),
                         suggestion: Some("Keep text frames inside the page TrimBox.".to_string()),
-                        suggestion_he: Some("שמרו את מסגרות הטקסט בתוך גבולות ה-TrimBox של העמוד.".to_string()),
+                        suggestion_he: Some(
+                            "שמרו את מסגרות הטקסט בתוך גבולות ה-TrimBox של העמוד.".to_string(),
+                        ),
                     });
                 }
 
@@ -1353,8 +1408,14 @@ impl PreflightEngine {
                                 line.line_index + 1,
                                 over
                             ),
-                            suggestion: Some("Shorten text, reduce font size/leading, or expand the frame.".to_string()),
-                            suggestion_he: Some("קצרו את הטקסט, הקטינו גופן/מרווח שורות, או הרחיבו את המסגרת.".to_string()),
+                            suggestion: Some(
+                                "Shorten text, reduce font size/leading, or expand the frame."
+                                    .to_string(),
+                            ),
+                            suggestion_he: Some(
+                                "קצרו את הטקסט, הקטינו גופן/מרווח שורות, או הרחיבו את המסגרת."
+                                    .to_string(),
+                            ),
                         });
                     }
 

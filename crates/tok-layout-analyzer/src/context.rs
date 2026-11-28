@@ -58,7 +58,9 @@ pub fn aggregate_document_context(pages: &[HybridPageResult]) -> MultiPageAggreg
     let mut total_weight = 0.0_f32;
     for p in &content_pages {
         let w = p.classification.confidence.max(0.05);
-        *vote_weights.entry(p.classification.best_form).or_insert(0.0) += w;
+        *vote_weights
+            .entry(p.classification.best_form)
+            .or_insert(0.0) += w;
         total_weight += w;
     }
 
@@ -88,7 +90,11 @@ pub fn aggregate_document_context(pages: &[HybridPageResult]) -> MultiPageAggreg
     let representative_profile = content_pages
         .iter()
         .filter(|p| p.classification.best_form == dominant_form)
-        .max_by(|a, b| a.classification.confidence.total_cmp(&b.classification.confidence))
+        .max_by(|a, b| {
+            a.classification
+                .confidence
+                .total_cmp(&b.classification.confidence)
+        })
         .or_else(|| content_pages.first())
         .map(|p| p.profile.clone());
 
