@@ -13,7 +13,6 @@
   },
   "references": [
     { "path": "../tok-viewer" },
-    { "path": "../tok-canvas" },
     { "path": "../tok-story-editor" }
   ],
   "include": ["src/**/*"]

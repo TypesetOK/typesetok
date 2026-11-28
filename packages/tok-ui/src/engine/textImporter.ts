@@ -783,23 +783,38 @@ function decodeXmlEntities(str: string): string {
     .replace(/&#([0-9]+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
 }
 
+function loadNodeZlib(): { inflateRawSync?: (bytes: Uint8Array) => Uint8Array } | null {
+  const g = globalThis as {
+    require?: (id: string) => { inflateRawSync?: (bytes: Uint8Array) => Uint8Array };
+    process?: { getBuiltinModule?: (id: string) => { inflateRawSync?: (bytes: Uint8Array) => Uint8Array } | undefined };
+  };
+  if (typeof g.require === 'function') {
+    try {
+      return g.require('zlib');
+    } catch (err) {
+      console.debug('[TOK-IMPORTER] require("zlib") unavailable:', err);
+    }
+  }
+  if (g.process && typeof g.process.getBuiltinModule === 'function') {
+    try {
+      return g.process.getBuiltinModule('node:zlib') || g.process.getBuiltinModule('zlib') || null;
+    } catch (err) {
+      console.debug('[TOK-IMPORTER] getBuiltinModule("zlib") unavailable:', err);
+    }
+  }
+  return null;
+}
+
 export async function decompressDeflateRawAsync(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream !== 'undefined') {
     const ds = new DecompressionStream('deflate-raw');
     const writer = ds.writable.getWriter();
-    writer.write(bytes as any);
+    writer.write(bytes as unknown as BufferSource);
     writer.close();
     const buf = await new Response(ds.readable).arrayBuffer();
     return new Uint8Array(buf);
   }
-  let zlib: any = null;
-  if (typeof (globalThis as any).require === 'function') {
-    try { zlib = (globalThis as any).require('zlib'); } catch {}
-  }
-  const proc = (globalThis as any).process;
-  if (!zlib && typeof proc !== 'undefined' && typeof proc.getBuiltinModule === 'function') {
-    try { zlib = proc.getBuiltinModule('node:zlib') || proc.getBuiltinModule('zlib'); } catch {}
-  }
+  const zlib = loadNodeZlib();
   if (zlib && typeof zlib.inflateRawSync === 'function') {
     return zlib.inflateRawSync(bytes);
   }
@@ -812,23 +827,17 @@ function decompressZipEntryBytes(entryBytes: Uint8Array, compressionMethod: numb
   }
   if (compressionMethod === 8) {
     try {
-      let zlib: any = null;
-      if (typeof (globalThis as any).require === 'function') {
-        try { zlib = (globalThis as any).require('zlib'); } catch {}
-      }
-      const proc = (globalThis as any).process;
-      if (!zlib && proc && typeof proc.getBuiltinModule === 'function') {
-        try { zlib = proc.getBuiltinModule('node:zlib') || proc.getBuiltinModule('zlib'); } catch {}
-      }
+      const zlib = loadNodeZlib();
       if (zlib && typeof zlib.inflateRawSync === 'function') {
         const inflated = zlib.inflateRawSync(entryBytes);
         return new TextDecoder('utf-8').decode(inflated);
       }
       throw new Error('zlib decompression is not available in current environment');
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       throw new DocumentImportError(
         'CORRUPTED_FILE',
-        `Failed to decompress ${entryName}: ${e?.message}`,
+        `Failed to decompress ${entryName}: ${msg}`,
         'שגיאה בפריסת תוכן ה-DOCX'
       );
     }
